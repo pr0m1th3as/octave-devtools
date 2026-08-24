@@ -82,12 +82,15 @@ it was not.
 |------|---------|---|
 | `octave_which` | where a name resolves, its kind, its owning package, what it shadows, and whether it is merely installed rather than loaded | built |
 | `octave_help` | the help text for a function, class, method or operator | built |
-| `octave_version` | the running Octave version and platform | built |
 | `octave_search` | which functions match a description, when the name is not known | built |
 | `octave_pkg` | which packages are installed, at which versions, and which are loaded | built |
 
-Static context is served as resources rather than tools: `octave://version`,
-`octave://path` and `octave://packages`.
+The Octave version and platform are not a tool: they are stated in the
+server's `instructions`, sent once when a client connects, so a model always
+has them and no request pays for them.
+
+One resource is offered, `octave://environment`: version, platform, load path
+size and the packages this server loaded, as a single readable snapshot.
 
 ## License
 

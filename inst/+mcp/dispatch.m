@@ -65,6 +65,11 @@
 ## @code{isError} is true, and it carries text a model can read and correct, so
 ## that a wrong argument becomes a retry rather than a dead end.
 ##
+## Tools are model-controlled and resources are application-driven, which is
+## why constant facts such as the Octave version live in the @code{instructions}
+## text sent once at connection rather than in a tool that would charge its
+## description against every request.
+##
 ## @seealso{mcp.decodeRequest, mcp.encodeResponse, mcp.serve}
 ## @end deftypefn
 
@@ -160,6 +165,17 @@ function [RESP, S] = dispatch (R, S)
     case 'tools/list'
       RESP = mkResponse (R.id, toolsListResult (era), era);
 
+    case 'resources/list'
+      RESP = mkResponse (R.id, resourcesListResult (era), era);
+
+    case 'resources/read'
+      [res, code, msg, data] = resourcesRead (R.params, era);
+      if (code != 0)
+        RESP = mcp.jsonrpcError (R.id, code, msg, data);
+      else
+        RESP = mkResponse (R.id, res, era);
+      endif
+
     case 'tools/call'
       [res, code, msg] = toolsCall (R.params, era);
       if (code != 0)
@@ -201,6 +217,7 @@ function [res, ver] = initializeResult (params)
   [n, v] = serverIdentity ();
   caps = struct ();
   caps.tools = struct ();
+  caps.resources = struct ();
 
   res = struct ();
   res.protocolVersion = ver;
@@ -290,25 +307,6 @@ endfunction
 function T = toolTable ()
 
   T = {};
-
-  t = struct ();
-  t.name = "octave_version";
-  t.title = "Octave Version";
-  t.description = strcat ("Report the running GNU Octave version, its", ...
-    " platform triplet, and the version of the mcp package serving this", ...
-    " session. Use when a version or platform could change the answer; no", ...
-    " other tool here reports them. Takes no arguments and cannot fail.");
-  t.inputSchema = struct ("type", "object", "additionalProperties", false);
-  props = struct ();
-  props.version = struct ("type", "string");
-  props.platform = struct ("type", "string");
-  props.package = struct ("type", "string");
-  osc = struct ();
-  osc.type = "object";
-  osc.properties = props;
-  osc.required = {'version', 'platform', 'package'};
-  t.outputSchema = osc;
-  T{end+1} = t;
 
   t = struct ();
   t.name = "octave_which";
@@ -444,17 +442,22 @@ function T = toolTable ()
 endfunction
 
 function t = instructionsText ()
-  t = strcat ("Introspects the GNU Octave interpreter this server runs", ...
+  ## The version goes here, not into a tool.  This field is sent once, at
+  ## connection, and stays in the model's context; a tool reporting a constant
+  ## charges its description against every request for the life of the session.
+  t = sprintf ("This is GNU Octave %s on %s. ", version (), computer ());
+  t = [t, strcat("Introspects the GNU Octave interpreter this server runs", ...
     " inside. It sees only the packages its own launch command loaded, which", ...
     " may be fewer than an interactive session has; say so rather than", ...
     " concluding a name does not exist. Evaluates no code, runs no user", ...
-    " function, and writes nothing.");
+    " function, and writes nothing.")];
 endfunction
 
 function res = discoverResult ()
 
   caps = struct ();
   caps.tools = struct ();
+  caps.resources = struct ();
 
   res = struct ();
   res.resultType = "complete";
@@ -509,8 +512,6 @@ function [res, code, msg] = toolsCall (params, era)
   endif
 
   switch (params.name)
-    case 'octave_version'
-      res = callOctaveVersion (args, era);
     case 'octave_which'
       res = callOctaveWhich (args, era);
     case 'octave_help'
@@ -523,43 +524,18 @@ function [res, code, msg] = toolsCall (params, era)
 
 endfunction
 
-function res = callOctaveVersion (args, era)
-
-  res = struct ();
-  if (strcmp (era, "modern"))
-    res.resultType = "complete";
-  endif
-
-  ## The schema says this tool takes nothing, so anything passed is a mistake
-  ## the model can correct: a tool error rather than a protocol error
-  extra = fieldnames (args);
-  if (! isempty (extra))
-    res.content = {textBlock(sprintf (strcat ("octave_version takes no", ...
-                    " arguments, but received: %s. Call it with an empty", ...
-                    " arguments object."), strjoin (extra', ", ")))};
-    res.isError = true;
-    return;
-  endif
-
-  [n, v] = serverIdentity ();
-  sc = struct ();
-  sc.version = version ();
-  sc.platform = computer ();
-  sc.package = sprintf ("%s %s", n, v);
-
-  txt = sprintf ("GNU Octave %s\nplatform: %s\npackage: %s", ...
-                 sc.version, sc.platform, sc.package);
-  res.content = {textBlock(txt)};
-  res.isError = false;
-  res.structuredContent = sc;
-
-endfunction
-
 function res = callOctaveWhich (args, era)
 
   res = struct ();
   if (strcmp (era, "modern"))
     res.resultType = "complete";
+  endif
+
+  bad = unknownArgs (args, {'name'});
+  if (! isempty (bad))
+    res.content = {textBlock(strrep (bad, "this tool", "octave_which"))};
+    res.isError = true;
+    return;
   endif
 
   if (! (isfield (args, "name") && ischar (args.name) && isrow (args.name) ...
@@ -843,6 +819,13 @@ function res = callOctaveHelp (args, era)
     res.resultType = "complete";
   endif
 
+  bad = unknownArgs (args, {'name'});
+  if (! isempty (bad))
+    res.content = {textBlock(strrep (bad, "this tool", "octave_help"))};
+    res.isError = true;
+    return;
+  endif
+
   if (! (isfield (args, "name") && ischar (args.name) && isrow (args.name) ...
          && ! isempty (strtrim (args.name))))
     res.content = {textBlock(strcat ("octave_help needs a name: the", ...
@@ -927,6 +910,13 @@ function res = callOctaveSearch (args, era)
   res = struct ();
   if (strcmp (era, "modern"))
     res.resultType = "complete";
+  endif
+
+  bad = unknownArgs (args, {'query'});
+  if (! isempty (bad))
+    res.content = {textBlock(strrep (bad, "this tool", "octave_search"))};
+    res.isError = true;
+    return;
   endif
 
   if (! (isfield (args, "query") && ischar (args.query) && isrow (args.query) ...
@@ -1064,6 +1054,13 @@ function res = callOctavePkg (args, era)
   res = struct ();
   if (strcmp (era, "modern"))
     res.resultType = "complete";
+  endif
+
+  bad = unknownArgs (args, {'name'});
+  if (! isempty (bad))
+    res.content = {textBlock(strrep (bad, "this tool", "octave_pkg"))};
+    res.isError = true;
+    return;
   endif
 
   L = pkg ("list");
@@ -1219,6 +1216,136 @@ function H = installedFind (frags, L)
 
 endfunction
 
+function R = resourceTable ()
+
+  ## One resource, not three.  A version resource would duplicate what the
+  ## instructions already say for free, and a packages resource would duplicate
+  ## octave_pkg; two ways to ask one question is a cost, since the model has to
+  ## choose and both descriptions have to explain the difference.
+  R = {};
+  r = struct ();
+  r.uri = "octave://environment";
+  r.name = "octave-environment";
+  r.title = "This Server's Octave";
+  r.description = strcat ("Version, platform, load path size and the", ...
+    " packages this server loaded, as one readable snapshot.");
+  r.mimeType = "text/plain";
+  R{end+1} = r;
+
+endfunction
+
+function res = resourcesListResult (era)
+
+  res = struct ();
+  if (strcmp (era, "modern"))
+    res.resultType = "complete";
+  endif
+  res.resources = resourceTable ();
+  if (strcmp (era, "modern"))
+    res.ttlMs = 3600000;
+    res.cacheScope = "public";
+  endif
+
+endfunction
+
+function [res, code, msg, data] = resourcesRead (params, era)
+
+  res = [];
+  code = 0;
+  msg = "";
+  data = struct ();
+
+  if (! (isfield (params, "uri") && ischar (params.uri) && isrow (params.uri)))
+    code = -32602;
+    msg = "Invalid params: resources/read requires a string uri.";
+    return;
+  endif
+
+  T = resourceTable ();
+  hit = 0;
+  for i = 1:numel (T)
+    if (strcmp (T{i}.uri, params.uri))
+      hit = i;
+      break;
+    endif
+  endfor
+
+  if (hit == 0)
+    ## Not found is -32602 here, and the contents array must never come back
+    ## empty for a resource that does not exist: empty is ambiguous between
+    ## "exists and is blank" and "is not there".
+    code = -32602;
+    msg = "Resource not found";
+    data = struct ("uri", params.uri);
+    return;
+  endif
+
+  c = struct ();
+  c.uri = T{hit}.uri;
+  c.mimeType = "text/plain";
+  c.text = environmentText ();
+
+  res = struct ();
+  if (strcmp (era, "modern"))
+    res.resultType = "complete";
+  endif
+  res.contents = {c};
+
+endfunction
+
+function T = environmentText ()
+
+  L = pkg ("list");
+  loaded = {};
+  for i = 1:numel (L)
+    if (L{i}.loaded)
+      loaded{end+1} = sprintf ("%s %s", L{i}.name, L{i}.version);
+    endif
+  endfor
+
+  P = strsplit (path (), pathsep ());
+
+  lines = {sprintf("GNU Octave %s", version ()), ...
+           sprintf("platform:        %s", computer ()), ...
+           sprintf("OCTAVE_HOME:     %s", OCTAVE_HOME ()), ...
+           sprintf("load path:       %d directories", numel (P)), ...
+           sprintf("packages:        %d installed, %d loaded", numel (L), ...
+                   numel (loaded))};
+  if (isempty (loaded))
+    lines{end+1} = "loaded packages: none besides this server itself";
+  else
+    lines{end+1} = sprintf ("loaded packages: %s", strjoin (loaded, ", "));
+  endif
+  [n, v] = serverIdentity ();
+  lines{end+1} = sprintf ("served by:       %s %s", n, v);
+
+  T = strjoin (lines, "\n");
+
+endfunction
+
+function E = unknownArgs (args, allowed)
+
+  ## Every tool here declares additionalProperties false, and a schema nothing
+  ## enforces is a claim rather than a contract.  An unexpected argument is a
+  ## tool error and not a protocol one: the model can drop it and retry.
+  E = "";
+  if (! (isstruct (args) && isscalar (args)))
+    return;
+  endif
+  extra = {};
+  f = fieldnames (args);
+  for i = 1:numel (f)
+    if (! any (strcmp (f{i}, allowed)))
+      extra{end+1} = f{i};
+    endif
+  endfor
+  if (! isempty (extra))
+    E = sprintf ("%s takes only %s, but received: %s.", "this tool", ...
+                 strjoin (allowed, ", "), strjoin (extra, ", "));
+  endif
+
+endfunction
+
 function B = textBlock (txt)
   B = struct ("type", "text", "text", txt);
 endfunction
@@ -1319,8 +1446,7 @@ endfunction
 %! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
 %! names = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
 %! assert_equal (names, ...
-%!   {'octave_version', 'octave_which', 'octave_help', 'octave_search', ...
-%!    'octave_pkg'});
+%!   {'octave_which', 'octave_help', 'octave_search', 'octave_pkg'});
 
 %!test
 %! ## The tool list is fixed for the life of the process, so it may be cached.
@@ -1328,11 +1454,14 @@ endfunction
 %! assert_equal (RESP.result.cacheScope, "public");
 
 %!test
-%! ## A tool taking nothing must still carry a valid schema object.
-%! RESP = mcp.dispatch (mkreq ("tools/list", ""));
-%! s = RESP.result.tools{1}.inputSchema;
-%! assert_equal (s.type, "object");
-%! assert_equal (s.additionalProperties, false);
+%! ## Every tool carries a valid schema object and closes it, which is the
+%! ## declaration the unknown-argument check exists to honour.
+%! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
+%! for i = 1:numel (RESP.result.tools)
+%!   sc = RESP.result.tools{i}.inputSchema;
+%!   assert_equal (sc.type, "object");
+%!   assert_equal (sc.additionalProperties, false);
+%! endfor
 
 %!test
 %! ## TOOL_STYLE caps a description at 300 bytes, paid on every request.
@@ -1340,16 +1469,6 @@ endfunction
 %! for i = 1:numel (RESP.result.tools)
 %!   assert_equal (numel (RESP.result.tools{i}.description) <= 300, true);
 %! endfor
-
-%!test
-%! ## strcat strips trailing whitespace from a char argument, so a description
-%! ## assembled across continuation lines loses a space at every join and the
-%! ## words either side are glued.  A length check cannot see it; these can.
-%! RESP = mcp.dispatch (mkreq ("tools/list", ""));
-%! d = RESP.result.tools{1}.description;
-%! assert_equal (isempty (strfind (d, "its platform triplet")), false);
-%! assert_equal (isempty (strfind (d, "serving this session")), false);
-%! assert_equal (isempty (strfind (d, "answer; no other tool")), false);
 
 %!test
 %! ## The same trap in the guidance the model reads about the whole server.
@@ -1369,12 +1488,14 @@ endfunction
 %! assert_equal (isempty (strfind (s, "function, and writes nothing")), false);
 
 %!test
-%! ## And in the tool error a model is expected to read and correct.
+%! ## An argument the schema does not allow is a tool error naming it, since
+%! ## additionalProperties false has to be enforced and not merely declared.
 %! RESP = mcp.dispatch (mkreq ("tools/call", ...
-%!                       '"name":"octave_version","arguments":{"zz":1}'));
+%!                       '"name":"octave_which","arguments":{"name":"mean","zz":1}'), []);
 %! t = RESP.result.content{1}.text;
-%! assert_equal (isempty (strfind (t, "takes no arguments, but received")), false);
-%! assert_equal (isempty (strfind (t, "with an empty arguments object")), false);
+%! assert_equal (RESP.result.isError, true);
+%! assert_equal (isempty (strfind (t, "octave_which takes only name")), false);
+%! assert_equal (isempty (strfind (t, "received: zz")), false);
 
 %!test
 %! ## Tool names must hold to the character set the protocol allows.
@@ -1385,14 +1506,16 @@ endfunction
 %! endfor
 
 %!test
-%! RESP = mcp.dispatch (mkreq ("tools/call", '"name":"octave_version"'));
+%! RESP = mcp.dispatch (mkreq ("tools/call", ...
+%!                       '"name":"octave_which","arguments":{"name":"mean"}'), []);
 %! assert_equal (RESP.result.isError, false);
 %! assert_equal (RESP.result.content{1}.type, "text");
-%! assert_equal (RESP.result.structuredContent.version, version ());
+%! assert_equal (RESP.result.structuredContent.kind, "function");
 
 %!test
 %! ## Content must survive encoding as a JSON array, not a bare object.
-%! RESP = mcp.dispatch (mkreq ("tools/call", '"name":"octave_version"'));
+%! RESP = mcp.dispatch (mkreq ("tools/call", ...
+%!                       '"name":"octave_which","arguments":{"name":"mean"}'), []);
 %! T = mcp.encodeResponse (RESP);
 %! assert_equal (isempty (strfind (T, '"content":[{')), false);
 
@@ -1409,12 +1532,13 @@ endfunction
 %!               "Invalid params: tools/call requires a string name.");
 
 %!test
-%! ## A bad argument is a tool error carrying text the model can act on.
+%! ## A bad argument is a tool error carrying text the model can act on,
+%! ## never a protocol error, which a model cannot recover from.
 %! RESP = mcp.dispatch (mkreq ("tools/call", ...
-%!                       '"name":"octave_version","arguments":{"x":1}'));
+%!                       '"name":"octave_search","arguments":{"x":1}'), []);
 %! assert_equal (isfield (RESP, "error"), false);
 %! assert_equal (RESP.result.isError, true);
-%! assert_equal (isempty (strfind (RESP.result.content{1}.text, "x")), false);
+%! assert_equal (isempty (strfind (RESP.result.content{1}.text, "octave_search")), false);
 
 %!test
 %! RESP = mcp.dispatch (mkreq ("no/such/method", ""));
@@ -1448,8 +1572,7 @@ endfunction
 %! RESP = mcp.dispatch (plainreq ("tools/list", ""), S);
 %! names = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
 %! assert_equal (names, ...
-%!   {'octave_version', 'octave_which', 'octave_help', 'octave_search', ...
-%!    'octave_pkg'});
+%!   {'octave_which', 'octave_help', 'octave_search', 'octave_pkg'});
 
 %!test
 %! ## The legacy envelope carries neither resultType nor the cache hints, both
@@ -1463,9 +1586,10 @@ endfunction
 %!test
 %! ## The tool itself is the same object in both eras.
 %! S = legacySession ();
-%! RESP = mcp.dispatch (plainreq ("tools/call", '"name":"octave_version"'), S);
+%! RESP = mcp.dispatch (plainreq ("tools/call", ...
+%!          '"name":"octave_which","arguments":{"name":"mean"}'), S);
 %! assert_equal (RESP.result.isError, false);
-%! assert_equal (RESP.result.structuredContent.version, version ());
+%! assert_equal (RESP.result.structuredContent.kind, "function");
 %! assert_equal (isfield (RESP.result, "resultType"), false);
 
 %!test
@@ -1520,6 +1644,17 @@ endfunction
 
 %!error <mcp\.dispatch: S must be a session structure, or empty for a fresh one\.> ...
 %! mcp.dispatch (mcp.decodeRequest (""), 5)
+
+%!function T = toolNamed (name)
+%!  RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
+%!  T = [];
+%!  for i = 1:numel (RESP.result.tools)
+%!    if (strcmp (RESP.result.tools{i}.name, name))
+%!      T = RESP.result.tools{i};
+%!      return;
+%!    endif
+%!  endfor
+%!endfunction
 
 %!function R = callwhich (name)
 %!  meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
@@ -1615,9 +1750,9 @@ endfunction
 
 %!test
 %! ## The description obeys TOOL_STYLE and its joins are not glued.
-%! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
-%! d = RESP.result.tools{2}.description;
-%! assert_equal (RESP.result.tools{2}.name, "octave_which");
+%! t = toolNamed ("octave_which");
+%! d = t.description;
+%! assert_equal (t.name, "octave_which");
 %! assert_equal (numel (d) <= 300, true);
 %! assert_equal (isempty (strfind (d, "the file that defines it")), false);
 %! assert_equal (isempty (strfind (d, "and list anything it shadows")), false);
@@ -1744,9 +1879,9 @@ endfunction
 
 %!test
 %! ## TOOL_STYLE, and the joins are not glued.
-%! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
-%! d = RESP.result.tools{3}.description;
-%! assert_equal (RESP.result.tools{3}.name, "octave_help");
+%! t = toolNamed ("octave_help");
+%! d = t.description;
+%! assert_equal (t.name, "octave_help");
 %! assert_equal (numel (d) <= 300, true);
 %! assert_equal (isempty (strfind (d, "as help renders it")), false);
 %! assert_equal (isempty (strfind (d, "operators resolve here only")), false);
@@ -1845,9 +1980,9 @@ endfunction
 
 %!test
 %! ## TOOL_STYLE, and the joins are not glued.
-%! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
-%! d = RESP.result.tools{4}.description;
-%! assert_equal (RESP.result.tools{4}.name, "octave_search");
+%! t = toolNamed ("octave_search");
+%! d = t.description;
+%! assert_equal (t.name, "octave_search");
 %! assert_equal (numel (d) <= 300, true);
 %! assert_equal (isempty (strfind (d, "best name matches first")), false);
 %! assert_equal (isempty (strfind (d, "where a known name lives")), false);
@@ -1911,9 +2046,9 @@ endfunction
 
 %!test
 %! ## TOOL_STYLE, and the joins are not glued.
-%! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
-%! d = RESP.result.tools{5}.description;
-%! assert_equal (RESP.result.tools{5}.name, "octave_pkg");
+%! t = toolNamed ("octave_pkg");
+%! d = t.description;
+%! assert_equal (t.name, "octave_pkg");
 %! assert_equal (numel (d) <= 300, true);
 %! assert_equal (isempty (strfind (d, "which ones this server loaded")), false);
 %! assert_equal (isempty (strfind (d, "on the load path")), false);
@@ -1952,3 +2087,63 @@ endfunction
 %! ## A resolvable name reports the state it is actually in.
 %! RESP = mcp.dispatch (callwhich ("mean"), []);
 %! assert_equal (RESP.result.structuredContent.state, "on the load path");
+
+%!test
+%! ## The version is carried by the instructions, sent once at connection,
+%! ## rather than by a tool charging its description against every request.
+%! RESP = mcp.dispatch (mkreq ("server/discover", ""), []);
+%! s = RESP.result.instructions;
+%! assert_equal (isempty (strfind (s, version ())), false);
+%! assert_equal (isempty (strfind (s, computer ())), false);
+
+%!test
+%! ## A legacy client is told the same, in the initialize result.
+%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"initialize",' ...
+%!      '"params":{"protocolVersion":"2025-11-25"}}']);
+%! RESP = mcp.dispatch (R, []);
+%! assert_equal (isempty (strfind (RESP.result.instructions, version ())), false);
+
+%!test
+%! ## Both eras declare the resources capability, or a client will never ask.
+%! A = mcp.dispatch (mkreq ("server/discover", ""), []);
+%! assert_equal (isfield (A.result.capabilities, "resources"), true);
+%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"initialize",' ...
+%!      '"params":{"protocolVersion":"2025-11-25"}}']);
+%! B = mcp.dispatch (R, []);
+%! assert_equal (isfield (B.result.capabilities, "resources"), true);
+
+%!test
+%! ## One resource, and it is the one no tool duplicates.
+%! RESP = mcp.dispatch (mkreq ("resources/list", ""), []);
+%! assert_equal (numel (RESP.result.resources), 1);
+%! assert_equal (RESP.result.resources{1}.uri, "octave://environment");
+
+%!test
+%! RESP = mcp.dispatch (mkreq ("resources/read", ...
+%!                       '"uri":"octave://environment"'), []);
+%! c = RESP.result.contents{1};
+%! assert_equal (c.uri, "octave://environment");
+%! assert_equal (c.mimeType, "text/plain");
+%! assert_equal (isempty (strfind (c.text, version ())), false);
+%! assert_equal (isempty (strfind (c.text, "load path:")), false);
+
+%!test
+%! ## A resource that does not exist is -32602, and must never come back as an
+%! ## empty contents array, which is ambiguous between blank and absent.
+%! RESP = mcp.dispatch (mkreq ("resources/read", '"uri":"octave://nope"'), []);
+%! assert_equal (RESP.error.code, -32602);
+%! assert_equal (RESP.error.data.uri, "octave://nope");
+%! assert_equal (isfield (RESP, "result"), false);
+
+%!test
+%! RESP = mcp.dispatch (mkreq ("resources/read", ""), []);
+%! assert_equal (RESP.error.code, -32602);
+%! assert_equal (isempty (strfind (RESP.error.message, "string uri")), false);
+
+%!test
+%! ## The legacy envelope reaches resources too, and carries no resultType.
+%! S = legacySession ();
+%! RESP = mcp.dispatch (plainreq ("resources/read", ...
+%!                       '"uri":"octave://environment"'), S);
+%! assert_equal (isfield (RESP.result, "resultType"), false);
+%! assert_equal (isempty (strfind (RESP.result.contents{1}.text, "platform:")), false);
