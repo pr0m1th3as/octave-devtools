@@ -303,6 +303,35 @@ is what makes cancellation implementable at all.
 silently, which is correct: it is a notification, and a notification is never
 answered.
 
+## 8b. Reading the stream: fgetl and fgets are unusable
+
+Not a protocol rule, but a fact about implementing one in Octave, recorded here
+because it defeats the whole server and no file-fed test can see it.
+
+`fgetl (stdin)` and `fgets (stdin)` **do not return a complete line until the
+writer closes the pipe**. Measured against a writer that emitted one
+newline-terminated line and then held the pipe open for six seconds:
+
+| read | returned after |
+|---|---|
+| `fgetl (stdin)` | 5.47 s |
+| `fgets (stdin)` | 4.45 s |
+| `fread (stdin, 1, "uint8")` | 0.00 s |
+
+Priming with a one-byte `fread` and then calling `fgetl` for the rest does not
+help: the byte arrived at 0.00 s and the remainder of the line still took
+4.49 s. A server built on either function answers nothing until its client
+gives up, which is exactly what a real host did, twice, with a 30 s connect
+timeout, while every offline check passed.
+
+`mcp.serve` therefore reads a byte at a time, about 21 KB/s. Requests are small
+so this is milliseconds; responses are large but are written whole. Doing better
+would need a non-blocking read, which Octave does not expose.
+
+**A test feeding the server a file cannot detect this**, because a file is at
+end of input the moment it is read. `mcp.selftest` therefore includes one check
+driven through a pipe that stays open after the request.
+
 ## 9. Shutdown
 
 > Servers **SHOULD** exit promptly when their standard input is closed or reads

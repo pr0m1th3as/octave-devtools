@@ -24,7 +24,9 @@
 ## Check that a configured server starts and speaks cleanly.
 ##
 ## @code{mcp.selftest ()} launches the server as a subprocess, drives a short
-## session through it, and prints what it found.  The check it exists for is the
+## session through it in @emph{each} of the two protocol eras, and prints what
+## it found.  A server that answers only one era works with only some hosts, so
+## both are exercised.  The check it exists for is the
 ## one that cannot be made from inside: that @strong{every byte written to
 ## standard output was a protocol message}.  A stray @code{printf}, an
 ## unsuppressed statement or a line printed by @file{~/.octaverc} corrupts the
@@ -63,78 +65,141 @@ function [OK, REPORT] = selftest (CMD)
     CMD = defaultCommand ();
   endif
 
-  ## A session that exercises discovery, listing, a call, and a notification.
-  ## The notification is the one that must produce no line at all.
+  ## Two sessions, one per protocol era, because a client may open either way
+  ## and a server that works in only one of them works with only some hosts.
   meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
           '"io.modelcontextprotocol/clientCapabilities":{}}'];
-  session = {sprintf('{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{%s}}', meta), ...
-             sprintf('{"jsonrpc":"2.0","id":"two","method":"tools/list","params":{%s}}', meta), ...
-             sprintf('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"octave_version",%s}}', meta), ...
-             '{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":3}}'};
+  modern = {sprintf('{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{%s}}', meta), ...
+            sprintf('{"jsonrpc":"2.0","id":"two","method":"tools/list","params":{%s}}', meta), ...
+            sprintf('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"octave_version",%s}}', meta), ...
+            '{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":3}}'};
+  legacy = {['{"jsonrpc":"2.0","id":1,"method":"initialize","params":' ...
+             '{"protocolVersion":"2025-11-25","capabilities":{},' ...
+             '"clientInfo":{"name":"selftest","version":"1"}}}'], ...
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}', ...
+            '{"jsonrpc":"2.0","id":"two","method":"tools/list","params":{}}', ...
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"octave_version"}}'};
 
   infile = tempname ();
   errfile = tempname ();
   unwind_protect
 
-    fid = fopen (infile, "w");
-    if (fid < 0)
-      error ("mcp.selftest: cannot write a temporary file in %s.", tempdir ());
-    endif
-    fprintf (fid, "%s\n", session{:});
-    fclose (fid);
+    OK = true;
+    for era = {'modern', 'legacy'}
 
-    [status, out] = system (sprintf ('%s < "%s" 2> "%s"', CMD, infile, errfile));
+      if (strcmp (era{1}, "modern"))
+        session = modern;
+      else
+        session = legacy;
+      endif
 
-    lines = strsplit (strrep (out, "\r\n", "\n"), "\n");
-    lines = lines(! cellfun (@isempty, lines));
+      fid = fopen (infile, "w");
+      if (fid < 0)
+        error ("mcp.selftest: cannot write a temporary file in %s.", tempdir ());
+      endif
+      fprintf (fid, "%s\n", session{:});
+      fclose (fid);
 
-    [REPORT, OK] = check (REPORT, "server exited cleanly", status == 0, ...
-                          sprintf ("exit status %d", status));
+      [status, out] = system (sprintf ('%s < "%s" 2> "%s"', CMD, infile, errfile));
 
-    ## The check this function exists for
-    bad = 0;
-    for i = 1:numel (lines)
-      try
-        jsondecode (lines{i});
-      catch
-        bad = i;
-        break;
-      end_try_catch
-    endfor
-    if (bad > 0)
-      detail = sprintf ("line %d of stdout is not a message: %s", bad, ...
-                        trunc (lines{bad}));
-    else
-      detail = "";
-    endif
-    [REPORT, OK] = check (REPORT, "every stdout line is a protocol message", ...
-                          bad == 0, detail, OK);
+      lines = strsplit (strrep (out, "\r\n", "\n"), "\n");
+      lines = lines(! cellfun (@isempty, lines));
+      tag = era{1};
 
-    [REPORT, OK] = check (REPORT, "one response per request, none for the notification", ...
-                          numel (lines) == 3, ...
-                          sprintf ("got %d lines, expected 3", numel (lines)), OK);
+      [REPORT, OK] = check (REPORT, [tag ": server exited cleanly"], ...
+                            status == 0, sprintf ("exit status %d", status), OK);
 
-    if (numel (lines) >= 3 && bad == 0)
+      ## The check this function exists for
+      bad = 0;
+      for i = 1:numel (lines)
+        try
+          jsondecode (lines{i});
+        catch
+          bad = i;
+          break;
+        end_try_catch
+      endfor
+      if (bad > 0)
+        detail = sprintf ("line %d of stdout is not a message: %s", bad, ...
+                          trunc (lines{bad}));
+      else
+        detail = "";
+      endif
+      [REPORT, OK] = check (REPORT, ...
+                            [tag ": every stdout line is a protocol message"], ...
+                            bad == 0, detail, OK);
+
+      [REPORT, OK] = check (REPORT, ...
+                            [tag ": one response per request, none for the notification"], ...
+                            numel (lines) == 3, ...
+                            sprintf ("got %d lines, expected 3", numel (lines)), OK);
+
+      if (numel (lines) < 3 || bad != 0)
+        continue;
+      endif
       A = jsondecode (lines{1});
       B = jsondecode (lines{2});
       C = jsondecode (lines{3});
-      [REPORT, OK] = check (REPORT, "identifiers echo back with their type", ...
+
+      [REPORT, OK] = check (REPORT, [tag ": identifiers echo back with their type"], ...
                             isequal (A.id, 1) && ischar (B.id) ...
                                              && strcmp (B.id, "two"), ...
                             "an identifier came back changed", OK);
-      [REPORT, OK] = check (REPORT, "server/discover names a protocol version", ...
-                            isfield (A, "result") ...
-                            && isfield (A.result, "supportedVersions"), ...
-                            "no supportedVersions in the discovery result", OK);
-      [REPORT, OK] = check (REPORT, "tools/list advertises a tool", ...
+
+      if (strcmp (tag, "modern"))
+        [REPORT, OK] = check (REPORT, "modern: server/discover names a version", ...
+                              isfield (A, "result") ...
+                              && isfield (A.result, "supportedVersions"), ...
+                              "no supportedVersions in the discovery result", OK);
+        [REPORT, OK] = check (REPORT, "modern: results carry resultType", ...
+                              isfield (B.result, "resultType") ...
+                              && strcmp (B.result.resultType, "complete"), ...
+                              "a modern result had no resultType", OK);
+      else
+        [REPORT, OK] = check (REPORT, "legacy: initialize agrees a version", ...
+                              isfield (A, "result") ...
+                              && isfield (A.result, "protocolVersion") ...
+                              && isfield (A.result, "serverInfo"), ...
+                              "the initialize result was not well formed", OK);
+        [REPORT, OK] = check (REPORT, "legacy: results carry no resultType", ...
+                              ! isfield (B.result, "resultType"), ...
+                              "a legacy result carried a modern envelope", OK);
+      endif
+
+      [REPORT, OK] = check (REPORT, [tag ": tools/list advertises a tool"], ...
                             isfield (B, "result") && isfield (B.result, "tools") ...
                             && ! isempty (B.result.tools), ...
                             "the tool list came back empty", OK);
-      [REPORT, OK] = check (REPORT, "tools/call returns a result", ...
+      [REPORT, OK] = check (REPORT, [tag ": tools/call returns a result"], ...
                             isfield (C, "result") ...
                             && isfield (C.result, "content") ...
                             && ! C.result.isError, ...
                             "the tool call did not return content", OK);
+    endfor
+
+    ## The check that a file-fed session structurally cannot make: a pipe that
+    ## stays open after the request.  A server that answers only at end of
+    ## input passes every check above and works with no real client.
+    if (OK && haveTimeout ())
+      outfile = tempname ();
+      shfile = tempname ();
+      fid = fopen (infile, "w");
+      fprintf (fid, "%s\n", modern{1});
+      fclose (fid);
+      fid = fopen (shfile, "w");
+      fprintf (fid, "#!/bin/sh\n{ cat \"%s\"; sleep 6; } | %s > \"%s\" 2>/dev/null\n", ...
+               infile, CMD, outfile);
+      fclose (fid);
+      system (sprintf ('timeout 3 sh "%s"', shfile));
+      resp = "";
+      if (exist (outfile, "file") == 2)
+        resp = fileread (outfile);
+        delete (outfile);
+      endif
+      delete (shfile);
+      [REPORT, OK] = check (REPORT, "answers before the input stream closes", ...
+                            ! isempty (strtrim (resp)), ...
+                            "nothing until end of input: a live client will time out", OK);
     endif
 
   unwind_protect_cleanup
@@ -176,6 +241,13 @@ function [REPORT, OK] = check (REPORT, what, passed, detail, OK)
   endif
 endfunction
 
+function tf = haveTimeout ()
+  ## The responsiveness check needs a way to bound a run; skip it where there
+  ## is none rather than fail for a reason that is not the server's
+  [status, ~] = system ("command -v timeout > /dev/null 2>&1");
+  tf = (status == 0);
+endfunction
+
 function s = trunc (s)
   if (numel (s) > 120)
     s = [s(1:120) " ..."];
@@ -193,6 +265,6 @@ endfunction
 %! cmd = 'printf ''hello\n''';
 %! [ok, rep] = mcp.selftest (cmd);
 %! assert_equal (ok, false);
-%! assert_equal (any (strncmp (rep, "FAIL  every stdout line", 23)), true);
+%! assert_equal (any (! cellfun (@isempty, strfind (rep, "every stdout line"))), true);
 
 %!error <mcp\.selftest: CMD must be a character vector\.> mcp.selftest (5)

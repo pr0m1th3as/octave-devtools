@@ -16,7 +16,8 @@
 ## this program; if not, see <http://www.gnu.org/licenses/>.
 
 ## -*- texinfo -*-
-## @deftypefn {mcp} {@var{RESP} =} mcp.dispatch (@var{R})
+## @deftypefn  {mcp} {@var{RESP} =} mcp.dispatch (@var{R})
+## @deftypefnx {mcp} {[@var{RESP}, @var{S}] =} mcp.dispatch (@var{R}, @var{S})
 ##
 ## Answer one decoded request.
 ##
@@ -26,13 +27,36 @@
 ## the two cases that produce no response, and a notification producing one
 ## would be a protocol violation rather than a nuisance.
 ##
-## This function touches no stream and holds no state between calls.  That is
-## what makes the whole protocol surface reachable by a test: every method,
-## every error path and every tool result can be obtained by handing this
-## function a structure and reading what comes back, with no client, no
-## subprocess and no server running.  It is also what the protocol itself
-## requires, since a request carries everything needed to answer it and nothing
-## may be inferred from the requests that came before.
+## @code{[@var{RESP}, @var{S}] = mcp.dispatch (@var{R}, @var{S})} threads the
+## session structure @var{S} through the call and returns it updated.  Pass the
+## empty matrix for the first request of a connection.
+##
+## This function touches no stream.  Every method, every error path and every
+## tool result can be obtained by handing it a structure and reading what comes
+## back, with no client, no subprocess and no server running, which is what
+## makes the whole protocol surface reachable by a test.
+##
+## @var{S} carries the only state this package keeps, and it keeps it because a
+## client may speak either of two protocol eras and the choice is made once:
+##
+## @table @code
+## @item era
+## @qcode{"unknown"} until the client opens.  A request carrying per-request
+## metadata makes it @qcode{"modern"}, and an @code{initialize} request makes it
+## @qcode{"legacy"}.
+##
+## @item version
+## The protocol revision in force, once one has been agreed.
+##
+## @item initialized
+## True once a legacy client has sent its @code{notifications/initialized}.
+## @end table
+##
+## The eras differ in their envelope and in nothing else.  A modern result
+## carries @code{resultType} and identifies the server on every reply; a legacy
+## result carries neither, having named the server once in its @code{initialize}
+## result.  The tools, their schemas and their handlers are the same objects in
+## both, which is what keeps supporting two eras cheap.
 ##
 ## Two kinds of failure are distinguished, and the difference is not cosmetic.
 ## A @emph{protocol error} is returned as a JSON-RPC error and says the request
@@ -44,10 +68,10 @@
 ## @seealso{mcp.decodeRequest, mcp.encodeResponse, mcp.serve}
 ## @end deftypefn
 
-function RESP = dispatch (R)
+function [RESP, S] = dispatch (R, S)
 
   ## Input validation
-  if (nargin != 1)
+  if (nargin < 1 || nargin > 2)
     error ("mcp.dispatch: invalid number of input arguments.");
   endif
   if (! (isstruct (R) && isscalar (R)))
@@ -58,6 +82,13 @@ function RESP = dispatch (R)
     error (strcat ("mcp.dispatch: R must be a structure as returned by", ...
                    " mcp.decodeRequest."));
   endif
+  if (nargin < 2 || isempty (S))
+    S = newSession ();
+  endif
+  if (! (isstruct (S) && isscalar (S) && all (isfield (S, {'era', 'version'}))))
+    error (strcat ("mcp.dispatch: S must be a session structure, or empty", ...
+                   " for a fresh one."));
+  endif
 
   RESP = [];
 
@@ -65,6 +96,9 @@ function RESP = dispatch (R)
     case 'blank'
       return;
     case 'notification'
+      if (strcmp (R.method, "notifications/initialized"))
+        S.initialized = true;
+      endif
       ## Never answered, by the letter of the protocol
       return;
     case 'invalid'
@@ -80,42 +114,117 @@ function RESP = dispatch (R)
       error ("mcp.dispatch: unknown request type '%s'.", R.type);
   endswitch
 
-  ## A legacy client opens with an initialize handshake, which this revision
-  ## retired.  Such a client has no way to fall forward, so the error it gets
-  ## is the only diagnostic its user will ever see: name the versions we speak.
-  if (strcmp (R.method, "initialize"))
-    data = struct ();
-    data.supported = supportedVersions ();
-    RESP = mcp.jsonrpcError (R.id, -32601, strcat ("This server implements", ...
-             " MCP 2026-07-28 and later, which has no initialize handshake.", ...
-             " Send server/discover with per-request _meta instead."), data);
-    return;
+  ## The era is chosen by how the client opens and then held for the process.
+  ## This is the one piece of state the package keeps, and it exists only
+  ## because a legacy session is defined to have one.
+  if (strcmp (S.era, "unknown"))
+    if (strcmp (R.method, "initialize"))
+      S.era = "legacy";
+    elseif (! strcmp (R.method, "ping"))
+      [code, msg, data] = checkMeta (R.params);
+      if (code != 0)
+        RESP = mcp.jsonrpcError (R.id, code, msg, data);
+        return;
+      endif
+      S.era = "modern";
+      S.version = R.params._meta.io_modelcontextprotocol_protocolVersion;
+    endif
+  elseif (strcmp (S.era, "modern"))
+    [code, msg, data] = checkMeta (R.params);
+    if (code != 0)
+      RESP = mcp.jsonrpcError (R.id, code, msg, data);
+      return;
+    endif
   endif
 
-  ## Every request carries its own protocol version and client capabilities
-  [code, msg, data] = checkMeta (R.params);
-  if (code != 0)
-    RESP = mcp.jsonrpcError (R.id, code, msg, data);
-    return;
-  endif
+  era = S.era;
 
   switch (R.method)
+
+    case 'initialize'
+      [res, S.version] = initializeResult (R.params);
+      RESP = mkResponse (R.id, res, era);
+
+    case 'ping'
+      ## Allowed before initialization completes, in either era
+      RESP = mkResponse (R.id, emptyResult (era), era);
+
     case 'server/discover'
-      RESP = okResult (R.id, discoverResult ());
+      if (strcmp (era, "legacy"))
+        RESP = mcp.jsonrpcError (R.id, -32601, ...
+                 "Method not found: server/discover is not part of this session's protocol revision.");
+      else
+        RESP = mkResponse (R.id, discoverResult (), era);
+      endif
+
     case 'tools/list'
-      RESP = okResult (R.id, toolsListResult ());
+      RESP = mkResponse (R.id, toolsListResult (era), era);
+
     case 'tools/call'
-      [res, code, msg] = toolsCall (R.params);
+      [res, code, msg] = toolsCall (R.params, era);
       if (code != 0)
         RESP = mcp.jsonrpcError (R.id, code, msg);
       else
-        RESP = okResult (R.id, res);
+        RESP = mkResponse (R.id, res, era);
       endif
+
     otherwise
       RESP = mcp.jsonrpcError (R.id, -32601, ...
                                sprintf ("Method not found: %s", R.method));
+
   endswitch
 
+endfunction
+
+function S = newSession ()
+  ## era is 'unknown' until the client opens, then 'legacy' or 'modern'
+  S = struct ("era", "unknown", "version", "", "initialized", false);
+endfunction
+
+function V = legacyVersions ()
+  ## Answered to a legacy client; the newest handshake-based revision
+  V = {'2025-11-25'};
+endfunction
+
+function [res, ver] = initializeResult (params)
+
+  ## The rule here is not the modern one.  A legacy server does not reject an
+  ## unknown version: it answers with one it does support and lets the client
+  ## decide whether to continue or disconnect.
+  LV = legacyVersions ();
+  ver = LV{1};
+  if (isfield (params, "protocolVersion") && ischar (params.protocolVersion) ...
+      && any (strcmp (params.protocolVersion, LV)))
+    ver = params.protocolVersion;
+  endif
+
+  [n, v] = serverIdentity ();
+  caps = struct ();
+  caps.tools = struct ();
+
+  res = struct ();
+  res.protocolVersion = ver;
+  res.capabilities = caps;
+  res.serverInfo = struct ("name", n, "version", v);
+  res.instructions = instructionsText ();
+
+endfunction
+
+function res = emptyResult (era)
+  res = struct ();
+  if (strcmp (era, "modern"))
+    res.resultType = "complete";
+  endif
+endfunction
+
+function RESP = mkResponse (id, res, era)
+  ## Only a modern result identifies the server on every reply; a legacy one
+  ## carried serverInfo once, in the initialize result
+  if (strcmp (era, "modern"))
+    res._meta = serverMeta ();
+  endif
+  RESP = struct ("jsonrpc", "2.0", "id", id);
+  RESP.result = res;
 endfunction
 
 function V = supportedVersions ()
@@ -133,12 +242,6 @@ function M = serverMeta ()
   [n, v] = serverIdentity ();
   M = struct ();
   M.io_modelcontextprotocol_serverInfo = struct ("name", n, "version", v);
-endfunction
-
-function RESP = okResult (id, res)
-  res._meta = serverMeta ();
-  RESP = struct ("jsonrpc", "2.0", "id", id);
-  RESP.result = res;
 endfunction
 
 function [code, msg, data] = checkMeta (params)
@@ -209,6 +312,13 @@ function T = toolTable ()
 
 endfunction
 
+function t = instructionsText ()
+  t = strcat ("Introspects the GNU Octave installation this", ...
+    " server runs inside: the same load path, packages and version that the", ...
+    " user's Octave has. Evaluates no code, runs no user function, and", ...
+    " writes nothing.");
+endfunction
+
 function res = discoverResult ()
 
   caps = struct ();
@@ -218,27 +328,28 @@ function res = discoverResult ()
   res.resultType = "complete";
   res.supportedVersions = supportedVersions ();
   res.capabilities = caps;
-  res.instructions = strcat ("Introspects the GNU Octave installation this", ...
-    " server runs inside: the same load path, packages and version that the", ...
-    " user's Octave has. Evaluates no code, runs no user function, and", ...
-    " writes nothing.");
+  res.instructions = instructionsText ();
   res.ttlMs = 3600000;
   res.cacheScope = "public";
 
 endfunction
 
-function res = toolsListResult ()
+function res = toolsListResult (era)
 
   res = struct ();
-  res.resultType = "complete";
+  if (strcmp (era, "modern"))
+    res.resultType = "complete";
+  endif
   res.tools = toolTable ();
-  ## Fixed at load time and never changing, so a client may cache it for long
-  res.ttlMs = 3600000;
-  res.cacheScope = "public";
+  if (strcmp (era, "modern"))
+    ## Cache hints are a 2026-07-28 addition and have no legacy counterpart
+    res.ttlMs = 3600000;
+    res.cacheScope = "public";
+  endif
 
 endfunction
 
-function [res, code, msg] = toolsCall (params)
+function [res, code, msg] = toolsCall (params, era)
 
   res = [];
   code = 0;
@@ -267,15 +378,17 @@ function [res, code, msg] = toolsCall (params)
 
   switch (params.name)
     case 'octave_version'
-      res = callOctaveVersion (args);
+      res = callOctaveVersion (args, era);
   endswitch
 
 endfunction
 
-function res = callOctaveVersion (args)
+function res = callOctaveVersion (args, era)
 
   res = struct ();
-  res.resultType = "complete";
+  if (strcmp (era, "modern"))
+    res.resultType = "complete";
+  endif
 
   ## The schema says this tool takes nothing, so anything passed is a mistake
   ## the model can correct: a tool error rather than a protocol error
@@ -340,11 +453,15 @@ endfunction
 %! assert_equal (RESP.id, 9);
 
 %!test
-%! ## A legacy client gets the only diagnostic it can ever surface.
-%! R = mcp.decodeRequest ('{"jsonrpc":"2.0","id":1,"method":"initialize"}');
-%! RESP = mcp.dispatch (R);
-%! assert_equal (RESP.error.code, -32601);
-%! assert_equal (RESP.error.data.supported, {'2026-07-28'});
+%! ## A legacy client opens with initialize and is served, not refused.
+%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"initialize",' ...
+%!      '"params":{"protocolVersion":"2025-11-25","capabilities":{},' ...
+%!      '"clientInfo":{"name":"c","version":"1"}}}']);
+%! [RESP, S] = mcp.dispatch (R, []);
+%! assert_equal (S.era, "legacy");
+%! assert_equal (RESP.result.protocolVersion, "2025-11-25");
+%! assert_equal (RESP.result.serverInfo.name, "mcp");
+%! assert_equal (isfield (RESP.result, "resultType"), false);
 
 %!test
 %! ## Metadata is required on every request, not established once per session.
@@ -435,12 +552,13 @@ endfunction
 %! assert_equal (isempty (strfind (s, "function, and writes nothing")), false);
 
 %!test
-%! ## And in the only diagnostic a legacy client can ever show its user.
-%! R = mcp.decodeRequest ('{"jsonrpc":"2.0","id":1,"method":"initialize"}');
-%! RESP = mcp.dispatch (R);
-%! m = RESP.error.message;
-%! assert_equal (isempty (strfind (m, "server implements MCP 2026-07-28")), false);
-%! assert_equal (isempty (strfind (m, "handshake. Send server/discover")), false);
+%! ## And in the guidance carried by the legacy initialize result.
+%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"initialize",' ...
+%!      '"params":{"protocolVersion":"2025-11-25"}}']);
+%! RESP = mcp.dispatch (R, []);
+%! s = RESP.result.instructions;
+%! assert_equal (isempty (strfind (s, "installation this server runs")), false);
+%! assert_equal (isempty (strfind (s, "function, and writes nothing")), false);
 
 %!test
 %! ## And in the tool error a model is expected to read and correct.
@@ -499,3 +617,96 @@ endfunction
 %!error <mcp\.dispatch: R must be a scalar structure\.> mcp.dispatch (5)
 %!error <mcp\.dispatch: R must be a structure as returned by mcp\.decodeRequest\.> ...
 %! mcp.dispatch (struct ("type", "request"))
+
+%!function S = legacySession ()
+%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":0,"method":"initialize",' ...
+%!       '"params":{"protocolVersion":"2025-11-25","capabilities":{}}}']);
+%!  [~, S] = mcp.dispatch (R, []);
+%!endfunction
+
+%!function R = plainreq (method, extra)
+%!  if (isempty (extra))
+%!    p = '{}';
+%!  else
+%!    p = ['{' extra '}'];
+%!  endif
+%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"' method ...
+%!                          '","params":' p '}']);
+%!endfunction
+
+%!test
+%! ## A legacy session needs no per-request metadata and must not be asked for it.
+%! S = legacySession ();
+%! RESP = mcp.dispatch (plainreq ("tools/list", ""), S);
+%! assert_equal (numel (RESP.result.tools), 1);
+%! assert_equal (RESP.result.tools{1}.name, "octave_version");
+
+%!test
+%! ## The legacy envelope carries neither resultType nor the cache hints, both
+%! ## of which the 2026-07-28 revision introduced.
+%! S = legacySession ();
+%! RESP = mcp.dispatch (plainreq ("tools/list", ""), S);
+%! assert_equal (isfield (RESP.result, "resultType"), false);
+%! assert_equal (isfield (RESP.result, "ttlMs"), false);
+%! assert_equal (isfield (RESP.result, "_meta"), false);
+
+%!test
+%! ## The tool itself is the same object in both eras.
+%! S = legacySession ();
+%! RESP = mcp.dispatch (plainreq ("tools/call", '"name":"octave_version"'), S);
+%! assert_equal (RESP.result.isError, false);
+%! assert_equal (RESP.result.structuredContent.version, version ());
+%! assert_equal (isfield (RESP.result, "resultType"), false);
+
+%!test
+%! ## An unknown version is answered with one we speak, never refused: that is
+%! ## the legacy negotiation rule and it is the opposite of the modern one.
+%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"initialize",' ...
+%!      '"params":{"protocolVersion":"2024-11-05"}}']);
+%! RESP = mcp.dispatch (R, []);
+%! assert_equal (isfield (RESP, "error"), false);
+%! assert_equal (RESP.result.protocolVersion, "2025-11-25");
+
+%!test
+%! ## server/discover belongs to the modern era alone.
+%! S = legacySession ();
+%! RESP = mcp.dispatch (plainreq ("server/discover", ""), S);
+%! assert_equal (RESP.error.code, -32601);
+
+%!test
+%! ## notifications/initialized is recorded and never answered.
+%! S = legacySession ();
+%! R = mcp.decodeRequest ('{"jsonrpc":"2.0","method":"notifications/initialized"}');
+%! [RESP, S] = mcp.dispatch (R, S);
+%! assert_equal (RESP, []);
+%! assert_equal (S.initialized, true);
+
+%!test
+%! ## ping is allowed before initialization completes, in either era.
+%! [RESP, S] = mcp.dispatch (plainreq ("ping", ""), []);
+%! assert_equal (isfield (RESP, "error"), false);
+%! assert_equal (S.era, "unknown");
+%! assert_equal (mcp.encodeResponse (RESP), '{"jsonrpc":"2.0","id":1,"result":{}}');
+
+%!test
+%! ## The era is chosen once and held: a modern session stays modern.
+%! [~, S] = mcp.dispatch (mkreq ("tools/list", ""), []);
+%! assert_equal (S.era, "modern");
+%! assert_equal (S.version, "2026-07-28");
+
+%!test
+%! ## A modern session keeps demanding its metadata on every request.
+%! [~, S] = mcp.dispatch (mkreq ("tools/list", ""), []);
+%! RESP = mcp.dispatch (plainreq ("tools/list", ""), S);
+%! assert_equal (RESP.error.code, -32602);
+
+%!test
+%! ## A legacy session is never asked for a modern protocol version.
+%! S = legacySession ();
+%! assert_equal (S.era, "legacy");
+%! RESP = mcp.dispatch (plainreq ("tools/call", '"name":"nope"'), S);
+%! assert_equal (RESP.error.code, -32602);
+%! assert_equal (RESP.error.message, "Unknown tool: nope");
+
+%!error <mcp\.dispatch: S must be a session structure, or empty for a fresh one\.> ...
+%! mcp.dispatch (mcp.decodeRequest (""), 5)

@@ -26,6 +26,12 @@
 ## launches; it is not meant to be called at an interactive prompt, where it
 ## would take the terminal.
 ##
+## Both protocol eras are served.  A client that opens with per-request metadata
+## is answered under revision 2026-07-28 and statelessly; a client that opens
+## with an @code{initialize} handshake is answered under revision 2025-11-25 for
+## the life of the process.  The choice is made by the first request and the
+## tools are the same in either case.
+##
 ## The read-only tool set is served here.  This server evaluates no code, runs
 ## no user function, and writes nothing, which is the property that lets a user
 ## grant it blanket permission.  Evaluation lives behind a separate entry point
@@ -63,12 +69,13 @@ function serve ()
     error ("mcp.serve: invalid number of input arguments.");
   endif
 
-  logmsg ("listening, MCP 2026-07-28, pid %d", getpid ());
+  logmsg ("listening, MCP 2026-07-28 and 2025-11-25, pid %d", getpid ());
   seenfirst = false;
+  S = [];                             # the session, chosen by how the client opens
 
   while (true)
 
-    line = fgetl (stdin);
+    line = readLine ();
     if (! ischar (line))
       break;                          # end of file: the shutdown signal
     endif
@@ -83,7 +90,7 @@ function serve ()
     R = [];
     try
       R = mcp.decodeRequest (line);
-      RESP = mcp.dispatch (R);
+      [RESP, S] = mcp.dispatch (R, S);
     catch err
       logmsg ("internal error: %s", err.message);
       RESP = internalError (R);
@@ -97,6 +104,54 @@ function serve ()
   endwhile
 
   logmsg ("end of input, exiting");
+
+endfunction
+
+function L = readLine ()
+
+  ## Not fgetl, and not fgets.  Both of them block on a pipe until the writer
+  ## closes it, even when a complete newline-terminated line is already
+  ## available: measured at 5.5 s against a writer that held the pipe open for
+  ## 6 s, where a single-byte fread returned in 0.00 s.  A server built on
+  ## either answers nothing until its client gives up and disconnects, which no
+  ## test feeding it a file can ever notice, because a file is at end of input
+  ## the moment it is read.
+  ##
+  ## The cost is a call per byte, about 21 KB/s.  Requests are small, so this is
+  ## milliseconds; it is the responses that are large and those are written
+  ## whole.  Doing better needs a non-blocking read, which Octave does not
+  ## expose.
+
+  buf = zeros (1, 4096, "uint8");
+  n = 0;
+
+  while (true)
+
+    c = fread (stdin, 1, "uint8");
+
+    if (isempty (c))                  # end of file
+      if (n == 0)
+        L = -1;
+      else
+        L = char (buf(1:n));          # a final line with no newline
+      endif
+      return;
+    endif
+
+    if (c == 10)
+      L = char (buf(1:n));
+      return;
+    endif
+
+    if (c != 13)                      # tolerate CRLF from a Windows client
+      n++;
+      if (n > numel (buf))
+        buf = [buf, zeros(1, numel (buf), "uint8")];
+      endif
+      buf(n) = c;
+    endif
+
+  endwhile
 
 endfunction
 
