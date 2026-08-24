@@ -83,7 +83,7 @@ it was not.
 | `octave_which` | where a name resolves, what kind of thing it is, which package owns it, and what it shadows | built |
 | `octave_help` | the help text for a function, class, method or operator | built |
 | `octave_version` | the running Octave version and platform | built |
-| `octave_search` | which functions match a description, when the name is not known | planned |
+| `octave_search` | which functions match a description, when the name is not known | built |
 | `octave_pkg` | which packages are installed, at which versions, and which are loaded | planned |
 
 Static context is served as resources rather than tools: `octave://version`,

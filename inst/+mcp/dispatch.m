@@ -370,6 +370,40 @@ function T = toolTable ()
   ## already say.
   T{end+1} = t;
 
+  t = struct ();
+  t.name = "octave_search";
+  t.title = "Search for a Function";
+  t.description = strcat ("List Octave functions whose help text mentions a", ...
+    " term, with their summary lines, best name matches first. Use this when", ...
+    " the name is unknown; octave_which says where a known name lives and", ...
+    " octave_help says what it does. Reports the total when the list is capped.");
+  props = struct ();
+  props.query = struct ("type", "string", "description", ...
+    "A word or phrase to look for, such as correlation or eigenvalue");
+  isc = struct ();
+  isc.type = "object";
+  isc.properties = props;
+  isc.required = {'query'};
+  isc.additionalProperties = false;
+  t.inputSchema = isc;
+  rprops = struct ();
+  rprops.name = struct ("type", "string");
+  rprops.summary = struct ("type", "string");
+  ritem = struct ();
+  ritem.type = "object";
+  ritem.properties = rprops;
+  oprops = struct ();
+  oprops.query = struct ("type", "string");
+  oprops.total = struct ("type", "integer");
+  oprops.shown = struct ("type", "integer");
+  oprops.matches = struct ("type", "array", "items", ritem);
+  osc = struct ();
+  osc.type = "object";
+  osc.properties = oprops;
+  osc.required = {'query', 'total', 'shown', 'matches'};
+  t.outputSchema = osc;
+  T{end+1} = t;
+
 endfunction
 
 function t = instructionsText ()
@@ -444,6 +478,8 @@ function [res, code, msg] = toolsCall (params, era)
       res = callOctaveWhich (args, era);
     case 'octave_help'
       res = callOctaveHelp (args, era);
+    case 'octave_search'
+      res = callOctaveSearch (args, era);
   endswitch
 
 endfunction
@@ -822,6 +858,143 @@ function T = capText (txt, cap)
 
 endfunction
 
+function res = callOctaveSearch (args, era)
+
+  res = struct ();
+  if (strcmp (era, "modern"))
+    res.resultType = "complete";
+  endif
+
+  if (! (isfield (args, "query") && ischar (args.query) && isrow (args.query) ...
+         && ! isempty (strtrim (args.query))))
+    res.content = {textBlock(strcat ("octave_search needs a query: a word or", ...
+      " phrase to look for in the help text."))};
+    res.isError = true;
+    res.structuredContent = emptySearch ("");
+    return;
+  endif
+
+  s_q = strtrim (args.query);
+
+  ## Always the whole help text, never the summary line alone.  Measured: for
+  ## "correlation" the summary-only search misses kendall, whose summary reads
+  ## "Compute Kendall's TAU" and never says correlation, though it is exactly
+  ## what such a query wants.  The cost is about a second at worst.
+  s_n = {};
+  s_h = {};
+  try
+    [s_n, s_h] = lookfor ("-all", s_q);
+  catch
+    s_n = {};
+    s_h = {};
+  end_try_catch
+
+  s_total = numel (s_n);
+  if (s_total == 0)
+    ## Not a tool error.  A lookup of a name that does not exist is the model
+    ## having assumed something wrong and worth correcting; a search returning
+    ## nothing is a fact about this installation and the search did its job.
+    res.content = {textBlock(sprintf (strcat ("No function on this server's", ...
+      " load path mentions \"%s\". Try a broader term, or note that this", ...
+      " server sees only the packages its launch command loaded."), s_q))};
+    res.isError = false;
+    res.structuredContent = emptySearch (s_q);
+    return;
+  endif
+
+  [s_n, s_h] = rankMatches (s_n, s_h, s_q);
+
+  s_cap = searchCap ();
+  s_shown = min (s_cap, s_total);
+
+  s_rows = {};
+  s_lines = {};
+  for s_i = 1:s_shown
+    s_sum = oneLine (s_h{s_i});
+    s_rows{end+1} = struct ("name", s_n{s_i}, "summary", s_sum);
+    s_lines{end+1} = sprintf ("  %-24s %s", s_n{s_i}, s_sum);
+  endfor
+
+  if (s_total > s_shown)
+    s_head = sprintf ("%d of %d matches for \"%s\", best name matches first:", ...
+                      s_shown, s_total, s_q);
+  else
+    s_head = sprintf ("%d matches for \"%s\":", s_total, s_q);
+  endif
+
+  sc = struct ();
+  sc.query = s_q;
+  sc.total = s_total;
+  sc.shown = s_shown;
+  sc.matches = s_rows;
+
+  res.content = {textBlock(strjoin ([{s_head}, s_lines], "\n"))};
+  res.isError = false;
+  res.structuredContent = sc;
+
+endfunction
+
+function C = searchCap ()
+  ## Measured: "matrix" returns 811 matches.  Forty ranked rows is a page a
+  ## model can read; forty arbitrary rows of eight hundred is noise, which is
+  ## why the ranking below is not decoration.
+  C = 40;
+endfunction
+
+function S = emptySearch (q)
+  S = struct ();
+  S.query = q;
+  S.total = 0;
+  S.shown = 0;
+  S.matches = {};
+endfunction
+
+function [N, H] = rankMatches (N, H, q)
+
+  ## Alphabetical first, so that the ordering is fully determined and the same
+  ## query always returns the same page
+  [~, a] = sort (lower (N));
+  N = N(a);
+  H = H(a);
+
+  ## Scoring on the shared prefix rather than on containment alone.  For the
+  ## query "correlation", corr does not contain the query and containment
+  ## scoring buried it under barttest and bvtcdf; the prefix it shares is four
+  ## characters long and that is exactly the signal wanted.
+  n = numel (N);
+  lq = lower (q);
+  score = zeros (1, n);
+  for i = 1:n
+    ln = lower (N{i});
+    if (strcmp (ln, lq))
+      score(i) = 1000;
+    elseif (! isempty (strfind (ln, lq)))
+      score(i) = 500;
+    else
+      m = min (numel (ln), numel (lq));
+      k = 0;
+      while (k < m && ln(k+1) == lq(k+1))
+        k++;
+      endwhile
+      score(i) = k;
+    endif
+  endfor
+
+  ## The alphabetical rank breaks ties, so the sort is stable by construction
+  ## rather than by hoping sort () is
+  [~, b] = sort (-score * (n + 1) + (1:n));
+  N = N(b);
+  H = H(b);
+
+endfunction
+
+function S = oneLine (txt)
+  S = strtrim (strrep (strrep (txt, "\n", " "), "\r", " "));
+  if (numel (S) > 100)
+    S = [S(1:97) "..."];
+  endif
+endfunction
+
 function B = textBlock (txt)
   B = struct ("type", "text", "text", txt);
 endfunction
@@ -921,7 +1094,8 @@ endfunction
 %! ## configuration and every prompt built on it, with no error anywhere.
 %! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
 %! names = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
-%! assert_equal (names, {'octave_version', 'octave_which', 'octave_help'});
+%! assert_equal (names, ...
+%!   {'octave_version', 'octave_which', 'octave_help', 'octave_search'});
 
 %!test
 %! ## The tool list is fixed for the life of the process, so it may be cached.
@@ -1048,7 +1222,8 @@ endfunction
 %! S = legacySession ();
 %! RESP = mcp.dispatch (plainreq ("tools/list", ""), S);
 %! names = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
-%! assert_equal (names, {'octave_version', 'octave_which', 'octave_help'});
+%! assert_equal (names, ...
+%!   {'octave_version', 'octave_which', 'octave_help', 'octave_search'});
 
 %!test
 %! ## The legacy envelope carries neither resultType nor the cache hints, both
@@ -1350,3 +1525,103 @@ endfunction
 %! assert_equal (isempty (strfind (d, "as help renders it")), false);
 %! assert_equal (isempty (strfind (d, "operators resolve here only")), false);
 %! assert_equal (isempty (strfind (d, "does, not where it lives")), false);
+
+%!function R = callsearch (query)
+%!  meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
+%!          '"io.modelcontextprotocol/clientCapabilities":{}}'];
+%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%!       '"params":{"name":"octave_search","arguments":{"query":"' query '"},' ...
+%!       meta '}}']);
+%!endfunction
+
+%!test
+%! ## A core query returns the obvious function, and searching the whole help
+%! ## text is what finds it: eig's summary sentence does not say "eigenvalue".
+%! RESP = mcp.dispatch (callsearch ("eigenvalue"), []);
+%! assert_equal (RESP.result.isError, false);
+%! names = cellfun (@(m) m.name, RESP.result.structuredContent.matches, ...
+%!                  "UniformOutput", false);
+%! assert_equal (any (strcmp ("eig", names)), true);
+
+%!test
+%! ## Ranking, on a fixture built for it rather than on whatever this
+%! ## installation happens to hold: exact name, then name containing the
+%! ## query, then a match found only in the body of the help.
+%! d = fullfile (tempdir (), "mcp_search_rank");
+%! unwind_protect
+%!   mkdir (d);
+%!   defs = {"mcpzzother", "Compute something using mcpzzterm internally."; ...
+%!           "mcpzztermlong", "A longer relative of the operation."; ...
+%!           "mcpzzterm", "The basic operation."};
+%!   for i = 1:rows (defs)
+%!     fid = fopen (fullfile (d, [defs{i,1} ".m"]), "w");
+%!     fprintf (fid, "## -*- texinfo -*-\n## @deftypefn {} {} %s ()\n## %s\n", ...
+%!              defs{i,1}, defs{i,2});
+%!     fprintf (fid, "## @end deftypefn\nfunction %s ()\nendfunction\n", defs{i,1});
+%!     fclose (fid);
+%!   endfor
+%!   addpath (d);
+%!   RESP = mcp.dispatch (callsearch ("mcpzzterm"), []);
+%!   names = cellfun (@(m) m.name, RESP.result.structuredContent.matches, ...
+%!                    "UniformOutput", false);
+%!   assert_equal (names, {'mcpzzterm', 'mcpzztermlong', 'mcpzzother'});
+%! unwind_protect_cleanup
+%!   warning ("off", "Octave:rmpath-not-found", "local");
+%!   rmpath (d);
+%!   confirm_recursive_rmdir (false, "local");
+%!   rmdir (d, "s");
+%! end_unwind_protect
+
+%!test
+%! ## A broad query is capped, and says so, because a model can act on the
+%! ## total by narrowing but cannot act on a silently shortened list.
+%! RESP = mcp.dispatch (callsearch ("matrix"), []);
+%! sc = RESP.result.structuredContent;
+%! assert_equal (sc.shown, 40);
+%! assert_equal (sc.total > sc.shown, true);
+%! assert_equal (numel (sc.matches), 40);
+%! assert_equal (isempty (strfind (RESP.result.content{1}.text, "of")), false);
+
+%!test
+%! ## Nothing found is not a tool error: a lookup of a name that does not
+%! ## exist is a wrong assumption to correct, an empty search is a fact.
+%! RESP = mcp.dispatch (callsearch ("mcpzznothingmatchesthis"), []);
+%! assert_equal (RESP.result.isError, false);
+%! assert_equal (RESP.result.structuredContent.total, 0);
+%! assert_equal (isempty (strfind (RESP.result.content{1}.text, "launch command")), false);
+
+%!test
+%! ## A missing query is a tool error, and still conforms to the schema.
+%! meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
+%!         '"io.modelcontextprotocol/clientCapabilities":{}}'];
+%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%!      '"params":{"name":"octave_search","arguments":{},' meta '}}']);
+%! RESP = mcp.dispatch (R, []);
+%! assert_equal (RESP.result.isError, true);
+%! assert_equal (RESP.result.structuredContent.total, 0);
+
+%!test
+%! ## Summaries are one line each: a wrapped help sentence must not become
+%! ## several rows in what is presented as a table.
+%! RESP = mcp.dispatch (callsearch ("eigenvalue"), []);
+%! for i = 1:numel (RESP.result.structuredContent.matches)
+%!   s = RESP.result.structuredContent.matches{i}.summary;
+%!   assert_equal (any (s == "\n"), false);
+%!   assert_equal (numel (s) <= 100, true);
+%! endfor
+
+%!test
+%! ## The same query twice gives the same page, which is what lets a client
+%! ## cache and a model reason about "the first result".
+%! A = mcp.dispatch (callsearch ("matrix"), []);
+%! B = mcp.dispatch (callsearch ("matrix"), []);
+%! assert_equal (A.result.structuredContent.matches, B.result.structuredContent.matches);
+
+%!test
+%! ## TOOL_STYLE, and the joins are not glued.
+%! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
+%! d = RESP.result.tools{4}.description;
+%! assert_equal (RESP.result.tools{4}.name, "octave_search");
+%! assert_equal (numel (d) <= 300, true);
+%! assert_equal (isempty (strfind (d, "best name matches first")), false);
+%! assert_equal (isempty (strfind (d, "where a known name lives")), false);
