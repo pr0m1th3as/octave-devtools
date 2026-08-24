@@ -406,10 +406,11 @@ function T = toolTable ()
   t = struct ();
   t.name = "octave_pkg";
   t.title = "Installed Packages";
-  t.description = strcat ("List the Octave packages installed here, their", ...
-    " versions, and which ones this server loaded. Name one for its", ...
-    " dependencies and directory. Only loaded packages have their functions", ...
-    " on the load path, which is what octave_which and octave_help resolve.");
+  t.description = strcat ("List the add-on packages installed here, each", ...
+    " package's own version, and which ones this server loaded. Name", ...
+    " a package to see its dependencies, which the bare listing does not", ...
+    " show. It does not report the Octave version, which the server", ...
+    " instructions state.");
   props = struct ();
   props.name = struct ("type", "string", "description", ...
     "Optional package name; omit to list every installed package");
@@ -445,7 +446,9 @@ function t = instructionsText ()
   ## The version goes here, not into a tool.  This field is sent once, at
   ## connection, and stays in the model's context; a tool reporting a constant
   ## charges its description against every request for the life of the session.
-  t = sprintf ("This is GNU Octave %s on %s. ", version (), computer ());
+  t = sprintf (strcat ("This server runs GNU Octave %s on %s. No tool", ...
+                       " reports that; it is stated here. "), ...
+               version (), computer ());
   t = [t, strcat("Introspects the GNU Octave interpreter this server runs", ...
     " inside. It sees only the packages its own launch command loaded, which", ...
     " may be fewer than an interactive session has; say so rather than", ...
@@ -1474,7 +1477,7 @@ endfunction
 %! ## The same trap in the guidance the model reads about the whole server.
 %! RESP = mcp.dispatch (mkreq ("server/discover", ""));
 %! s = RESP.result.instructions;
-%! assert_equal (isempty (strfind (s, "interpreter this server runs inside")), false);
+%! assert_equal (isempty (strfind (s, "No tool reports that")), false);
 %! assert_equal (isempty (strfind (s, "its own launch command loaded")), false);
 %! assert_equal (isempty (strfind (s, "function, and writes nothing")), false);
 
@@ -1484,7 +1487,7 @@ endfunction
 %!      '"params":{"protocolVersion":"2025-11-25"}}']);
 %! RESP = mcp.dispatch (R, []);
 %! s = RESP.result.instructions;
-%! assert_equal (isempty (strfind (s, "interpreter this server runs inside")), false);
+%! assert_equal (isempty (strfind (s, "No tool reports that")), false);
 %! assert_equal (isempty (strfind (s, "function, and writes nothing")), false);
 
 %!test
@@ -2051,7 +2054,9 @@ endfunction
 %! assert_equal (t.name, "octave_pkg");
 %! assert_equal (numel (d) <= 300, true);
 %! assert_equal (isempty (strfind (d, "which ones this server loaded")), false);
-%! assert_equal (isempty (strfind (d, "on the load path")), false);
+%! assert_equal (isempty (strfind (d, "package's own version")), false);
+%! assert_equal (isempty (strfind (d, "bare listing does not show")), false);
+%! assert_equal (isempty (strfind (d, "not report the Octave version")), false);
 
 %!test
 %! ## The third state: a name that is not on the load path but does sit in an
