@@ -310,13 +310,51 @@ function T = toolTable ()
   t.outputSchema = osc;
   T{end+1} = t;
 
+  t = struct ();
+  t.name = "octave_which";
+  t.title = "Resolve a Name";
+  t.description = strcat ("Resolve an Octave name to the file that defines", ...
+    " it, its kind, and the package that owns it, and list anything it", ...
+    " shadows. Prefer this over octave_help when the question is where a name", ...
+    " comes from or which package wins. Reports not found for an unknown name.");
+  props = struct ();
+  props.name = struct ("type", "string", "description", ...
+    "Function, class, method or namespaced name, such as kmeans or containers.Map");
+  isc = struct ();
+  isc.type = "object";
+  isc.properties = props;
+  isc.required = {'name'};
+  isc.additionalProperties = false;
+  t.inputSchema = isc;
+  mprops = struct ();
+  mprops.path = struct ("type", "string");
+  mprops.package = struct ("type", "string");
+  mitem = struct ();
+  mitem.type = "object";
+  mitem.properties = mprops;
+  oprops = struct ();
+  oprops.name = struct ("type", "string");
+  oprops.found = struct ("type", "boolean");
+  oprops.kind = struct ("type", "string");
+  oprops.path = struct ("type", "string");
+  oprops.package = struct ("type", "string");
+  oprops.shadowed = struct ("type", "integer");
+  oprops.matches = struct ("type", "array", "items", mitem);
+  osc = struct ();
+  osc.type = "object";
+  osc.properties = oprops;
+  osc.required = {'name', 'found', 'kind'};
+  t.outputSchema = osc;
+  T{end+1} = t;
+
 endfunction
 
 function t = instructionsText ()
-  t = strcat ("Introspects the GNU Octave installation this", ...
-    " server runs inside: the same load path, packages and version that the", ...
-    " user's Octave has. Evaluates no code, runs no user function, and", ...
-    " writes nothing.");
+  t = strcat ("Introspects the GNU Octave interpreter this server runs", ...
+    " inside. It sees only the packages its own launch command loaded, which", ...
+    " may be fewer than an interactive session has; say so rather than", ...
+    " concluding a name does not exist. Evaluates no code, runs no user", ...
+    " function, and writes nothing.");
 endfunction
 
 function res = discoverResult ()
@@ -379,6 +417,8 @@ function [res, code, msg] = toolsCall (params, era)
   switch (params.name)
     case 'octave_version'
       res = callOctaveVersion (args, era);
+    case 'octave_which'
+      res = callOctaveWhich (args, era);
   endswitch
 
 endfunction
@@ -412,6 +452,261 @@ function res = callOctaveVersion (args, era)
   res.content = {textBlock(txt)};
   res.isError = false;
   res.structuredContent = sc;
+
+endfunction
+
+function res = callOctaveWhich (args, era)
+
+  res = struct ();
+  if (strcmp (era, "modern"))
+    res.resultType = "complete";
+  endif
+
+  if (! (isfield (args, "name") && ischar (args.name) && isrow (args.name) ...
+         && ! isempty (strtrim (args.name))))
+    res.content = {textBlock(strcat ("octave_which needs a name: the", ...
+      " function, class, method or namespaced name to resolve."))};
+    res.isError = true;
+    ## The declared outputSchema is a promise about every result, error
+    ## included, so an error carries a conforming report rather than nothing
+    res.structuredContent = whichReport ("");
+    return;
+  endif
+
+  W = whichReport (strtrim (args.name));
+
+  if (! W.found)
+    res.content = {textBlock(sprintf (strcat ("%s is not on this server's", ...
+      " load path. It may still exist in a package this server did not load.", ...
+      " Operators resolve by function name, such as plus for +."), W.name))};
+    res.isError = true;
+    res.structuredContent = W;
+    return;
+  endif
+
+  res.content = {textBlock(whichText (W))};
+  res.isError = false;
+  res.structuredContent = W;
+
+endfunction
+
+function W = whichReport (w_name)
+
+  ## which () resolves against the calling function's workspace, so a query for
+  ## a name this function also uses would come back as "variable".  Every local
+  ## here is therefore prefixed, and that is the whole reason for the prefix.
+
+  if (isempty (w_name))
+    w_name = "";
+  endif
+
+  W = struct ();
+  W.name = w_name;
+  W.found = false;
+  W.kind = "not found";
+  W.path = "";
+  W.package = "";
+  W.shadowed = 0;
+  W.matches = {};
+
+  if (isempty (w_name))
+    return;
+  endif
+
+  w_p = "";
+  try
+    w_p = which (w_name);
+  catch
+    w_p = "";
+  end_try_catch
+
+  w_ex = 0;
+  try
+    w_ex = exist (w_name);
+  catch
+    w_ex = 0;
+  end_try_catch
+
+  if (w_ex == 5)
+    ## A built-in: what which reports is a source file inside the interpreter,
+    ## not a path on this machine, and must not be presented as one
+    W.found = true;
+    W.kind = "built-in function";
+    W.path = w_p;
+    W.package = "core";
+    W.matches = {struct("path", w_p, "package", "core")};
+    return;
+  endif
+
+  if (strcmp (w_p, "variable"))
+    W.found = true;
+    W.kind = "variable";
+    return;
+  endif
+
+  if (isempty (w_p))
+    return;
+  endif
+
+  W.found = true;
+  W.path = w_p;
+  W.kind = fileKind (w_p);
+
+  ## A dotted name resolving to the classdef file named for its next-to-last
+  ## part was a request for a method, not for the class
+  w_parts = strsplit (w_name, ".");
+  if (numel (w_parts) > 1 && strcmp (W.kind, "classdef"))
+    [~, w_base] = fileparts (W.path);
+    if (strcmp (w_base, w_parts{end-1}))
+      W.kind = "method";
+    endif
+  endif
+
+  w_pk = pkg ("list");
+  W.package = pathOwner (W.path, w_pk);
+
+  ## Enumerate every resolution by hand.  Never which (..., "all"): core's
+  ## -all is unimplemented (Savannah bug #32088), it warns that only the first
+  ## result will be returned, and the function form hands back a character
+  ## vector rather than a cell, so a caller gets short data and a wrong type.
+  w_hits = {};
+  w_frags = nameFragments (w_name);
+  for w_i = 1:numel (w_frags)
+    for w_e = {'.m', '.oct', '.mex'}
+      w_f = file_in_loadpath ([w_frags{w_i} w_e{1}], "all");
+      for w_j = 1:numel (w_f)
+        if (! any (strcmp (w_f{w_j}, w_hits)))
+          w_hits{end+1} = w_f{w_j};
+        endif
+      endfor
+    endfor
+  endfor
+
+  ## The resolution the interpreter would actually use leads, whatever order
+  ## the enumeration produced
+  w_hits = [{W.path}, w_hits(! strcmp (w_hits, W.path))];
+
+  for w_i = 1:numel (w_hits)
+    W.matches{end+1} = struct ("path", w_hits{w_i}, ...
+                               "package", pathOwner (w_hits{w_i}, w_pk));
+  endfor
+  W.shadowed = numel (W.matches) - 1;
+
+endfunction
+
+function F = nameFragments (n)
+
+  ## file_in_loadpath resolves a path fragment, not a dotted name: it finds
+  ## "+nsx/f.m" and returns nothing at all for "nsx.f.m".
+
+  parts = strsplit (n, ".");
+  if (numel (parts) == 1)
+    F = {n};
+    return;
+  endif
+
+  F = {};
+  ns = "";                            # every part but the last, as namespaces
+  for i = 1:numel (parts) - 1
+    ns = catpath (ns, ["+" parts{i}]);
+  endfor
+  F{end+1} = catpath (ns, parts{end});
+
+  outer = "";                         # every part but the last two
+  for i = 1:numel (parts) - 2
+    outer = catpath (outer, ["+" parts{i}]);
+  endfor
+  F{end+1} = catpath (catpath (outer, ["@" parts{end-1}]), parts{end});
+  F{end+1} = catpath (outer, parts{end-1});
+
+endfunction
+
+function p = catpath (a, b)
+  if (isempty (a))
+    p = b;
+  else
+    p = fullfile (a, b);
+  endif
+endfunction
+
+function K = fileKind (p)
+
+  K = "function";
+  [~, ~, e] = fileparts (p);
+  if (any (strcmp (e, {'.oct', '.mex'})))
+    K = "compiled function";
+    return;
+  endif
+
+  fid = fopen (p, "r");
+  if (fid < 0)
+    return;
+  endif
+  unwind_protect
+    l = fgetl (fid);
+    while (ischar (l))
+      t = strtrim (l);
+      if (! isempty (t) && ! strncmp (t, "#", 1) && ! strncmp (t, "%", 1))
+        break;
+      endif
+      l = fgetl (fid);
+    endwhile
+  unwind_protect_cleanup
+    fclose (fid);
+  end_unwind_protect
+
+  if (! ischar (l))
+    return;
+  endif
+  t = strtrim (l);
+  if (strncmp (t, "classdef", 8))
+    K = "classdef";
+  elseif (! strncmp (t, "function", 8))
+    K = "script";
+  endif
+
+endfunction
+
+function O = pathOwner (p, L)
+
+  O = "";
+  for i = 1:numel (L)
+    if (strncmp (p, L{i}.dir, numel (L{i}.dir)))
+      O = sprintf ("%s %s", L{i}.name, L{i}.version);
+      return;
+    endif
+  endfor
+
+  h = fullfile (OCTAVE_HOME (), "share", "octave");
+  if (strncmp (p, h, numel (h)))
+    O = "core";
+  endif
+
+endfunction
+
+function T = whichText (W)
+
+  L = {sprintf("%s is a %s", W.name, W.kind)};
+  if (! isempty (W.path))
+    if (strcmp (W.kind, "built-in function"))
+      ## Not a path on this machine: it is a source file inside the interpreter
+      L{end+1} = sprintf ("  defined in: %s (interpreter source)", W.path);
+    else
+      L{end+1} = sprintf ("  file:    %s", W.path);
+    endif
+  endif
+  if (! isempty (W.package))
+    L{end+1} = sprintf ("  package: %s", W.package);
+  endif
+  for i = 2:numel (W.matches)
+    if (isempty (W.matches{i}.package))
+      L{end+1} = sprintf ("  shadows: %s", W.matches{i}.path);
+    else
+      L{end+1} = sprintf ("  shadows: %s  [%s]", W.matches{i}.path, ...
+                          W.matches{i}.package);
+    endif
+  endfor
+  T = strjoin (L, "\n");
 
 endfunction
 
@@ -510,9 +805,11 @@ endfunction
 %! assert_equal (si.name, "mcp");
 
 %!test
-%! RESP = mcp.dispatch (mkreq ("tools/list", ""));
-%! assert_equal (numel (RESP.result.tools), 1);
-%! assert_equal (RESP.result.tools{1}.name, "octave_version");
+%! ## The advertised set is frozen API: renaming a tool silently breaks every
+%! ## configuration and every prompt built on it, with no error anywhere.
+%! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
+%! names = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
+%! assert_equal (names, {'octave_version', 'octave_which'});
 
 %!test
 %! ## The tool list is fixed for the life of the process, so it may be cached.
@@ -547,8 +844,8 @@ endfunction
 %! ## The same trap in the guidance the model reads about the whole server.
 %! RESP = mcp.dispatch (mkreq ("server/discover", ""));
 %! s = RESP.result.instructions;
-%! assert_equal (isempty (strfind (s, "installation this server runs")), false);
-%! assert_equal (isempty (strfind (s, "version that the user's Octave")), false);
+%! assert_equal (isempty (strfind (s, "interpreter this server runs inside")), false);
+%! assert_equal (isempty (strfind (s, "its own launch command loaded")), false);
 %! assert_equal (isempty (strfind (s, "function, and writes nothing")), false);
 
 %!test
@@ -557,7 +854,7 @@ endfunction
 %!      '"params":{"protocolVersion":"2025-11-25"}}']);
 %! RESP = mcp.dispatch (R, []);
 %! s = RESP.result.instructions;
-%! assert_equal (isempty (strfind (s, "installation this server runs")), false);
+%! assert_equal (isempty (strfind (s, "interpreter this server runs inside")), false);
 %! assert_equal (isempty (strfind (s, "function, and writes nothing")), false);
 
 %!test
@@ -638,8 +935,8 @@ endfunction
 %! ## A legacy session needs no per-request metadata and must not be asked for it.
 %! S = legacySession ();
 %! RESP = mcp.dispatch (plainreq ("tools/list", ""), S);
-%! assert_equal (numel (RESP.result.tools), 1);
-%! assert_equal (RESP.result.tools{1}.name, "octave_version");
+%! names = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
+%! assert_equal (names, {'octave_version', 'octave_which'});
 
 %!test
 %! ## The legacy envelope carries neither resultType nor the cache hints, both
@@ -710,3 +1007,134 @@ endfunction
 
 %!error <mcp\.dispatch: S must be a session structure, or empty for a fresh one\.> ...
 %! mcp.dispatch (mcp.decodeRequest (""), 5)
+
+%!function R = callwhich (name)
+%!  meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
+%!          '"io.modelcontextprotocol/clientCapabilities":{}}'];
+%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%!       '"params":{"name":"octave_which","arguments":{"name":"' name '"},' ...
+%!       meta '}}']);
+%!endfunction
+
+%!test
+%! ## A core m-file resolves to its file and is attributed to core.
+%! RESP = mcp.dispatch (callwhich ("mean"), []);
+%! W = RESP.result.structuredContent;
+%! assert_equal (RESP.result.isError, false);
+%! assert_equal (W.found, true);
+%! assert_equal (W.kind, "function");
+%! assert_equal (W.package, "core");
+
+%!test
+%! ## A built-in reports a source file inside the interpreter, which is not a
+%! ## path on this machine and must not be offered as one.
+%! RESP = mcp.dispatch (callwhich ("sin"), []);
+%! W = RESP.result.structuredContent;
+%! assert_equal (W.kind, "built-in function");
+%! t = RESP.result.content{1}.text;
+%! assert_equal (isempty (strfind (t, "interpreter source")), false);
+%! assert_equal (isempty (strfind (t, "file:")), true);
+
+%!test
+%! ## exist () reports 0 for a namespaced name, so the kind cannot come from it.
+%! RESP = mcp.dispatch (callwhich ("containers.Map"), []);
+%! W = RESP.result.structuredContent;
+%! assert_equal (W.found, true);
+%! assert_equal (W.kind, "classdef");
+
+%!test
+%! ## A dotted name landing on the classdef it belongs to was a method query.
+%! RESP = mcp.dispatch (callwhich ("containers.Map.keys"), []);
+%! W = RESP.result.structuredContent;
+%! assert_equal (W.found, true);
+%! assert_equal (W.kind, "method");
+
+%!test
+%! ## Not found is a tool error, which a model can act on, never a protocol one.
+%! RESP = mcp.dispatch (callwhich ("mcpzznosuchname"), []);
+%! assert_equal (isfield (RESP, "error"), false);
+%! assert_equal (RESP.result.isError, true);
+%! assert_equal (RESP.result.structuredContent.found, false);
+
+%!test
+%! ## The hint names the fallback, since an operator never resolves by symbol.
+%! RESP = mcp.dispatch (callwhich ("mcpzznosuchname"), []);
+%! t = RESP.result.content{1}.text;
+%! assert_equal (isempty (strfind (t, "plus for +")), false);
+%! assert_equal (isempty (strfind (t, "a package this server did not load")), false);
+
+%!test
+%! ## A missing argument is a tool error naming what was wanted.
+%! meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
+%!         '"io.modelcontextprotocol/clientCapabilities":{}}'];
+%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%!      '"params":{"name":"octave_which","arguments":{},' meta '}}']);
+%! RESP = mcp.dispatch (R, []);
+%! assert_equal (RESP.result.isError, true);
+%! assert_equal (isempty (strfind (RESP.result.content{1}.text, "needs a name")), false);
+
+%!test
+%! ## Shadowing is the whole point of this tool, and it is also the guard that
+%! ## keeps anyone from reaching for which (..., "all"), which returns one hit.
+%! d1 = fullfile (tempdir (), "mcp_shadow_a");
+%! d2 = fullfile (tempdir (), "mcp_shadow_b");
+%! unwind_protect
+%!   mkdir (d1); mkdir (d2);
+%!   for d = {d1, d2}
+%!     fid = fopen (fullfile (d{1}, "mcpzzfixture.m"), "w");
+%!     fprintf (fid, "function y = mcpzzfixture ()\n  y = 1;\nendfunction\n");
+%!     fclose (fid);
+%!   endfor
+%!   addpath (d2); addpath (d1);
+%!   RESP = mcp.dispatch (callwhich ("mcpzzfixture"), []);
+%!   W = RESP.result.structuredContent;
+%!   assert_equal (W.shadowed, 1);
+%!   assert_equal (numel (W.matches), 2);
+%!   assert_equal (W.matches{1}.path, fullfile (d1, "mcpzzfixture.m"));
+%!   assert_equal (W.matches{2}.path, fullfile (d2, "mcpzzfixture.m"));
+%!   assert_equal (W.path, W.matches{1}.path);
+%! unwind_protect_cleanup
+%!   warning ("off", "Octave:rmpath-not-found", "local");
+%!   rmpath (d1); rmpath (d2);
+%!   confirm_recursive_rmdir (false, "local");
+%!   rmdir (d1, "s"); rmdir (d2, "s");
+%! end_unwind_protect
+
+%!test
+%! ## The description obeys TOOL_STYLE and its joins are not glued.
+%! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
+%! d = RESP.result.tools{2}.description;
+%! assert_equal (RESP.result.tools{2}.name, "octave_which");
+%! assert_equal (numel (d) <= 300, true);
+%! assert_equal (isempty (strfind (d, "the file that defines it")), false);
+%! assert_equal (isempty (strfind (d, "and list anything it shadows")), false);
+
+%!test
+%! ## The legacy envelope reaches the new tool too.
+%! S = legacySession ();
+%! RESP = mcp.dispatch (plainreq ("tools/call", ...
+%!          '"name":"octave_which","arguments":{"name":"mean"}'), S);
+%! assert_equal (RESP.result.isError, false);
+%! assert_equal (isfield (RESP.result, "resultType"), false);
+%! assert_equal (RESP.result.structuredContent.kind, "function");
+
+%!test
+%! ## A tool that declares an outputSchema promises structured content on every
+%! ## result, an error result included, or the schema is not a contract.
+%! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
+%! schemad = {};
+%! for i = 1:numel (RESP.result.tools)
+%!   if (isfield (RESP.result.tools{i}, "outputSchema"))
+%!     schemad{end+1} = RESP.result.tools{i}.name;
+%!   endif
+%! endfor
+%! assert_equal (any (strcmp ("octave_which", schemad)), true);
+%! ## Note: no space before the paren would be needed inside {}, so the
+%! ## requests are built first rather than inline.
+%! good = callwhich ("mean");
+%! bad = callwhich ("mcpzznosuchname");
+%! A = mcp.dispatch (good, []);
+%! B = mcp.dispatch (bad, []);
+%! assert_equal (isfield (A.result, "structuredContent"), true);
+%! assert_equal (isfield (B.result, "structuredContent"), true);
+%! assert_equal (B.result.isError, true);

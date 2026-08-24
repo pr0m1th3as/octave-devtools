@@ -11,8 +11,19 @@ release will provide.
 
 The server process *is* an Octave interpreter. There is no wrapper process and
 no second copy of the truth: the interpreter answering "what does `kmeans` do"
-is the interpreter being asked about, with the same load path, the same
-installed packages and the same version.
+is a real Octave, with a real load path, resolving names exactly as Octave does.
+
+**It sees the packages its own launch command loads, and no others.** The
+command below loads only `mcp` itself, so `octave_which` will not find a
+function from `statistics` unless you say so. Load what you want it to see:
+
+```
+--eval "pkg load mcp statistics datatypes; mcp.serve ()"
+```
+
+That is a deliberate choice rather than an oversight: loading every installed
+package would execute each one's `PKG_ADD`, which is other people's code running
+at startup, and this server's whole claim is that it runs none.
 
 The first release provides read-only introspection only. It **evaluates no
 code, runs no user function, and writes nothing**, which is what makes it safe
