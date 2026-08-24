@@ -1,0 +1,10 @@
+mcp >> Model Context Protocol Server for GNU Octave
+Servers
+ mcp.serve
+Diagnostics
+ mcp.selftest
+Protocol core
+ mcp.decodeRequest
+ mcp.dispatch
+ mcp.encodeResponse
+ mcp.jsonrpcError
