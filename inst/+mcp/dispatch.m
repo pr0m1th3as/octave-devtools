@@ -335,6 +335,7 @@ function T = toolTable ()
   oprops = struct ();
   oprops.name = struct ("type", "string");
   oprops.found = struct ("type", "boolean");
+  oprops.state = struct ("type", "string");
   oprops.kind = struct ("type", "string");
   oprops.path = struct ("type", "string");
   oprops.package = struct ("type", "string");
@@ -343,7 +344,7 @@ function T = toolTable ()
   osc = struct ();
   osc.type = "object";
   osc.properties = oprops;
-  osc.required = {'name', 'found', 'kind'};
+  osc.required = {'name', 'found', 'state', 'kind'};
   t.outputSchema = osc;
   T{end+1} = t;
 
@@ -401,6 +402,42 @@ function T = toolTable ()
   osc.type = "object";
   osc.properties = oprops;
   osc.required = {'query', 'total', 'shown', 'matches'};
+  t.outputSchema = osc;
+  T{end+1} = t;
+
+  t = struct ();
+  t.name = "octave_pkg";
+  t.title = "Installed Packages";
+  t.description = strcat ("List the Octave packages installed here, their", ...
+    " versions, and which ones this server loaded. Name one for its", ...
+    " dependencies and directory. Only loaded packages have their functions", ...
+    " on the load path, which is what octave_which and octave_help resolve.");
+  props = struct ();
+  props.name = struct ("type", "string", "description", ...
+    "Optional package name; omit to list every installed package");
+  isc = struct ();
+  isc.type = "object";
+  isc.properties = props;
+  isc.additionalProperties = false;
+  t.inputSchema = isc;
+  pprops = struct ();
+  pprops.name = struct ("type", "string");
+  pprops.version = struct ("type", "string");
+  pprops.loaded = struct ("type", "boolean");
+  pprops.title = struct ("type", "string");
+  pprops.depends = struct ("type", "array", "items", struct ("type", "string"));
+  pprops.dir = struct ("type", "string");
+  pitem = struct ();
+  pitem.type = "object";
+  pitem.properties = pprops;
+  oprops = struct ();
+  oprops.total = struct ("type", "integer");
+  oprops.loaded = struct ("type", "integer");
+  oprops.packages = struct ("type", "array", "items", pitem);
+  osc = struct ();
+  osc.type = "object";
+  osc.properties = oprops;
+  osc.required = {'total', 'loaded', 'packages'};
   t.outputSchema = osc;
   T{end+1} = t;
 
@@ -480,6 +517,8 @@ function [res, code, msg] = toolsCall (params, era)
       res = callOctaveHelp (args, era);
     case 'octave_search'
       res = callOctaveSearch (args, era);
+    case 'octave_pkg'
+      res = callOctavePkg (args, era);
   endswitch
 
 endfunction
@@ -538,9 +577,9 @@ function res = callOctaveWhich (args, era)
 
   if (! W.found)
     res.content = {textBlock(sprintf (strcat ("%s is not on this server's", ...
-      " load path. It may still exist in a package this server did not load.", ...
-      " Operators resolve by function name, such as plus for +, or ask", ...
-      " octave_help, which reads them directly."), W.name))};
+      " load path, and no installed package provides it either. Operators", ...
+      " resolve by function name, such as plus for +, or ask octave_help,", ...
+      " which reads them directly."), W.name))};
     res.isError = true;
     res.structuredContent = W;
     return;
@@ -565,6 +604,7 @@ function W = whichReport (w_name)
   W = struct ();
   W.name = w_name;
   W.found = false;
+  W.state = "absent";
   W.kind = "not found";
   W.path = "";
   W.package = "";
@@ -593,6 +633,7 @@ function W = whichReport (w_name)
     ## A built-in: what which reports is a source file inside the interpreter,
     ## not a path on this machine, and must not be presented as one
     W.found = true;
+    W.state = "on the load path";
     W.kind = "built-in function";
     W.path = w_p;
     W.package = "core";
@@ -602,15 +643,32 @@ function W = whichReport (w_name)
 
   if (strcmp (w_p, "variable"))
     W.found = true;
+    W.state = "on the load path";
     W.kind = "variable";
     return;
   endif
 
   if (isempty (w_p))
+    ## Not on the load path.  It may still sit in a package this server did
+    ## not load, which is a different answer from "no such function" and is
+    ## the one that stops a model concluding the name does not exist.
+    w_pk = pkg ("list");
+    w_hits = installedFind (nameFragments (w_name), w_pk);
+    if (isempty (w_hits))
+      return;
+    endif
+    W.found = true;
+    W.state = "installed but not loaded";
+    W.path = w_hits{1}.path;
+    W.package = w_hits{1}.package;
+    W.kind = fileKind (W.path);
+    W.matches = w_hits;
+    W.shadowed = numel (w_hits) - 1;
     return;
   endif
 
   W.found = true;
+  W.state = "on the load path";
   W.path = w_p;
   W.kind = fileKind (w_p);
 
@@ -748,7 +806,13 @@ endfunction
 
 function T = whichText (W)
 
-  L = {sprintf("%s is a %s", W.name, W.kind)};
+  if (strcmp (W.state, "installed but not loaded"))
+    L = {sprintf("%s is a %s in %s, installed but NOT loaded by this server", ...
+                 W.name, W.kind, W.package)};
+    L{end+1} = "  it cannot be called here until that package is loaded";
+  else
+    L = {sprintf("%s is a %s", W.name, W.kind)};
+  endif
   if (! isempty (W.path))
     if (strcmp (W.kind, "built-in function"))
       ## Not a path on this machine: it is a source file inside the interpreter
@@ -995,6 +1059,166 @@ function S = oneLine (txt)
   endif
 endfunction
 
+function res = callOctavePkg (args, era)
+
+  res = struct ();
+  if (strcmp (era, "modern"))
+    res.resultType = "complete";
+  endif
+
+  L = pkg ("list");
+  rows = {};
+  for i = 1:numel (L)
+    rows{end+1} = pkgRow (L{i});
+  endfor
+
+  want = "";
+  if (isfield (args, "name") && ischar (args.name) && isrow (args.name))
+    want = strtrim (args.name);
+  endif
+
+  nloaded = 0;
+  for i = 1:numel (rows)
+    nloaded += rows{i}.loaded;
+  endfor
+
+  if (! isempty (want))
+    keep = {};
+    for i = 1:numel (rows)
+      if (strcmpi (rows{i}.name, want))
+        keep{end+1} = rows{i};
+      endif
+    endfor
+    if (isempty (keep))
+      sc = struct ();
+      sc.total = numel (rows);
+      sc.loaded = nloaded;
+      sc.packages = {};
+      res.content = {textBlock(sprintf (strcat ("%s is not installed. %d", ...
+        " packages are installed here; call octave_pkg with no argument to", ...
+        " list them."), want, numel (rows)))};
+      res.isError = true;
+      res.structuredContent = sc;
+      return;
+    endif
+    sc = struct ();
+    sc.total = numel (rows);
+    sc.loaded = nloaded;
+    sc.packages = keep;
+    res.content = {textBlock(pkgDetail (keep{1}))};
+    res.isError = false;
+    res.structuredContent = sc;
+    return;
+  endif
+
+  lines = {sprintf("%d packages installed, %d loaded by this server:", ...
+                   numel (rows), nloaded)};
+  for i = 1:numel (rows)
+    if (rows{i}.loaded)
+      mark = "loaded";
+    else
+      mark = "-";
+    endif
+    lines{end+1} = sprintf ("  %-16s %-9s %-7s %s", rows{i}.name, ...
+                            rows{i}.version, mark, rows{i}.title);
+  endfor
+
+  sc = struct ();
+  sc.total = numel (rows);
+  sc.loaded = nloaded;
+  sc.packages = rows;
+
+  res.content = {textBlock(strjoin (lines, "\n"))};
+  res.isError = false;
+  res.structuredContent = sc;
+
+endfunction
+
+function R = pkgRow (P)
+
+  R = struct ();
+  R.name = P.name;
+  R.version = P.version;
+  R.loaded = logical (P.loaded);
+  R.title = "";
+  if (isfield (P, "title") && ischar (P.title))
+    R.title = P.title;
+  endif
+  R.depends = {};
+  if (isfield (P, "depends") && iscell (P.depends))
+    for i = 1:numel (P.depends)
+      d = P.depends{i};
+      if (isstruct (d) && isfield (d, "package"))
+        R.depends{end+1} = sprintf ("%s%s%s", d.package, d.operator, d.version);
+      endif
+    endfor
+  endif
+  R.dir = P.dir;
+
+endfunction
+
+function T = pkgDetail (R)
+
+  if (R.loaded)
+    mark = "loaded by this server";
+  else
+    mark = "installed but not loaded by this server";
+  endif
+  L = {sprintf("%s %s, %s", R.name, R.version, mark)};
+  if (! isempty (R.title))
+    L{end+1} = sprintf ("  title:    %s", R.title);
+  endif
+  if (! isempty (R.depends))
+    L{end+1} = sprintf ("  depends:  %s", strjoin (R.depends, ", "));
+  endif
+  L{end+1} = sprintf ("  dir:      %s", R.dir);
+  T = strjoin (L, "\n");
+
+endfunction
+
+function H = installedFind (frags, L)
+
+  ## Look inside packages that are installed but not loaded, by reading the
+  ## filesystem only.  Nothing is loaded to answer this: pkg load would run the
+  ## package's PKG_ADD, which is code this server does not run, and would
+  ## mutate a process that serves unrelated conversations.
+  ## One directory walk per distinct leaf name, not per fragment: the
+  ## namespace and class-directory fragments share a leaf, so walking per
+  ## fragment would double the work for every dotted name.
+  leaves = {};
+  for j = 1:numel (frags)
+    [~, lf] = fileparts (frags{j});
+    if (! any (strcmp (lf, leaves)))
+      leaves{end+1} = lf;
+    endif
+  endfor
+
+  H = {};
+  for i = 1:numel (L)
+    if (L{i}.loaded)
+      continue;                       # a miss on the load path is a real miss
+    endif
+    for j = 1:numel (leaves)
+      for e = {'.m', '.oct', '.mex'}
+        d = dir (fullfile (L{i}.dir, "**", [leaves{j} e{1}]));
+        for k = 1:numel (d)
+          pth = fullfile (d(k).folder, d(k).name);
+          for f = 1:numel (frags)
+            tail = [frags{f} e{1}];
+            if (numel (pth) >= numel (tail) ...
+                && strcmp (pth(end-numel (tail)+1:end), tail))
+              H{end+1} = struct ("path", pth, ...
+                         "package", sprintf ("%s %s", L{i}.name, L{i}.version));
+              break;
+            endif
+          endfor
+        endfor
+      endfor
+    endfor
+  endfor
+
+endfunction
+
 function B = textBlock (txt)
   B = struct ("type", "text", "text", txt);
 endfunction
@@ -1095,7 +1319,8 @@ endfunction
 %! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
 %! names = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
 %! assert_equal (names, ...
-%!   {'octave_version', 'octave_which', 'octave_help', 'octave_search'});
+%!   {'octave_version', 'octave_which', 'octave_help', 'octave_search', ...
+%!    'octave_pkg'});
 
 %!test
 %! ## The tool list is fixed for the life of the process, so it may be cached.
@@ -1223,7 +1448,8 @@ endfunction
 %! RESP = mcp.dispatch (plainreq ("tools/list", ""), S);
 %! names = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
 %! assert_equal (names, ...
-%!   {'octave_version', 'octave_which', 'octave_help', 'octave_search'});
+%!   {'octave_version', 'octave_which', 'octave_help', 'octave_search', ...
+%!    'octave_pkg'});
 
 %!test
 %! ## The legacy envelope carries neither resultType nor the cache hints, both
@@ -1348,7 +1574,7 @@ endfunction
 %! RESP = mcp.dispatch (callwhich ("mcpzznosuchname"), []);
 %! t = RESP.result.content{1}.text;
 %! assert_equal (isempty (strfind (t, "plus for +")), false);
-%! assert_equal (isempty (strfind (t, "a package this server did not load")), false);
+%! assert_equal (isempty (strfind (t, "no installed package provides it")), false);
 
 %!test
 %! ## A missing argument is a tool error naming what was wanted.
@@ -1625,3 +1851,104 @@ endfunction
 %! assert_equal (numel (d) <= 300, true);
 %! assert_equal (isempty (strfind (d, "best name matches first")), false);
 %! assert_equal (isempty (strfind (d, "where a known name lives")), false);
+
+%!function R = callpkg (argjson)
+%!  meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
+%!          '"io.modelcontextprotocol/clientCapabilities":{}}'];
+%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%!       '"params":{"name":"octave_pkg","arguments":' argjson ',' meta '}}']);
+%!endfunction
+
+%!test
+%! ## With no argument, every installed package is listed, loaded or not.
+%! RESP = mcp.dispatch (callpkg ("{}"), []);
+%! sc = RESP.result.structuredContent;
+%! assert_equal (RESP.result.isError, false);
+%! assert_equal (sc.total, numel (sc.packages));
+%! assert_equal (sc.total >= 1, true);
+
+%!test
+%! ## mcp is necessarily installed while these tests run.  The loaded count is
+%! ## an invariant of the rows, not an assumption about this environment: a
+%! ## source tree reached by addpath is on the path without pkg calling it
+%! ## loaded, so asserting a count here would fail for the wrong reason.
+%! RESP = mcp.dispatch (callpkg ("{}"), []);
+%! sc = RESP.result.structuredContent;
+%! names = cellfun (@(q) q.name, sc.packages, "UniformOutput", false);
+%! assert_equal (any (strcmp ("mcp", names)), true);
+%! n = 0;
+%! for i = 1:numel (sc.packages)
+%!   n += sc.packages{i}.loaded;
+%! endfor
+%! assert_equal (sc.loaded, n);
+
+%!test
+%! ## Naming a package gives its dependencies and directory.
+%! RESP = mcp.dispatch (callpkg ('{"name":"mcp"}'), []);
+%! sc = RESP.result.structuredContent;
+%! assert_equal (numel (sc.packages), 1);
+%! assert_equal (sc.packages{1}.name, "mcp");
+%! assert_equal (isempty (sc.packages{1}.dir), false);
+%! assert_equal (isempty (strfind (RESP.result.content{1}.text, "depends:")), false);
+
+%!test
+%! ## A package that is not installed is a wrong assumption to correct.
+%! RESP = mcp.dispatch (callpkg ('{"name":"mcpzznosuchpackage"}'), []);
+%! assert_equal (RESP.result.isError, true);
+%! assert_equal (RESP.result.structuredContent.total >= 1, true);
+%! assert_equal (numel (RESP.result.structuredContent.packages), 0);
+
+%!test
+%! ## The listing never loads anything: what was loaded before the call is
+%! ## still what is loaded after it, which is the whole posture of this server.
+%! before = pkg ("list");
+%! nb = 0; for i = 1:numel (before), nb += before{i}.loaded; endfor
+%! mcp.dispatch (callpkg ("{}"), []);
+%! mcp.dispatch (callpkg ('{"name":"statistics"}'), []);
+%! after = pkg ("list");
+%! na = 0; for i = 1:numel (after), na += after{i}.loaded; endfor
+%! assert_equal (na, nb);
+
+%!test
+%! ## TOOL_STYLE, and the joins are not glued.
+%! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
+%! d = RESP.result.tools{5}.description;
+%! assert_equal (RESP.result.tools{5}.name, "octave_pkg");
+%! assert_equal (numel (d) <= 300, true);
+%! assert_equal (isempty (strfind (d, "which ones this server loaded")), false);
+%! assert_equal (isempty (strfind (d, "on the load path")), false);
+
+%!test
+%! ## The third state: a name that is not on the load path but does sit in an
+%! ## installed package. Answering "not found" there is what makes a model
+%! ## conclude a function does not exist when it merely is not loaded.
+%! L = pkg ("list");
+%! target = "";
+%! for i = 1:numel (L)
+%!   if (! L{i}.loaded)
+%!     d = dir (fullfile (L{i}.dir, "**", "*.m"));
+%!     if (! isempty (d))
+%!       [~, target] = fileparts (d(1).name);
+%!       break;
+%!     endif
+%!   endif
+%! endfor
+%! if (! isempty (target))
+%!   RESP = mcp.dispatch (callwhich (target), []);
+%!   W = RESP.result.structuredContent;
+%!   assert_equal (W.found, true);
+%!   assert_equal (W.state, "installed but not loaded");
+%!   assert_equal (RESP.result.isError, false);
+%!   assert_equal (isempty (strfind (RESP.result.content{1}.text, "NOT loaded")), false);
+%! endif
+
+%!test
+%! ## A name in neither place says so plainly, now that both were searched.
+%! RESP = mcp.dispatch (callwhich ("mcpzznosuchnameanywhere"), []);
+%! assert_equal (RESP.result.structuredContent.state, "absent");
+%! assert_equal (RESP.result.isError, true);
+
+%!test
+%! ## A resolvable name reports the state it is actually in.
+%! RESP = mcp.dispatch (callwhich ("mean"), []);
+%! assert_equal (RESP.result.structuredContent.state, "on the load path");

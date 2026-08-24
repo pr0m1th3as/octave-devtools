@@ -80,11 +80,11 @@ it was not.
 
 | Tool | Answers | |
 |------|---------|---|
-| `octave_which` | where a name resolves, what kind of thing it is, which package owns it, and what it shadows | built |
+| `octave_which` | where a name resolves, its kind, its owning package, what it shadows, and whether it is merely installed rather than loaded | built |
 | `octave_help` | the help text for a function, class, method or operator | built |
 | `octave_version` | the running Octave version and platform | built |
 | `octave_search` | which functions match a description, when the name is not known | built |
-| `octave_pkg` | which packages are installed, at which versions, and which are loaded | planned |
+| `octave_pkg` | which packages are installed, at which versions, and which are loaded | built |
 
 Static context is served as resources rather than tools: `octave://version`,
 `octave://path` and `octave://packages`.
