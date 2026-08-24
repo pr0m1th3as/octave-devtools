@@ -347,6 +347,29 @@ function T = toolTable ()
   t.outputSchema = osc;
   T{end+1} = t;
 
+  t = struct ();
+  t.name = "octave_help";
+  t.title = "Read the Help Text";
+  t.description = strcat ("Return the help text for an Octave function,", ...
+    " class, method or operator, as help renders it. Prefer this over", ...
+    " octave_which when the question is what a name does, not where it", ...
+    " lives; operators resolve here only. Long text is cut at a line", ...
+    " boundary with a marker.");
+  props = struct ();
+  props.name = struct ("type", "string", "description", ...
+    "Function, class, method or operator, such as regress, containers.Map or +");
+  isc = struct ();
+  isc.type = "object";
+  isc.properties = props;
+  isc.required = {'name'};
+  isc.additionalProperties = false;
+  t.inputSchema = isc;
+  ## No outputSchema and no structuredContent: the payload of this tool is
+  ## prose, and either duplicating it as JSON or splitting metadata out of it
+  ## costs tokens on every call for nothing the truncation marker does not
+  ## already say.
+  T{end+1} = t;
+
 endfunction
 
 function t = instructionsText ()
@@ -419,6 +442,8 @@ function [res, code, msg] = toolsCall (params, era)
       res = callOctaveVersion (args, era);
     case 'octave_which'
       res = callOctaveWhich (args, era);
+    case 'octave_help'
+      res = callOctaveHelp (args, era);
   endswitch
 
 endfunction
@@ -478,7 +503,8 @@ function res = callOctaveWhich (args, era)
   if (! W.found)
     res.content = {textBlock(sprintf (strcat ("%s is not on this server's", ...
       " load path. It may still exist in a package this server did not load.", ...
-      " Operators resolve by function name, such as plus for +."), W.name))};
+      " Operators resolve by function name, such as plus for +, or ask", ...
+      " octave_help, which reads them directly."), W.name))};
     res.isError = true;
     res.structuredContent = W;
     return;
@@ -710,6 +736,92 @@ function T = whichText (W)
 
 endfunction
 
+function res = callOctaveHelp (args, era)
+
+  res = struct ();
+  if (strcmp (era, "modern"))
+    res.resultType = "complete";
+  endif
+
+  if (! (isfield (args, "name") && ischar (args.name) && isrow (args.name) ...
+         && ! isempty (strtrim (args.name))))
+    res.content = {textBlock(strcat ("octave_help needs a name: the", ...
+      " function, class, method or operator to describe."))};
+    res.isError = true;
+    return;
+  endif
+
+  h_name = strtrim (args.name);
+  h_txt = "";
+  h_err = "";
+  try
+    h_txt = help (h_name);
+  catch h_e
+    h_err = h_e.message;
+  end_try_catch
+
+  if (! isempty (h_err) || isempty (strtrim (h_txt)))
+    res.content = {textBlock(sprintf (strcat ("No help for %s on this", ...
+      " server's load path. It may exist in a package this server did not", ...
+      " load; octave_which reports where a name resolves."), h_name))};
+    res.isError = true;
+    return;
+  endif
+
+  res.content = {textBlock(capText (h_txt, helpCap ()))};
+  res.isError = false;
+
+endfunction
+
+function B = helpCap ()
+  ## Measured on 11.2.0: core help is 591 bytes at the median and 7450 at the
+  ## 99th percentile; statistics and datatypes are 1447 and 10725.  This cuts
+  ## about 1% of core and 3% of package functions.  Doubling it would cut none
+  ## and would double the worst single call to roughly 4000 tokens, which the
+  ## user pays for, so the last few per cent are not worth buying.
+  B = 8192;
+endfunction
+
+function T = capText (txt, cap)
+
+  L = strsplit (txt, "\n");
+  nl = numel (L);
+  nb = numel (txt);
+
+  if (nb <= cap)
+    T = txt;
+    return;
+  endif
+
+  ## Room for the marker, so that the promise of a cap holds for what is
+  ## actually sent rather than for the part before the note about it
+  room = cap - 96;
+
+  keep = 0;
+  used = 0;
+  for i = 1:nl
+    add = numel (L{i}) + 1;
+    if (used + add > room)
+      break;
+    endif
+    used += add;
+    keep = i;
+  endfor
+
+  if (keep == 0)
+    ## One line longer than the whole budget: there is no line boundary to cut
+    ## at, so say that rather than pretending the text ended
+    T = sprintf ("%s\n[truncated mid-line: 1 line of %d bytes exceeds the %d byte limit]", ...
+                 L{1}(1:room), nb, cap);
+    return;
+  endif
+
+  T = strjoin (L(1:keep), "\n");
+  T = sprintf ("%s\n[truncated: %d of %d lines, %d of %d bytes]", T, keep, nl, ...
+               numel (T), nb);
+
+endfunction
+
 function B = textBlock (txt)
   B = struct ("type", "text", "text", txt);
 endfunction
@@ -809,7 +921,7 @@ endfunction
 %! ## configuration and every prompt built on it, with no error anywhere.
 %! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
 %! names = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
-%! assert_equal (names, {'octave_version', 'octave_which'});
+%! assert_equal (names, {'octave_version', 'octave_which', 'octave_help'});
 
 %!test
 %! ## The tool list is fixed for the life of the process, so it may be cached.
@@ -936,7 +1048,7 @@ endfunction
 %! S = legacySession ();
 %! RESP = mcp.dispatch (plainreq ("tools/list", ""), S);
 %! names = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
-%! assert_equal (names, {'octave_version', 'octave_which'});
+%! assert_equal (names, {'octave_version', 'octave_which', 'octave_help'});
 
 %!test
 %! ## The legacy envelope carries neither resultType nor the cache hints, both
@@ -1138,3 +1250,103 @@ endfunction
 %! assert_equal (isfield (A.result, "structuredContent"), true);
 %! assert_equal (isfield (B.result, "structuredContent"), true);
 %! assert_equal (B.result.isError, true);
+
+%!function R = callhelp (name)
+%!  meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
+%!          '"io.modelcontextprotocol/clientCapabilities":{}}'];
+%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%!       '"params":{"name":"octave_help","arguments":{"name":"' name '"},' ...
+%!       meta '}}']);
+%!endfunction
+
+%!test
+%! ## The ordinary case: the help of a core function comes back as help wrote it.
+%! RESP = mcp.dispatch (callhelp ("mean"), []);
+%! assert_equal (RESP.result.isError, false);
+%! assert_equal (isempty (strfind (RESP.result.content{1}.text, "mean (X)")), false);
+
+%!test
+%! ## An operator has help but does not resolve through which, which is why
+%! ## both tools exist and why the description says so.
+%! RESP = mcp.dispatch (callhelp ("+"), []);
+%! assert_equal (RESP.result.isError, false);
+%! assert_equal (isempty (strfind (RESP.result.content{1}.text, "Addition")), false);
+
+%!test
+%! ## An unknown name is a tool error naming the fallback, not a protocol error.
+%! RESP = mcp.dispatch (callhelp ("mcpzznosuchname"), []);
+%! assert_equal (isfield (RESP, "error"), false);
+%! assert_equal (RESP.result.isError, true);
+%! assert_equal (isempty (strfind (RESP.result.content{1}.text, "octave_which")), false);
+
+%!test
+%! ## Help carrying no structuredContent is deliberate: the payload is prose.
+%! RESP = mcp.dispatch (callhelp ("mean"), []);
+%! assert_equal (isfield (RESP.result, "structuredContent"), false);
+
+%!test
+%! ## Truncation, on a fixture built for it rather than on whichever function
+%! ## happens to have long help in this installation.
+%! d = fullfile (tempdir (), "mcp_help_big");
+%! unwind_protect
+%!   mkdir (d);
+%!   fid = fopen (fullfile (d, "mcpzzbig.m"), "w");
+%!   fprintf (fid, "## -*- texinfo -*-\n");
+%!   for i = 1:400
+%!     fprintf (fid, "## line %03d %s\n", i, repmat ("z", 1, 50));
+%!   endfor
+%!   fprintf (fid, "function mcpzzbig ()\nendfunction\n");
+%!   fclose (fid);
+%!   addpath (d);
+%!   RESP = mcp.dispatch (callhelp ("mcpzzbig"), []);
+%!   t = RESP.result.content{1}.text;
+%!   assert_equal (RESP.result.isError, false);
+%!   assert_equal (numel (t) <= 8192, true);
+%!   assert_equal (isempty (strfind (t, "[truncated:")), false);
+%!   L = strsplit (t, "\n");
+%!   assert_equal (isempty (strfind (L{end}, "of 4")), false);
+%!   assert_equal (isempty (strfind (L{end-1}, "zzz")), false);
+%! unwind_protect_cleanup
+%!   warning ("off", "Octave:rmpath-not-found", "local");
+%!   rmpath (d);
+%!   confirm_recursive_rmdir (false, "local");
+%!   rmdir (d, "s");
+%! end_unwind_protect
+
+%!test
+%! ## A single line longer than the whole budget has no boundary to cut at, so
+%! ## the marker says mid-line rather than pretending the text ended.
+%! d = fullfile (tempdir (), "mcp_help_line");
+%! unwind_protect
+%!   mkdir (d);
+%!   fid = fopen (fullfile (d, "mcpzzline.m"), "w");
+%!   fprintf (fid, "## %s\n", repmat ("q", 1, 20000));
+%!   fprintf (fid, "function mcpzzline ()\nendfunction\n");
+%!   fclose (fid);
+%!   addpath (d);
+%!   RESP = mcp.dispatch (callhelp ("mcpzzline"), []);
+%!   t = RESP.result.content{1}.text;
+%!   assert_equal (numel (t) <= 8192, true);
+%!   assert_equal (isempty (strfind (t, "truncated mid-line")), false);
+%! unwind_protect_cleanup
+%!   warning ("off", "Octave:rmpath-not-found", "local");
+%!   rmpath (d);
+%!   confirm_recursive_rmdir (false, "local");
+%!   rmdir (d, "s");
+%! end_unwind_protect
+
+%!test
+%! ## Short help is returned whole, with no marker to mislead a model into
+%! ## thinking something was withheld.
+%! RESP = mcp.dispatch (callhelp ("+"), []);
+%! assert_equal (isempty (strfind (RESP.result.content{1}.text, "truncated")), true);
+
+%!test
+%! ## TOOL_STYLE, and the joins are not glued.
+%! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
+%! d = RESP.result.tools{3}.description;
+%! assert_equal (RESP.result.tools{3}.name, "octave_help");
+%! assert_equal (numel (d) <= 300, true);
+%! assert_equal (isempty (strfind (d, "as help renders it")), false);
+%! assert_equal (isempty (strfind (d, "operators resolve here only")), false);
+%! assert_equal (isempty (strfind (d, "does, not where it lives")), false);
