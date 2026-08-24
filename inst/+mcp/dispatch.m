@@ -86,9 +86,9 @@ function RESP = dispatch (R)
   if (strcmp (R.method, "initialize"))
     data = struct ();
     data.supported = supportedVersions ();
-    RESP = mcp.jsonrpcError (R.id, -32601, strcat ("This server implements ", ...
-             "MCP 2026-07-28 and later, which has no initialize handshake. ", ...
-             "Send server/discover with per-request _meta instead."), data);
+    RESP = mcp.jsonrpcError (R.id, -32601, strcat ("This server implements", ...
+             " MCP 2026-07-28 and later, which has no initialize handshake.", ...
+             " Send server/discover with per-request _meta instead."), data);
     return;
   endif
 
@@ -191,10 +191,10 @@ function T = toolTable ()
   t = struct ();
   t.name = "octave_version";
   t.title = "Octave Version";
-  t.description = strcat ("Report the running GNU Octave version, its ", ...
-    "platform triplet, and the version of the mcp package serving this ", ...
-    "session. Use when a version or platform could change the answer; no ", ...
-    "other tool here reports them. Takes no arguments and cannot fail.");
+  t.description = strcat ("Report the running GNU Octave version, its", ...
+    " platform triplet, and the version of the mcp package serving this", ...
+    " session. Use when a version or platform could change the answer; no", ...
+    " other tool here reports them. Takes no arguments and cannot fail.");
   t.inputSchema = struct ("type", "object", "additionalProperties", false);
   props = struct ();
   props.version = struct ("type", "string");
@@ -218,10 +218,10 @@ function res = discoverResult ()
   res.resultType = "complete";
   res.supportedVersions = supportedVersions ();
   res.capabilities = caps;
-  res.instructions = strcat ("Introspects the GNU Octave installation this ", ...
-    "server runs inside: the same load path, packages and version that the ", ...
-    "user's Octave has. Evaluates no code, runs no user function, and ", ...
-    "writes nothing.");
+  res.instructions = strcat ("Introspects the GNU Octave installation this", ...
+    " server runs inside: the same load path, packages and version that the", ...
+    " user's Octave has. Evaluates no code, runs no user function, and", ...
+    " writes nothing.");
   res.ttlMs = 3600000;
   res.cacheScope = "public";
 
@@ -281,9 +281,9 @@ function res = callOctaveVersion (args)
   ## the model can correct: a tool error rather than a protocol error
   extra = fieldnames (args);
   if (! isempty (extra))
-    res.content = {textBlock(sprintf (strcat ("octave_version takes no ", ...
-                    "arguments, but received: %s. Call it with an empty ", ...
-                    "arguments object."), strjoin (extra', ", ")))};
+    res.content = {textBlock(sprintf (strcat ("octave_version takes no", ...
+                    " arguments, but received: %s. Call it with an empty", ...
+                    " arguments object."), strjoin (extra', ", ")))};
     res.isError = true;
     return;
   endif
@@ -415,6 +415,40 @@ endfunction
 %! for i = 1:numel (RESP.result.tools)
 %!   assert_equal (numel (RESP.result.tools{i}.description) <= 300, true);
 %! endfor
+
+%!test
+%! ## strcat strips trailing whitespace from a char argument, so a description
+%! ## assembled across continuation lines loses a space at every join and the
+%! ## words either side are glued.  A length check cannot see it; these can.
+%! RESP = mcp.dispatch (mkreq ("tools/list", ""));
+%! d = RESP.result.tools{1}.description;
+%! assert_equal (isempty (strfind (d, "its platform triplet")), false);
+%! assert_equal (isempty (strfind (d, "serving this session")), false);
+%! assert_equal (isempty (strfind (d, "answer; no other tool")), false);
+
+%!test
+%! ## The same trap in the guidance the model reads about the whole server.
+%! RESP = mcp.dispatch (mkreq ("server/discover", ""));
+%! s = RESP.result.instructions;
+%! assert_equal (isempty (strfind (s, "installation this server runs")), false);
+%! assert_equal (isempty (strfind (s, "version that the user's Octave")), false);
+%! assert_equal (isempty (strfind (s, "function, and writes nothing")), false);
+
+%!test
+%! ## And in the only diagnostic a legacy client can ever show its user.
+%! R = mcp.decodeRequest ('{"jsonrpc":"2.0","id":1,"method":"initialize"}');
+%! RESP = mcp.dispatch (R);
+%! m = RESP.error.message;
+%! assert_equal (isempty (strfind (m, "server implements MCP 2026-07-28")), false);
+%! assert_equal (isempty (strfind (m, "handshake. Send server/discover")), false);
+
+%!test
+%! ## And in the tool error a model is expected to read and correct.
+%! RESP = mcp.dispatch (mkreq ("tools/call", ...
+%!                       '"name":"octave_version","arguments":{"zz":1}'));
+%! t = RESP.result.content{1}.text;
+%! assert_equal (isempty (strfind (t, "takes no arguments, but received")), false);
+%! assert_equal (isempty (strfind (t, "with an empty arguments object")), false);
 
 %!test
 %! ## Tool names must hold to the character set the protocol allows.

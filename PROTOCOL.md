@@ -319,7 +319,7 @@ only exit condition.
 Worth noting for Phase 4: the host restarting a wedged server is a
 specification-sanctioned recovery, not a workaround.
 
-## 10. Open: which era do real hosts speak?
+## 10. Which era do real hosts speak?  [ANSWERED 2026-08-24: legacy]
 
 The revision is nine months newer than the previous one, and the compatibility
 matrix in `basic/versioning` is blunt about the risk:
@@ -341,11 +341,22 @@ A dual-era server is explicitly permitted:
 >   according to this revision.
 > * An `initialize` request selects legacy semantics [...]
 
-**This is decision D7 and it is not answerable from the specification.** It is
-an empirical question about deployed hosts, and Phase 1 answers it directly:
-the first stub server logs to stderr exactly what a real host sends as its
-first message, and that settles the era. Until then, note the fallback
-obligation even for a modern-only server:
+**Measured 2026-08-24. The host in use is legacy.** Claude Code 2.1.241, driven
+through `claude --mcp-config` with `--strict-mcp-config` and both directions
+teed to disk, opened with:
+
+```json
+{"method":"initialize","params":{"protocolVersion":"2025-11-25",
+ "capabilities":{"roots":{"listChanged":true},"elicitation":{}},
+ "clientInfo":{"name":"claude-code","version":"2.1.241"}},"jsonrpc":"2.0","id":0}
+```
+
+So **dual-era support is mandatory**, not optional. A prior taken from strings
+inside the client binary pointed the other way and was wrong, which is the whole
+reason the experiment was run rather than reasoned about.
+
+This server answered as the specification's SHOULD requires, and the obligation
+is worth keeping in view because it is what a legacy user sees:
 
 > A server that supports only modern versions **SHOULD** name the protocol
 > versions it supports in any error it returns to an `initialize` request [...]
