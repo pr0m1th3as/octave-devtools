@@ -1,3 +1,4 @@
 TOOL_STYLE.md export-ignore
 docs export-ignore
 tool_eval.m export-ignore
+regen_index.m export-ignore

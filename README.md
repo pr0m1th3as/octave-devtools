@@ -84,6 +84,7 @@ it was not.
 | `octave_help` | the help text for a function, class, method or operator | built |
 | `octave_search` | which functions match a description, when the name is not known | built |
 | `octave_pkg` | which packages are installed, at which versions, and which are loaded | built |
+| `octave_registry` | which packages anywhere in the Octave Packages index provide a name, from a dated snapshot | built |
 
 The Octave version and platform are not a tool: they are stated in the
 server's `instructions`, sent once when a client connects, so a model always

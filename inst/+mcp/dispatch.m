@@ -440,6 +440,44 @@ function T = toolTable ()
   t.outputSchema = osc;
   T{end+1} = t;
 
+  t = struct ();
+  t.name = "octave_registry";
+  t.title = "The Octave Packages Index";
+  t.description = strcat ("Look a name up in the published Octave Packages", ...
+    " index: which packages provide it anywhere in the ecosystem, of what", ...
+    " kind, and whether more than one does. A dated snapshot of that index,", ...
+    " not of this machine, and not callable from here; octave_which reports", ...
+    " what is actually present.");
+  props = struct ();
+  props.name = struct ("type", "string", "description", ...
+    "Function, class or method name to look up, such as nanmax or AutoDiff.abs");
+  isc = struct ();
+  isc.type = "object";
+  isc.properties = props;
+  isc.required = {'name'};
+  isc.additionalProperties = false;
+  t.inputSchema = isc;
+  rprops = struct ();
+  rprops.package = struct ("type", "string");
+  rprops.kind = struct ("type", "string");
+  rprops.latest = struct ("type", "string");
+  rprops.released = struct ("type", "string");
+  ritem = struct ();
+  ritem.type = "object";
+  ritem.properties = rprops;
+  oprops = struct ();
+  oprops.name = struct ("type", "string");
+  oprops.found = struct ("type", "boolean");
+  oprops.installedHere = struct ("type", "boolean");
+  oprops.snapshot = struct ("type", "string");
+  oprops.providers = struct ("type", "array", "items", ritem);
+  osc = struct ();
+  osc.type = "object";
+  osc.properties = oprops;
+  osc.required = {'name', 'found', 'snapshot', 'providers'};
+  t.outputSchema = osc;
+  T{end+1} = t;
+
 endfunction
 
 function t = instructionsText ()
@@ -523,6 +561,8 @@ function [res, code, msg] = toolsCall (params, era)
       res = callOctaveSearch (args, era);
     case 'octave_pkg'
       res = callOctavePkg (args, era);
+    case 'octave_registry'
+      res = callOctaveRegistry (args, era);
   endswitch
 
 endfunction
@@ -1349,6 +1389,178 @@ function E = unknownArgs (args, allowed)
 
 endfunction
 
+function res = callOctaveRegistry (args, era)
+
+  res = struct ();
+  if (strcmp (era, "modern"))
+    res.resultType = "complete";
+  endif
+
+  bad = unknownArgs (args, {'name'});
+  if (! isempty (bad))
+    res.content = {textBlock(strrep (bad, "this tool", "octave_registry"))};
+    res.isError = true;
+    return;
+  endif
+
+  [E, M] = ecosystemData ();
+  if (isempty (E))
+    res.content = {textBlock(strcat ("The ecosystem index is not present in", ...
+      " this installation. It is generated at release time by regen_index;", ...
+      " a package built without it cannot answer this."))};
+    res.isError = true;
+    return;
+  endif
+
+  if (! (isfield (args, "name") && ischar (args.name) && isrow (args.name) ...
+         && ! isempty (strtrim (args.name))))
+    res.content = {textBlock(strcat ("octave_registry needs a name: the", ...
+      " function, class or method to look up in the index."))};
+    res.isError = true;
+    res.structuredContent = emptyRegistry ("", M);
+    return;
+  endif
+
+  q = strtrim (args.name);
+  hit = strcmp (E.names, q);
+  if (! any (hit))
+    ## A model gets the case wrong more often than the name
+    hit = strcmpi (E.names, q);
+  endif
+
+  if (! any (hit))
+    res.content = {textBlock(registryMiss (q, E, M))};
+    res.isError = true;
+    res.structuredContent = emptyRegistry (q, M);
+    return;
+  endif
+
+  idx = find (hit);
+  provs = {};
+  for i = 1:numel (idx)
+    p = struct ();
+    p.package = E.packages{idx(i)};
+    p.kind = E.kinds{idx(i)};
+    [p.latest, p.released] = packageRelease (E, p.package);
+    provs{end+1} = p;
+  endfor
+
+  sc = struct ();
+  sc.name = E.names{idx(1)};
+  sc.found = true;
+  sc.snapshot = M.captured;
+  sc.providers = provs;
+
+  res.content = {textBlock(registryText (sc))};
+  res.isError = false;
+  res.structuredContent = sc;
+
+endfunction
+
+function [E, M] = ecosystemData ()
+
+  ## Parsed once per process and only when this tool is first called: a session
+  ## that never asks pays nothing, and one that does pays about two tenths of a
+  ## second.  This is a cache of a file that cannot change while the process
+  ## lives, not state: the same request still produces the same answer.
+  persistent cachedE cachedM cachedTried;
+
+  if (isempty (cachedTried))
+    cachedTried = true;
+    cachedE = [];
+    cachedM = [];
+    root = fileparts (fileparts (mfilename ("fullpath")));
+    ef = fullfile (root, "data", "ecosystem.json");
+    mf = fullfile (root, "data", "MANIFEST.json");
+    if (exist (ef, "file") == 2 && exist (mf, "file") == 2)
+      try
+        cachedE = jsondecode (fileread (ef));
+        cachedM = jsondecode (fileread (mf));
+      catch
+        cachedE = [];
+        cachedM = [];
+      end_try_catch
+    endif
+  endif
+
+  E = cachedE;
+  M = cachedM;
+
+endfunction
+
+function S = emptyRegistry (q, M)
+  S = struct ();
+  S.name = q;
+  S.found = false;
+  if (isstruct (M) && isfield (M, "captured"))
+    S.snapshot = M.captured;
+  else
+    S.snapshot = "unknown";
+  endif
+  S.providers = {};
+endfunction
+
+function [latest, released] = packageRelease (E, pkg)
+  latest = "";
+  released = "";
+  i = find (strcmp (E.pkgNames, pkg), 1);
+  if (! isempty (i))
+    latest = E.pkgLatest{i};
+    released = E.pkgDate{i};
+  endif
+endfunction
+
+function T = registryText (S)
+
+  ## Every answer carries the snapshot date.  Without it "no package provides
+  ## that" cannot be told from "no package provided that in August", and a
+  ## model will read the first meaning into the second.
+  if (numel (S.providers) == 1)
+    L = {sprintf("%s is provided by one package in the Octave Packages index (snapshot %s):", ...
+                 S.name, S.snapshot)};
+  else
+    L = {sprintf("%s is provided by %d packages in the Octave Packages index (snapshot %s):", ...
+                 S.name, numel (S.providers), S.snapshot)};
+  endif
+
+  for i = 1:numel (S.providers)
+    p = S.providers{i};
+    nm = p.package;
+    if (strcmp (nm, "__core__"))
+      nm = "GNU Octave core";
+    endif
+    if (isempty (p.latest))
+      L{end+1} = sprintf ("  %-24s %s", nm, p.kind);
+    else
+      L{end+1} = sprintf ("  %-24s %-9s latest %s, released %s", nm, p.kind, ...
+                          p.latest, p.released);
+    endif
+  endfor
+
+  L{end+1} = strcat ("This is the published index, not this server: use", ...
+                     " octave_which for what is on its load path.");
+  T = strjoin (L, "\n");
+
+endfunction
+
+function T = registryMiss (q, E, M)
+
+  T = sprintf (strcat ("No package in the Octave Packages index provides", ...
+                       " %s (snapshot %s)."), q, M.captured);
+
+  ## A near miss is worth more than a bare no
+  n = min (4, numel (q));
+  near = unique (E.names(strncmpi (E.names, q, n)));
+  near = near(! strcmpi (near, q));
+  if (! isempty (near))
+    if (numel (near) > 5)
+      near = near(1:5);
+    endif
+    T = [T sprintf(" Names beginning similarly: %s.", strjoin (near, ", "))];
+  endif
+
+endfunction
+
 function B = textBlock (txt)
   B = struct ("type", "text", "text", txt);
 endfunction
@@ -1449,7 +1661,8 @@ endfunction
 %! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
 %! names = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
 %! assert_equal (names, ...
-%!   {'octave_which', 'octave_help', 'octave_search', 'octave_pkg'});
+%!   {'octave_which', 'octave_help', 'octave_search', 'octave_pkg', ...
+%!    'octave_registry'});
 
 %!test
 %! ## The tool list is fixed for the life of the process, so it may be cached.
@@ -1575,7 +1788,8 @@ endfunction
 %! RESP = mcp.dispatch (plainreq ("tools/list", ""), S);
 %! names = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
 %! assert_equal (names, ...
-%!   {'octave_which', 'octave_help', 'octave_search', 'octave_pkg'});
+%!   {'octave_which', 'octave_help', 'octave_search', 'octave_pkg', ...
+%!    'octave_registry'});
 
 %!test
 %! ## The legacy envelope carries neither resultType nor the cache hints, both
@@ -2152,3 +2366,100 @@ endfunction
 %!                       '"uri":"octave://environment"'), S);
 %! assert_equal (isfield (RESP.result, "resultType"), false);
 %! assert_equal (isempty (strfind (RESP.result.contents{1}.text, "platform:")), false);
+
+%!function R = callreg (name)
+%!  meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
+%!          '"io.modelcontextprotocol/clientCapabilities":{}}'];
+%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%!       '"params":{"name":"octave_registry","arguments":{"name":"' name '"},' ...
+%!       meta '}}']);
+%!endfunction
+
+%!test
+%! ## A name provided by one package, with that package's newest version.
+%! RESP = mcp.dispatch (callreg ("kmeans"), []);
+%! sc = RESP.result.structuredContent;
+%! assert_equal (RESP.result.isError, false);
+%! assert_equal (sc.found, true);
+%! assert_equal (numel (sc.providers), 1);
+%! assert_equal (sc.providers{1}.package, "statistics");
+%! assert_equal (isempty (sc.providers{1}.latest), false);
+
+%!test
+%! ## A contested name reports every provider, which is the whole point of
+%! ## carrying the index: 193 of its names have more than one.
+%! RESP = mcp.dispatch (callreg ("normcdf"), []);
+%! sc = RESP.result.structuredContent;
+%! p = cellfun (@(x) x.package, sc.providers, "UniformOutput", false);
+%! assert_equal (numel (sc.providers) > 1, true);
+%! assert_equal (any (strcmp ("statistics", p)), true);
+
+%!test
+%! ## Core is a package in this data and must be named as what it is.
+%! RESP = mcp.dispatch (callreg ("mean"), []);
+%! p = cellfun (@(x) x.package, RESP.result.structuredContent.providers, ...
+%!              "UniformOutput", false);
+%! assert_equal (any (strcmp ("__core__", p)), true);
+%! assert_equal (isempty (strfind (RESP.result.content{1}.text, "GNU Octave core")), false);
+
+%!test
+%! ## A dotted method name survives.  Octave's jsondecode mangles an object key
+%! ## that is not an identifier, and 44% of these names carry a dot, which is
+%! ## why the index is reshaped into arrays at release time rather than shipped
+%! ## as an object keyed by name.
+%! RESP = mcp.dispatch (callreg ("AutoDiff.abs"), []);
+%! sc = RESP.result.structuredContent;
+%! assert_equal (sc.found, true);
+%! assert_equal (sc.name, "AutoDiff.abs");
+%! assert_equal (sc.providers{1}.kind, "method");
+
+%!test
+%! ## Every answer carries the snapshot date, found or not: without it a "no"
+%! ## cannot be told from "not as of August".
+%! A = mcp.dispatch (callreg ("kmeans"), []);
+%! B = mcp.dispatch (callreg ("mcpzznosuchnameatall"), []);
+%! assert_equal (isempty (A.result.structuredContent.snapshot), false);
+%! assert_equal (A.result.structuredContent.snapshot, B.result.structuredContent.snapshot);
+%! assert_equal (isempty (strfind (A.result.content{1}.text, "snapshot")), false);
+%! assert_equal (isempty (strfind (B.result.content{1}.text, "snapshot")), false);
+
+%!test
+%! ## A name in no package is a failed lookup, and the near names make it a
+%! ## next step rather than a dead end.
+%! RESP = mcp.dispatch (callreg ("nanmaxx"), []);
+%! assert_equal (RESP.result.isError, true);
+%! assert_equal (RESP.result.structuredContent.found, false);
+%! t = RESP.result.content{1}.text;
+%! assert_equal (isempty (strfind (t, "No package")), false);
+%! assert_equal (isempty (strfind (t, "nanmax")), false);
+
+%!test
+%! ## The answer says it is about the index and not about this server, because
+%! ## a result that reads as callable is the one trap this tool must avoid.
+%! RESP = mcp.dispatch (callreg ("kmeans"), []);
+%! t = RESP.result.content{1}.text;
+%! assert_equal (isempty (strfind (t, "not this server")), false);
+%! assert_equal (isempty (strfind (t, "octave_which")), false);
+
+%!test
+%! ## Case is the thing a model gets wrong most often.
+%! RESP = mcp.dispatch (callreg ("KMEANS"), []);
+%! assert_equal (RESP.result.isError, false);
+%! assert_equal (RESP.result.structuredContent.name, "kmeans");
+
+%!test
+%! ## TOOL_STYLE, and the joins are not glued.
+%! t = toolNamed ("octave_registry");
+%! d = t.description;
+%! assert_equal (t.name, "octave_registry");
+%! assert_equal (numel (d) <= 300, true);
+%! assert_equal (isempty (strfind (d, "anywhere in the ecosystem")), false);
+%! assert_equal (isempty (strfind (d, "not of this machine")), false);
+
+%!test
+%! ## The legacy envelope reaches it too.
+%! S = legacySession ();
+%! RESP = mcp.dispatch (plainreq ("tools/call", ...
+%!          '"name":"octave_registry","arguments":{"name":"kmeans"}'), S);
+%! assert_equal (RESP.result.isError, false);
+%! assert_equal (isfield (RESP.result, "resultType"), false);
