@@ -88,11 +88,22 @@ function [RESP, S] = dispatch (R, S)
                    " mcp.decodeRequest."));
   endif
   if (nargin < 2 || isempty (S))
-    S = newSession ();
+    S = mcp.__newSession__ ("read-only");
   endif
   if (! (isstruct (S) && isscalar (S) && all (isfield (S, {'era', 'version'}))))
     error (strcat ("mcp.dispatch: S must be a session structure, or empty", ...
                    " for a fresh one."));
+  endif
+  ## A session made before the evaluating surface existed, or by hand, is
+  ## read-only.  The safe surface is what a missing field means, never the
+  ## other way round.
+  if (! isfield (S, "surface"))
+    S.surface = "read-only";
+  endif
+  if (! all (isfield (S, {'ws', 'wsorder', 'wsnext'})))
+    S.ws = struct ();
+    S.wsorder = {};
+    S.wsnext = 1;
   endif
 
   RESP = [];
@@ -147,7 +158,7 @@ function [RESP, S] = dispatch (R, S)
   switch (R.method)
 
     case 'initialize'
-      [res, S.version] = initializeResult (R.params);
+      [res, S.version] = initializeResult (R.params, S.surface);
       RESP = mkResponse (R.id, res, era);
 
     case 'ping'
@@ -159,11 +170,11 @@ function [RESP, S] = dispatch (R, S)
         RESP = mcp.jsonrpcError (R.id, -32601, ...
                  "Method not found: server/discover is not part of this session's protocol revision.");
       else
-        RESP = mkResponse (R.id, discoverResult (), era);
+        RESP = mkResponse (R.id, discoverResult (S.surface), era);
       endif
 
     case 'tools/list'
-      RESP = mkResponse (R.id, toolsListResult (era), era);
+      RESP = mkResponse (R.id, toolsListResult (era, S.surface), era);
 
     case 'resources/list'
       RESP = mkResponse (R.id, resourcesListResult (era), era);
@@ -177,7 +188,7 @@ function [RESP, S] = dispatch (R, S)
       endif
 
     case 'tools/call'
-      [res, code, msg] = toolsCall (R.params, era);
+      [res, code, msg, S] = toolsCall (R.params, era, S);
       if (code != 0)
         RESP = mcp.jsonrpcError (R.id, code, msg);
       else
@@ -192,17 +203,12 @@ function [RESP, S] = dispatch (R, S)
 
 endfunction
 
-function S = newSession ()
-  ## era is 'unknown' until the client opens, then 'legacy' or 'modern'
-  S = struct ("era", "unknown", "version", "", "initialized", false);
-endfunction
-
 function V = legacyVersions ()
   ## Answered to a legacy client; the newest handshake-based revision
   V = {'2025-11-25'};
 endfunction
 
-function [res, ver] = initializeResult (params)
+function [res, ver] = initializeResult (params, surface)
 
   ## The rule here is not the modern one.  A legacy server does not reject an
   ## unknown version: it answers with one it does support and lets the client
@@ -223,7 +229,7 @@ function [res, ver] = initializeResult (params)
   res.protocolVersion = ver;
   res.capabilities = caps;
   res.serverInfo = struct ("name", n, "version", v);
-  res.instructions = instructionsText ();
+  res.instructions = instructionsText (surface);
 
 endfunction
 
@@ -304,7 +310,7 @@ function [code, msg, data] = checkMeta (params)
 
 endfunction
 
-function T = toolTable ()
+function T = toolTable (surface)
 
   T = {};
 
@@ -478,9 +484,41 @@ function T = toolTable ()
   t.outputSchema = osc;
   T{end+1} = t;
 
+  if (! strcmp (surface, "eval"))
+    return;
+  endif
+
+  ## Everything past here runs code and is reachable only from mcp.serveEval
+  t = struct ();
+  t.name = "octave_eval";
+  t.title = "Evaluate Octave Code";
+  t.description = strcat ("Run Octave code in this interpreter and return", ...
+    " what it printed. Use this to compute, not to look a name up, which", ...
+    " octave_which and octave_help do without running anything. Variables", ...
+    " persist in the workspace you name; errors come back as text.");
+  props = struct ();
+  props.code = struct ("type", "string", "description", ...
+    "Octave code to run, one or more statements");
+  props.workspace = struct ("type", "string", "description", ...
+    "Handle from an earlier call, or new for a fresh workspace");
+  isc = struct ();
+  isc.type = "object";
+  isc.properties = props;
+  ## Required, and deliberately so.  A model that omits an argument is the
+  ## measured case, not the exotic one, and an omitted handle read as "start
+  ## clean" loses a workspace with nothing said: the next call finds its
+  ## variable undefined and the model blames its own code.
+  isc.required = {'code', 'workspace'};
+  isc.additionalProperties = false;
+  t.inputSchema = isc;
+  ## No outputSchema: the payload is the output of the code, which is prose to
+  ## everyone but the interpreter.  The handle leads the text instead, where
+  ## truncation cannot take it.
+  T{end+1} = t;
+
 endfunction
 
-function t = instructionsText ()
+function t = instructionsText (surface)
   ## The version goes here, not into a tool.  This field is sent once, at
   ## connection, and stays in the model's context; a tool reporting a constant
   ## charges its description against every request for the life of the session.
@@ -492,9 +530,22 @@ function t = instructionsText ()
     " may be fewer than an interactive session has; say so rather than", ...
     " concluding a name does not exist. Evaluates no code, runs no user", ...
     " function, and writes nothing.")];
+  if (strcmp (surface, "eval"))
+    ## Replaced rather than appended: the read-only claim is exactly false here
+    ## and a model that reads both sentences is entitled to believe the first.
+    t = sprintf (strcat ("This server runs GNU Octave %s on %s. No tool", ...
+                         " reports that; it is stated here. "), ...
+                 version (), computer ());
+    t = [t, strcat("Introspects and evaluates code in the GNU Octave", ...
+      " interpreter this server runs inside. It sees only the packages its", ...
+      " own launch command loaded, which may be fewer than an interactive", ...
+      " session has; say so rather than concluding a name does not exist.", ...
+      " Code runs in a workspace named by a handle: pass new to open one and", ...
+      " the handle it returns to keep the variables.")];
+  endif
 endfunction
 
-function res = discoverResult ()
+function res = discoverResult (surface)
 
   caps = struct ();
   caps.tools = struct ();
@@ -504,19 +555,19 @@ function res = discoverResult ()
   res.resultType = "complete";
   res.supportedVersions = supportedVersions ();
   res.capabilities = caps;
-  res.instructions = instructionsText ();
+  res.instructions = instructionsText (surface);
   res.ttlMs = 3600000;
   res.cacheScope = "public";
 
 endfunction
 
-function res = toolsListResult (era)
+function res = toolsListResult (era, surface)
 
   res = struct ();
   if (strcmp (era, "modern"))
     res.resultType = "complete";
   endif
-  res.tools = toolTable ();
+  res.tools = toolTable (surface);
   if (strcmp (era, "modern"))
     ## Cache hints are a 2026-07-28 addition and have no legacy counterpart
     res.ttlMs = 3600000;
@@ -525,7 +576,7 @@ function res = toolsListResult (era)
 
 endfunction
 
-function [res, code, msg] = toolsCall (params, era)
+function [res, code, msg, S] = toolsCall (params, era, S)
 
   res = [];
   code = 0;
@@ -538,7 +589,7 @@ function [res, code, msg] = toolsCall (params, era)
     return;
   endif
 
-  T = toolTable ();
+  T = toolTable (S.surface);
   names = cellfun (@(t) t.name, T, "UniformOutput", false);
   if (! any (strcmp (params.name, names)))
     code = -32602;
@@ -563,6 +614,8 @@ function [res, code, msg] = toolsCall (params, era)
       res = callOctavePkg (args, era);
     case 'octave_registry'
       res = callOctaveRegistry (args, era);
+    case 'octave_eval'
+      [res, S] = callOctaveEval (args, era, S);
   endswitch
 
 endfunction
@@ -1758,6 +1811,156 @@ function T = registryMiss (q, E, M)
 
 endfunction
 
+function [res, S] = callOctaveEval (args, era, S)
+
+  ## Locals are prefixed for the same reason as in helpCached and whichReport:
+  ## nothing here shares a name with anything the evaluated code might use.
+
+  res = struct ();
+  if (strcmp (era, "modern"))
+    res.resultType = "complete";
+  endif
+
+  e_bad = unknownArgs (args, {'code', 'workspace'});
+  if (! isempty (e_bad))
+    res.content = {textBlock(strrep (e_bad, "this tool", "octave_eval"))};
+    res.isError = true;
+    return;
+  endif
+
+  if (! (isfield (args, "code") && ischar (args.code) && isrow (args.code) ...
+         && ! isempty (strtrim (args.code))))
+    res.content = {textBlock(strcat ("octave_eval needs code: one or more", ...
+      " Octave statements to run."))};
+    res.isError = true;
+    return;
+  endif
+
+  ## Every call says which workspace it means, and "new" is a thing to say
+  ## rather than a thing to leave out.  A named workspace that is gone is a
+  ## tool error, never a fresh one: starting clean in silence would answer the
+  ## next question with the variables missing and no way to tell why.
+  if (! (isfield (args, "workspace") && ischar (args.workspace) ...
+         && isrow (args.workspace) && ! isempty (strtrim (args.workspace))))
+    res.content = {textBlock(strcat ("octave_eval needs workspace: the", ...
+      " handle an earlier call returned, or new for a fresh workspace."))};
+    res.isError = true;
+    return;
+  endif
+
+  e_h = strtrim (args.workspace);
+  if (strcmp (e_h, "new"))
+    [e_h, S] = newWorkspace (S);
+  elseif (! isfield (S.ws, e_h))
+    res.content = {textBlock(sprintf (strcat ("No workspace %s here. A", ...
+      " handle lives until this server stops, or until it is the oldest of", ...
+      " more than %d; pass new to start a fresh one."), e_h, wsCap ()))};
+    res.isError = true;
+    return;
+  endif
+
+  e_W = S.ws.(e_h);
+
+  ## The shadows stand only while the code runs.  Anything this server does
+  ## between calls, pkg included, needs the real functions back.
+  e_dir = shadowDir ();
+  e_on = false;
+  unwind_protect
+    if (exist (e_dir, "dir") == 7)
+      warning ("off", "Octave:shadowed-function", "local");
+      addpath (e_dir, "-begin");
+      e_on = true;
+    endif
+    [e_out, e_W, e_err] = mcp.__evalIn__ (e_W, args.code);
+  unwind_protect_cleanup
+    if (e_on)
+      warning ("off", "Octave:rmpath-not-found", "local");
+      rmpath (e_dir);
+    endif
+  end_unwind_protect
+
+  S.ws.(e_h) = e_W;
+  S = touchWorkspace (S, e_h);
+
+  ## The handle leads and the error follows it, both before the output, so
+  ## that truncation from the end can take neither
+  e_L = {sprintf("[workspace %s]", e_h)};
+  if (! isempty (e_err))
+    e_L{end+1} = sprintf ("[error] %s", e_err);
+  endif
+  e_names = fieldnames (e_W);
+  if (isempty (strtrim (e_out)))
+    e_L{end+1} = "[no output]";
+  else
+    e_L{end+1} = e_out;
+  endif
+  if (! isempty (e_names))
+    e_L{end+1} = sprintf ("[variables] %s", strjoin (e_names', ", "));
+  endif
+
+  res.content = {textBlock(capText (strjoin (e_L, "\n"), evalCap ()))};
+  res.isError = ! isempty (e_err);
+
+endfunction
+
+function B = evalCap ()
+  ## The same budget as octave_help, for the same reason: a single reply worth
+  ## roughly two thousand tokens is the most a user should pay without asking.
+  ## Code that prints more than this is asking the wrong question of it, and
+  ## the truncation marker says so plainly enough for a model to narrow it.
+  B = 8192;
+endfunction
+
+function n = wsCap ()
+  ## Not a resource limit: a workspace costs whatever its variables cost and
+  ## eight of them cost eight times that.  It is a bound on how far back a
+  ## handle can be reused, so that a session cannot accumulate workspaces for
+  ## the life of a process without ever saying which one it means.
+  n = 8;
+endfunction
+
+function d = shadowDir ()
+  d = fullfile (fileparts (mfilename ("fullpath")), "evalshadow");
+endfunction
+
+function [h, S] = newWorkspace (S)
+
+  ## Opaque and with entropy behind it, as the specification asks, because the
+  ## transport is explicitly not a session: a client may interleave unrelated
+  ## conversations on one connection, and a handle that can be guessed is one
+  ## conversation reaching into another's variables.
+  ##
+  ## Deliberately not from rand.  The code this handle separates runs in this
+  ## same interpreter and can reset the global random state, so a handle drawn
+  ## from it is a handle that code can predict.  The clock, the process and a
+  ## temporary name are outside its reach.
+  h = "";
+  while (isempty (h) || isfield (S.ws, h))
+    e_seed = sprintf ("%s|%d|%.15g|%d", tempname (), getpid (), now (), ...
+                      S.wsnext);
+    e_sum = hash ("sha1", e_seed);
+    h = ["ws" e_sum(1:16)];
+    S.wsnext++;
+  endwhile
+  S.ws.(h) = struct ();
+  S.wsorder{end+1} = h;
+
+  while (numel (S.wsorder) > wsCap ())
+    e_old = S.wsorder{1};
+    S.wsorder(1) = [];
+    if (isfield (S.ws, e_old))
+      S.ws = rmfield (S.ws, e_old);
+    endif
+  endwhile
+
+endfunction
+
+function S = touchWorkspace (S, h)
+  ## Most recently used last, which is the end the eviction does not take
+  e_keep = ! strcmp (S.wsorder, h);
+  S.wsorder = [S.wsorder(e_keep), {h}];
+endfunction
+
 function B = textBlock (txt)
   B = struct ("type", "text", "text", txt);
 endfunction
@@ -2737,3 +2940,214 @@ endfunction
 %!          '"name":"octave_registry","arguments":{"name":"kmeans"}'), S);
 %! assert_equal (RESP.result.isError, false);
 %! assert_equal (isfield (RESP.result, "resultType"), false);
+
+%!function h = wshandle (t)
+%!  L = strsplit (t, "\n");
+%!  h = strtrim (strrep (strrep (L{1}, "[workspace ", ""), "]", ""));
+%!endfunction
+
+%!function [A, S] = evalcall (S, codejson, ws)
+%!  meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
+%!          '"io.modelcontextprotocol/clientCapabilities":{}}'];
+%!  a = ['{"code":' codejson];
+%!  if (! isempty (ws))
+%!    a = [a ',"workspace":"' ws '"'];
+%!  endif
+%!  a = [a '}'];
+%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%!       '"params":{"name":"octave_eval","arguments":' a ',' meta '}}']);
+%!  [A, S] = mcp.dispatch (R, S);
+%!endfunction
+
+%!test
+%! ## The read-only surface does not carry the evaluating tool, which is the
+%! ## property that lets a user grant that server blanket permission.
+%! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
+%! nms = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
+%! assert_equal (any (strcmp (nms, "octave_eval")), false);
+%! assert_equal (numel (nms), 5);
+
+%!test
+%! ## And a host configured for it cannot reach the tool by asking: an unknown
+%! ## tool is a protocol error, not a tool that quietly runs.
+%! S = mcp.__newSession__ ("read-only");
+%! [A, S] = evalcall (S, jsonencode ("1 + 1"), "new");
+%! assert_equal (isfield (A, "error"), true);
+%! assert_equal (A.error.code, -32602);
+
+%!test
+%! ## The evaluating surface carries all six.
+%! S = mcp.__newSession__ ("eval");
+%! [A, S] = mcp.dispatch (mkreq ("tools/list", ""), S);
+%! nms = cellfun (@(t) t.name, A.result.tools, "UniformOutput", false);
+%! assert_equal (numel (nms), 6);
+%! assert_equal (any (strcmp (nms, "octave_eval")), true);
+
+%!test
+%! ## A first call opens a workspace and says which, a second one carries the
+%! ## variables forward, and clear takes one away.
+%! S = mcp.__newSession__ ("eval");
+%! [A, S] = evalcall (S, jsonencode ("mcpzza = 6; mcpzzb = 7;"), "new");
+%! t = A.result.content{1}.text;
+%! assert_equal (A.result.isError, false);
+%! h = wshandle (t);
+%! [A, S] = evalcall (S, jsonencode ("mcpzzc = mcpzza * mcpzzb"), h);
+%! t = A.result.content{1}.text;
+%! assert_equal (wshandle (t), h);
+%! assert_equal (isempty (strfind (t, "mcpzzc = 42")), false);
+%! [A, S] = evalcall (S, jsonencode ("clear mcpzza"), h);
+%! t = A.result.content{1}.text;
+%! assert_equal (isempty (strfind (t, "[variables] mcpzzb, mcpzzc")), false);
+
+%!test
+%! ## The handle is opaque and carries entropy, which the specification asks
+%! ## for because a transport may interleave unrelated conversations: a
+%! ## guessable handle is one of them reaching into another's variables.
+%! S = mcp.__newSession__ ("eval");
+%! [A, S] = evalcall (S, jsonencode ("1;"), "new");
+%! h1 = wshandle (A.result.content{1}.text);
+%! [A, S] = evalcall (S, jsonencode ("1;"), "new");
+%! h2 = wshandle (A.result.content{1}.text);
+%! assert_equal (numel (h1), 18);
+%! assert_equal (strncmp (h1, "ws", 2), true);
+%! assert_equal (isempty (regexp (h1(3:end), '^[0-9a-f]{16}$', "once")), false);
+%! assert_equal (strcmp (h1, h2), false);
+
+%!test
+%! ## Two workspaces do not see each other, which is what makes the handle
+%! ## worth passing rather than assuming.
+%! S = mcp.__newSession__ ("eval");
+%! [A, S] = evalcall (S, jsonencode ("mcpzzd = 1;"), "new");
+%! h1 = wshandle (A.result.content{1}.text);
+%! [A, S] = evalcall (S, jsonencode ("exist (\"mcpzzd\")"), "new");
+%! t = A.result.content{1}.text;
+%! assert_equal (strcmp (wshandle (t), h1), false);
+%! assert_equal (isempty (strfind (t, "ans = 0")), false);
+
+%!test
+%! ## An error is a tool error a model can read, and the workspace survives it.
+%! S = mcp.__newSession__ ("eval");
+%! [A, S] = evalcall (S, jsonencode ("mcpzze = 5;"), "new");
+%! h = wshandle (A.result.content{1}.text);
+%! [A, S] = evalcall (S, jsonencode ("mcpzznosuchfunction (1)"), h);
+%! t = A.result.content{1}.text;
+%! assert_equal (isfield (A, "error"), false);
+%! assert_equal (A.result.isError, true);
+%! assert_equal (isempty (strfind (t, "[error]")), false);
+%! [A, S] = evalcall (S, jsonencode ("mcpzze"), h);
+%! assert_equal (isempty (strfind (A.result.content{1}.text, "mcpzze = 5")), false);
+
+%!test
+%! ## A handle that is not there is a tool error naming the rule, never a
+%! ## fresh workspace: the variables would be missing with nothing said.
+%! S = mcp.__newSession__ ("eval");
+%! [A, S] = evalcall (S, jsonencode ("1 + 1"), "ws99");
+%! t = A.result.content{1}.text;
+%! assert_equal (A.result.isError, true);
+%! assert_equal (isempty (strfind (t, "No workspace ws99")), false);
+%! assert_equal (isempty (strfind (t, "pass new")), false);
+
+%!test
+%! ## The workspace argument is required: a model that omits one is told what
+%! ## to pass rather than handed a clean workspace without being told.
+%! S = mcp.__newSession__ ("eval");
+%! [A, S] = evalcall (S, jsonencode ("1 + 1"), "");
+%! t = A.result.content{1}.text;
+%! assert_equal (A.result.isError, true);
+%! assert_equal (isempty (strfind (t, "needs workspace")), false);
+
+%!test
+%! ## A subprocess writes past the capture and into the protocol stream, so it
+%! ## is refused while a call runs.  Measured, not assumed: evalc takes every
+%! ## in-process route to stdout and not this one.
+%! S = mcp.__newSession__ ("eval");
+%! [A, S] = evalcall (S, jsonencode ("system (\"echo mcpzzleak\")"), "new");
+%! t = A.result.content{1}.text;
+%! assert_equal (A.result.isError, true);
+%! assert_equal (isempty (strfind (t, "protocol stream")), false);
+
+%!test
+%! ## The shadows stand only while the call runs; the real function is back
+%! ## before the next request is read.
+%! S = mcp.__newSession__ ("eval");
+%! [A, S] = evalcall (S, jsonencode ("1 + 1"), "new");
+%! [st, out] = system ("echo mcpzzback");
+%! assert_equal (st, 0);
+%! assert_equal (isempty (strfind (out, "mcpzzback")), false);
+
+%!test
+%! ## input has no terminal to read from and would wait for ever.
+%! S = mcp.__newSession__ ("eval");
+%! [A, S] = evalcall (S, jsonencode ("mcpzzf = input (\"give: \");"), "new");
+%! assert_equal (A.result.isError, true);
+%! assert_equal (isempty (strfind (A.result.content{1}.text, "no terminal")), false);
+
+%!test
+%! ## Output is cut at a line boundary with a marker, and the handle leads the
+%! ## text so that truncation from the end can never take it.
+%! S = mcp.__newSession__ ("eval");
+%! [A, S] = evalcall (S, jsonencode ("for i=1:2000, printf (\"%d padding padding padding\\n\", i); end"), "new");
+%! t = A.result.content{1}.text;
+%! assert_equal (numel (t) <= 8192, true);
+%! assert_equal (strncmp (t, "[workspace ws", 13), true);
+%! assert_equal (isempty (strfind (t, "[truncated:")), false);
+
+%!test
+%! ## Nine workspaces, and the oldest is gone rather than the newest refused.
+%! S = mcp.__newSession__ ("eval");
+%! H = {};
+%! for i = 1:9
+%!   [A, S] = evalcall (S, jsonencode ("1;"), "new");
+%!   H{end+1} = wshandle (A.result.content{1}.text);
+%! endfor
+%! [A, S] = evalcall (S, jsonencode ("1;"), H{1});
+%! assert_equal (A.result.isError, true);
+%! [A, S] = evalcall (S, jsonencode ("1;"), H{9});
+%! assert_equal (A.result.isError, false);
+
+%!test
+%! ## Unknown arguments are refused by name, as everywhere else.
+%! S = mcp.__newSession__ ("eval");
+%! meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
+%!         '"io.modelcontextprotocol/clientCapabilities":{}}'];
+%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%!      '"params":{"name":"octave_eval","arguments":{"code":"1+1",' ...
+%!      '"workspace":"new","timeout":5},' meta '}}']);
+%! [A, S] = mcp.dispatch (R, S);
+%! assert_equal (A.result.isError, true);
+%! assert_equal (isempty (strfind (A.result.content{1}.text, "timeout")), false);
+
+%!test
+%! ## Code is required and must say something.
+%! S = mcp.__newSession__ ("eval");
+%! [A, S] = evalcall (S, jsonencode ("   "), "new");
+%! assert_equal (A.result.isError, true);
+%! assert_equal (isempty (strfind (A.result.content{1}.text, "needs code")), false);
+
+%!test
+%! ## TOOL_STYLE, and the joins are not glued.
+%! S = mcp.__newSession__ ("eval");
+%! [A, S] = mcp.dispatch (mkreq ("tools/list", ""), S);
+%! t = [];
+%! for i = 1:numel (A.result.tools)
+%!   if (strcmp (A.result.tools{i}.name, "octave_eval"))
+%!     t = A.result.tools{i};
+%!   endif
+%! endfor
+%! d = t.description;
+%! assert_equal (numel (d) <= 300, true);
+%! assert_equal (isempty (strfind (d, "not to look a name up")), false);
+%! assert_equal (isempty (strfind (d, "persist in the workspace you name")), false);
+%! assert_equal (numel (t.inputSchema.required), 2);
+
+%!test
+%! ## The instructions of the evaluating server do not carry the read-only
+%! ## claim, which would be exactly false there.
+%! S = mcp.__newSession__ ("eval");
+%! [A, S] = mcp.dispatch (mkreq ("server/discover", ""), S);
+%! t = A.result.instructions;
+%! assert_equal (isempty (strfind (t, "Evaluates no code")), true);
+%! assert_equal (isempty (strfind (t, "workspace named by a handle")), false);
+%! assert_equal (isempty (strfind (t, "pass new to open one")), false);
+%! RO = mcp.dispatch (mkreq ("server/discover", ""), []);
+%! assert_equal (isempty (strfind (RO.result.instructions, "Evaluates no code")), false);

@@ -72,6 +72,29 @@ This is a better design than the one it replaces and it composes with the
 worker-process containment of Phase 5 rather than fighting it, since a handle
 was always going to be the honest name for "which interpreter".
 
+**One deviation, recorded here beside the sentence it deviates from.** The
+quoted text is a **SHOULD**, and what is implemented is not a separate creation
+tool: `octave_eval` takes a **required** `workspace` argument that is either a
+handle or the literal `new`, and the reply to a `new` gives the handle back.
+Every later call carries it, which is what the requirement is for.
+
+Two reasons, in order of weight. **An omitted argument is the measured case,
+not the exotic one:** `octave_pkg` had its name omitted in four runs of five
+until its description stated the consequence, and `llms` measured that a
+schema's `required` is advisory to a model rather than binding. With an
+optional handle, an omission means "start clean" and loses a workspace in
+silence, so the next call finds its variable undefined and the model blames its
+own code; with a required one it is a tool error naming what to pass. **And a
+tool costs its description on every request for the life of the session**,
+against a real host measured at eight to eleven calls for a single question,
+where a creation tool adds a mandatory round trip before any answer.
+
+What is not deviated from: the handle is opaque, carries entropy, is returned
+by the call that creates it, and is passed on every later call. It is derived
+from the clock, the process id and a temporary name rather than from `rand`,
+because the code a handle separates runs in this same interpreter and can reset
+the global random state.
+
 ## 1. Framing
 
 From `basic/transports/stdio`:

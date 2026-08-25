@@ -1,6 +1,7 @@
 mcp >> Model Context Protocol Server for GNU Octave
 Servers
  mcp.serve
+ mcp.serveEval
 Diagnostics
  mcp.selftest
 Protocol core
