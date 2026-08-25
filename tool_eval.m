@@ -160,7 +160,7 @@ function Q = questions ()
   ## where a name lives, what kind it is, what it shadows
   Q{end+1} = mkq ("Which file defines the function kmeans?", ...
                   'exact', {'kmeans'}, {'octave_which'});
-  Q{end+1} = mkq ("Is normcdf part of core Octave or does a package provide it?", ...
+  Q{end+1} = mkq ("Which package provides normcdf here, and is it loaded?", ...
                   'exact', {'normcdf'}, {'octave_which'});
   Q{end+1} = mkq ("Does anything shadow the function mean here?", ...
                   'exact', {'mean'}, {'octave_which'});
@@ -211,11 +211,24 @@ function Q = questions ()
   Q{end+1} = mkq ("What version of Octave is this server running?", ...
                   'skip', {}, {''});
 
+  ## the published index, not this machine.  Paired deliberately with the
+  ## question below it: the same name asked two ways, once about what any
+  ## package provides anywhere and once about what can be called here, which is
+  ## the distinction octave_registry exists for and the one a model collapses
+  ## if the description lets it.
+  Q{end+1} = mkq ("Which packages provide a function called nanmax, anywhere in the Octave index?", ...
+                  'has', {'nanmax'}, {'octave_registry'});
+
   ## two-part, either opening is defensible
   Q{end+1} = mkq ("Where does geom.offset come from and what does it do?", ...
                   'exact', {'geom.offset'}, {'octave_which', 'octave_help'});
-  Q{end+1} = mkq ("Is there anything called nanmax available?", ...
-                  'has', {'nanmax'}, {'octave_search', 'octave_which'});
+  ## "Can I use nanmax here right now?" was tried and withdrawn: since
+  ## octave_help answers out of the documentation caches it states callability
+  ## itself for an unloaded package, so three tools answer that wording and the
+  ## question stopped discriminating.  A path on this machine is octave_which's
+  ## alone.
+  Q{end+1} = mkq ("Where does nanmax live on this machine, and is it loaded?", ...
+                  'has', {'nanmax'}, {'octave_which'});
 
 endfunction
 

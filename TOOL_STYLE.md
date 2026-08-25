@@ -56,14 +56,21 @@ same way that changing a numerical implementation must be re-tested.
 ## Measured, not argued
 
 `tool_eval.m` is the check this file demands. It hands a local model the real
-tool set, taken from this package's own `tools/list`, asks twenty questions with
-a known-correct tool and argument, and scores the choice and the argument
-separately. Nothing is executed: only the choice is recorded.
+tool set, taken from this package's own `tools/list`, asks twenty-one
+questions with a known-correct tool and argument, and scores the choice and the
+argument separately. Nothing is executed: only the choice is recorded.
 
-**Baseline, Qwen3:1.7b, five runs of twenty questions, 2026-08-24:**
-82% tool choice, 81% choice and argument together.
+**Baseline, Qwen3:1.7b, five runs of twenty-one questions, 2026-08-25:**
+80% tool choice, 80% choice and argument together.
 
-Three rules come out of establishing it, and all three cost something to learn.
+The earlier reading of 82% and 81%, taken on 2026-08-24, was measured on a
+**twenty**-question set and is not comparable with this one. That set had been
+written for a four-tool surface: `octave_registry` arrived one commit later and
+was never added to it, so **no question tested the registry at all** while two
+questions it answers by design scored a model a miss for choosing it. There is
+a question for it now, and it passes five of five.
+
+Four rules come out of establishing it, and all four cost something to learn.
 
 **Judge per question, never by the mean.** The run-to-run spread is about
 fifteen points, so a single run tells you almost nothing and two runs differing
@@ -84,11 +91,25 @@ questions about a name you already have". That fixed none of them and swallowed
 to 1/5. It was reverted. A description competes with its siblings, and every
 word of extra reach is taken from one of them.
 
+**A question rots when a tool gains reach, and the key is not the place to
+fix it.** "Can I use nanmax here right now?" was written to separate
+`octave_which` from `octave_registry`. Once `octave_help` began answering out
+of the documentation caches it stated callability itself for an unloaded
+package, three tools answered that wording, and the question scored 0 of 5
+while the model was arguably right every time. It was reposed to ask for a path
+on this machine, which is `octave_which`'s alone, and went to 5 of 5. Widening
+the accept list instead would have kept the question in the set while it
+measured nothing.
+
 **And a boundary on the whole exercise.** Where a stronger model reads a
-description correctly and a weaker one does not, that is the reader. Four
-questions have resisted two rewrites here and are answered correctly by
-qwen2.5-coder:14b. Tuning a frozen public schema against the weakest model
-available makes it worse for every other reader.
+description correctly and a weaker one does not, that is the reader, and tuning
+a frozen public schema against the weakest model available makes it worse for
+every other reader. Measured on 2026-08-25: the same twenty-one questions and
+the same descriptions read **80% on Qwen3:1.7b and 97% on qwen2.5:14b**, two of
+its five runs perfect, with the questions the small model fails worst answered
+5 of 5 by the large one. Cite qwen2.5:14b for this and not qwen2.5-coder:14b,
+which scores as well and expresses **every** call as text in the message body,
+so nothing it chooses would run through a host.
 
 ## What the harness cannot see
 
