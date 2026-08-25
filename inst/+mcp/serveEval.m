@@ -21,7 +21,8 @@
 ## Serve the Model Context Protocol on standard input and output, with
 ## evaluation.
 ##
-## @code{mcp.serveEval ()} is @code{mcp.serve} plus the tools that run code.
+## @code{mcp.serveEval ()} is @code{mcp.serve} plus the two tools that run
+## code, @code{octave_eval} and @code{octave_test}.
 ## It reads newline-delimited JSON-RPC messages from standard input, answers
 ## each one, writes the answer to standard output, and returns only when
 ## standard input reaches end of file.
@@ -34,6 +35,19 @@
 ## blanket permission; this one does all three, and is meant to be configured
 ## under its own name, conventionally @qcode{"octave-eval"}, so that the
 ## permission rules for the two can differ.
+##
+## @subsubheading Testing
+##
+## @code{octave_test} runs the built-in tests of one function or file and
+## reports how many passed, with the assertion behind each failure.  It
+## resolves a name through @code{which} and then runs the @emph{file}, which is
+## what lets it test a namespaced function or a class method: core's
+## @code{test} cannot resolve @code{mcp.jsonrpcError} and answers
+## @qcode{"does not exist in path"} with a count of zero, and a count of zero
+## reads as @qcode{"no tests"} rather than as a name it could not resolve.
+##
+## It takes no workspace.  Tests run in a context of their own every time, so
+## that what passed cannot depend on what was evaluated before.
 ##
 ## @subsubheading Workspaces
 ##

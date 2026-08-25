@@ -516,6 +516,24 @@ function T = toolTable (surface)
   ## truncation cannot take it.
   T{end+1} = t;
 
+  t = struct ();
+  t.name = "octave_test";
+  t.title = "Run a Function's Tests";
+  t.description = strcat ("Run the built-in tests of one Octave function or", ...
+    " file and report how many passed. Use this to check that code works,", ...
+    " where octave_help says what it does. A failure comes back with the", ...
+    " assertion that failed. Names resolve as octave_which resolves them.");
+  props = struct ();
+  props.name = struct ("type", "string", "description", ...
+    "Function, class, method or file whose tests to run, such as regress");
+  isc = struct ();
+  isc.type = "object";
+  isc.properties = props;
+  isc.required = {'name'};
+  isc.additionalProperties = false;
+  t.inputSchema = isc;
+  T{end+1} = t;
+
 endfunction
 
 function t = instructionsText (surface)
@@ -616,6 +634,8 @@ function [res, code, msg, S] = toolsCall (params, era, S)
       res = callOctaveRegistry (args, era);
     case 'octave_eval'
       [res, S] = callOctaveEval (args, era, S);
+    case 'octave_test'
+      res = callOctaveTest (args, era);
   endswitch
 
 endfunction
@@ -1861,68 +1881,7 @@ function [res, S] = callOctaveEval (args, era, S)
 
   e_W = S.ws.(e_h);
 
-  ## Two containments, and they divide the work between them.  evalc takes
-  ## every route to standard output that stays inside the interpreter;
-  ## __mcp_capture__ holds descriptor 1 over a file, which is the only thing
-  ## that catches a subprocess, since a child inherits the descriptor and
-  ## writes past evalc entirely.  Measured: with both running, evalc returns
-  ## what printf wrote and the file holds what the child wrote, with neither
-  ## taking the other's.
-  ##
-  ## Where the capture could not be built, the subprocess-spawning functions
-  ## are shadowed instead, because the alternative is a child writing into the
-  ## stream that carries the protocol.  input and keyboard are shadowed either
-  ## way: there is no terminal for them to read from in any installation.
-  ## Both oct-files or neither.  The guard without the capture would run code
-  ## whose output goes to the real descriptor 1, which is the protocol stream,
-  ## so a half-built installation takes the weaker path whole.
-  e_cap = captureBuilt () && guardBuilt ();
-  e_dirs = {shadowDir()};
-  if (! e_cap)
-    e_dirs{end+1} = shadowDirSub ();
-  endif
-  e_secs = 0;
-  if (e_cap)
-    e_secs = evalSeconds ();
-  endif
-
-  e_added = {};
-  e_file = "";
-  e_started = false;
-  unwind_protect
-    warning ("off", "Octave:shadowed-function", "local");
-    for e_i = 1:numel (e_dirs)
-      if (exist (e_dirs{e_i}, "dir") == 7)
-        addpath (e_dirs{e_i}, "-begin");
-        e_added{end+1} = e_dirs{e_i};
-      endif
-    endfor
-    if (e_cap)
-      e_file = tempname ();
-      __mcp_capture__ ("start", e_file);
-      e_started = true;
-    endif
-    [e_out, e_W, e_err, e_stopped] = mcp.__evalIn__ (e_W, args.code, e_secs);
-  unwind_protect_cleanup
-    if (e_started)
-      fflush (stdout);
-      __mcp_capture__ ("stop");
-    endif
-    warning ("off", "Octave:rmpath-not-found", "local");
-    for e_i = 1:numel (e_added)
-      rmpath (e_added{e_i});
-    endfor
-  end_unwind_protect
-
-  e_sub = "";
-  if (! isempty (e_file) && exist (e_file, "file") == 2)
-    try
-      e_sub = fileread (e_file);
-    catch
-      e_sub = "";
-    end_try_catch
-    delete (e_file);
-  endif
+  [e_W, e_out, e_err, e_stopped, e_sub, e_secs] = runContained (e_W, args.code);
 
   S.ws.(e_h) = e_W;
   S = touchWorkspace (S, e_h);
@@ -1965,6 +1924,206 @@ function [res, S] = callOctaveEval (args, era, S)
 
   res.content = {textBlock(capText (strjoin (e_L, "\n"), evalCap ()))};
   res.isError = (! isempty (e_err)) || e_stopped;
+
+endfunction
+
+function res = callOctaveTest (args, era)
+
+  ## Locals prefixed, as everywhere that shares an interpreter with the code
+  ## it runs.
+
+  res = struct ();
+  if (strcmp (era, "modern"))
+    res.resultType = "complete";
+  endif
+
+  t_bad = unknownArgs (args, {'name'});
+  if (! isempty (t_bad))
+    res.content = {textBlock(strrep (t_bad, "this tool", "octave_test"))};
+    res.isError = true;
+    return;
+  endif
+
+  if (! (isfield (args, "name") && ischar (args.name) && isrow (args.name) ...
+         && ! isempty (strtrim (args.name))))
+    res.content = {textBlock(strcat ("octave_test needs a name: the", ...
+      " function, class, method or file whose tests to run."))};
+    res.isError = true;
+    return;
+  endif
+
+  t_name = strtrim (args.name);
+
+  ## Resolved with which and then run by path, never by name.  Core's test
+  ## cannot resolve a namespaced name: measured, test ("mcp.jsonrpcError")
+  ## prints "does not exist in path" and returns zero, which a model reads as
+  ## "there are no tests" rather than as "you asked the wrong way".
+  ## which first, a path second.  exist (NAME, "file") answers 2 for a
+  ## function on the load path as readily as for a file, so testing that first
+  ## would take "mean" for a path called mean and never resolve it.
+  t_path = "";
+  try
+    t_path = which (t_name);
+  catch
+    t_path = "";
+  end_try_catch
+  if (isempty (t_path) || exist (t_path, "file") != 2)
+    if (exist (t_name, "file") == 2 && ! isempty (regexp (t_name, '\.m$', "once")))
+      t_path = t_name;
+    endif
+  endif
+
+  if (isempty (t_path) || exist (t_path, "file") != 2)
+    res.content = {textBlock(sprintf (strcat ("No file for %s on this", ...
+      " server's load path, so there is nothing to test. A built-in has no", ...
+      " file of its own; octave_which reports where a name resolves."), ...
+      t_name))};
+    res.isError = true;
+    return;
+  endif
+
+  [~, ~, t_ext] = fileparts (t_path);
+  if (! strcmp (t_ext, ".m"))
+    res.content = {textBlock(sprintf (strcat ("%s resolves to %s, and tests", ...
+      " live in the text of an m-file, so a compiled function has none", ...
+      " here."), t_name, t_path))};
+    res.isError = true;
+    return;
+  endif
+
+  t_log = tempname ();
+  t_code = sprintf (strcat ("mcpTestLid = fopen ('%s', 'w');", ...
+    " [mcpTestN, mcpTestMax] = test ('%s', 'quiet', mcpTestLid);", ...
+    " fclose (mcpTestLid);"), quoteFor (t_log), quoteFor (t_path));
+
+  [t_W, t_out, t_err, t_stopped, t_sub, t_secs] = runContained (struct (), t_code);
+
+  t_text = "";
+  if (exist (t_log, "file") == 2)
+    try
+      t_text = fileread (t_log);
+    catch
+      t_text = "";
+    end_try_catch
+    delete (t_log);
+  endif
+
+  if (! isempty (t_err))
+    res.content = {textBlock(sprintf ("octave_test could not run %s: %s", ...
+                                      t_path, t_err))};
+    res.isError = true;
+    return;
+  endif
+
+  t_n = -1;
+  t_max = -1;
+  if (isfield (t_W, "mcpTestN") && isnumeric (t_W.mcpTestN))
+    t_n = t_W.mcpTestN;
+  endif
+  if (isfield (t_W, "mcpTestMax") && isnumeric (t_W.mcpTestMax))
+    t_max = t_W.mcpTestMax;
+  endif
+
+  t_L = {};
+  if (t_stopped)
+    t_L{end+1} = sprintf (strcat ("[stopped] the tests were still running", ...
+      " after %g seconds and were interrupted; what is below is as far as", ...
+      " they got."), t_secs);
+  elseif (t_max == 0)
+    t_L{end+1} = sprintf ("[tests] none in %s", t_path);
+  elseif (t_n >= 0)
+    t_L{end+1} = sprintf ("[tests] %d of %d passed in %s", t_n, t_max, t_path);
+  else
+    t_L{end+1} = sprintf ("[tests] ran, and reported no count, in %s", t_path);
+  endif
+
+  ## The log carries the failures and nothing else, which is the whole reason
+  ## for the quiet mode with a log file rather than the verbose one: verbose
+  ## prints every passing test as well, and the cap would cut the failures off
+  ## the end of a long file.
+  t_text = regexprep (t_text, '^>>>>> processing [^\n]*\n', '');
+  if (! isempty (strtrim (t_text)))
+    t_L{end+1} = strtrim (t_text);
+  endif
+
+  res.content = {textBlock(capText (strjoin (t_L, "\n"), evalCap ()))};
+  res.isError = t_stopped;
+
+endfunction
+
+function q = quoteFor (str)
+  ## A single quote inside a single-quoted Octave string is written twice
+  q = strrep (str, "'", "''");
+endfunction
+
+function [W, out, err, stopped, sub, secs] = runContained (W, code)
+
+  ## Everything that runs code goes through here, the evaluating tool and the
+  ## testing one alike, so that a deadline, a capture and a shadow cannot be
+  ## three things one of them is missing.
+  ##
+  ## Two containments, and they divide the work between them.  evalc takes
+  ## every route to standard output that stays inside the interpreter;
+  ## __mcp_capture__ holds descriptor 1 over a file, which is the only thing
+  ## that catches a subprocess, since a child inherits the descriptor and
+  ## writes past evalc entirely.  Measured: with both running, evalc returns
+  ## what printf wrote and the file holds what the child wrote, with neither
+  ## taking the other's.
+  ##
+  ## Where the capture could not be built, the subprocess-spawning functions
+  ## are shadowed instead, because the alternative is a child writing into the
+  ## stream that carries the protocol.  input and keyboard are shadowed either
+  ## way: there is no terminal for them to read from in any installation.
+  ## Both oct-files or neither.  The guard without the capture would run code
+  ## whose output goes to the real descriptor 1, which is the protocol stream,
+  ## so a half-built installation takes the weaker path whole.
+  c_cap = captureBuilt () && guardBuilt ();
+  c_dirs = {shadowDir()};
+  if (! c_cap)
+    c_dirs{end+1} = shadowDirSub ();
+  endif
+  secs = 0;
+  if (c_cap)
+    secs = evalSeconds ();
+  endif
+
+  c_added = {};
+  c_file = "";
+  c_started = false;
+  unwind_protect
+    warning ("off", "Octave:shadowed-function", "local");
+    for c_i = 1:numel (c_dirs)
+      if (exist (c_dirs{c_i}, "dir") == 7)
+        addpath (c_dirs{c_i}, "-begin");
+        c_added{end+1} = c_dirs{c_i};
+      endif
+    endfor
+    if (c_cap)
+      c_file = tempname ();
+      __mcp_capture__ ("start", c_file);
+      c_started = true;
+    endif
+    [out, W, err, stopped] = mcp.__evalIn__ (W, code, secs);
+  unwind_protect_cleanup
+    if (c_started)
+      fflush (stdout);
+      __mcp_capture__ ("stop");
+    endif
+    warning ("off", "Octave:rmpath-not-found", "local");
+    for c_i = 1:numel (c_added)
+      rmpath (c_added{c_i});
+    endfor
+  end_unwind_protect
+
+  sub = "";
+  if (! isempty (c_file) && exist (c_file, "file") == 2)
+    try
+      sub = fileread (c_file);
+    catch
+      sub = "";
+    end_try_catch
+    delete (c_file);
+  endif
 
 endfunction
 
@@ -3092,7 +3251,7 @@ endfunction
 %! S = mcp.__newSession__ ("eval");
 %! [A, S] = mcp.dispatch (mkreq ("tools/list", ""), S);
 %! nms = cellfun (@(t) t.name, A.result.tools, "UniformOutput", false);
-%! assert_equal (numel (nms), 6);
+%! assert_equal (numel (nms), 7);
 %! assert_equal (any (strcmp (nms, "octave_eval")), true);
 
 %!test
@@ -3336,6 +3495,120 @@ endfunction
 %! assert_equal (isempty (strfind (d, "not to look a name up")), false);
 %! assert_equal (isempty (strfind (d, "persist in the workspace you name")), false);
 %! assert_equal (numel (t.inputSchema.required), 2);
+
+%!function [A, S] = testcall (S, name)
+%!  meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
+%!          '"io.modelcontextprotocol/clientCapabilities":{}}'];
+%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%!       '"params":{"name":"octave_test","arguments":{"name":"' name '"},' ...
+%!       meta '}}']);
+%!  [A, S] = mcp.dispatch (R, S);
+%!endfunction
+
+%!test
+%! ## A namespaced name is tested, which core's test cannot do: measured,
+%! ## test ("mcp.jsonrpcError") reports "does not exist in path" and returns
+%! ## zero, which reads as "no tests" rather than as a name it could not
+%! ## resolve.  Resolving through which and running the file is the fix.
+%! d = fullfile (tempdir (), "mcp_test_ns");
+%! unwind_protect
+%!   mkdir (fullfile (d, "+mcpzzns"));
+%!   fid = fopen (fullfile (d, "+mcpzzns", "twice.m"), "w");
+%!   fprintf (fid, "function y = twice (x)\n  y = 2 * x;\nendfunction\n");
+%!   fprintf (fid, "%%!assert (mcpzzns.twice (2) == 4)\n");
+%!   fprintf (fid, "%%!assert (mcpzzns.twice (0) == 0)\n");
+%!   fclose (fid);
+%!   addpath (d);
+%!   S = mcp.__newSession__ ("eval");
+%!   [A, S] = testcall (S, "mcpzzns.twice");
+%!   t = A.result.content{1}.text;
+%!   assert_equal (A.result.isError, false);
+%!   assert_equal (isempty (strfind (t, "[tests] 2 of 2 passed")), false);
+%! unwind_protect_cleanup
+%!   warning ("off", "Octave:rmpath-not-found", "local");
+%!   rmpath (d);
+%!   confirm_recursive_rmdir (false, "local");
+%!   rmdir (d, "s");
+%! end_unwind_protect
+
+%!test
+%! ## A failure comes back with the assertion that failed, and the count says
+%! ## how many of how many, which is what a model needs to decide what to fix.
+%! d = fullfile (tempdir (), "mcp_test_fail");
+%! unwind_protect
+%!   mkdir (d);
+%!   fid = fopen (fullfile (d, "mcpzzbroken.m"), "w");
+%!   fprintf (fid, "function mcpzzbroken ()\nendfunction\n");
+%!   fprintf (fid, "%%!assert (1 == 1)\n");
+%!   fprintf (fid, "%%!assert (mcpzzsentinel == 2)\n");
+%!   fclose (fid);
+%!   addpath (d);
+%!   S = mcp.__newSession__ ("eval");
+%!   [A, S] = testcall (S, "mcpzzbroken");
+%!   t = A.result.content{1}.text;
+%!   assert_equal (isempty (strfind (t, "[tests] 1 of 2 passed")), false);
+%!   assert_equal (isempty (strfind (t, "mcpzzsentinel")), false);
+%!   ## A test that fails is an answer, not a failed call
+%!   assert_equal (A.result.isError, false);
+%! unwind_protect_cleanup
+%!   warning ("off", "Octave:rmpath-not-found", "local");
+%!   rmpath (d);
+%!   confirm_recursive_rmdir (false, "local");
+%!   rmdir (d, "s");
+%! end_unwind_protect
+
+%!test
+%! ## A file with no tests says so, rather than reporting zero of zero and
+%! ## letting that read as a pass.
+%! d = fullfile (tempdir (), "mcp_test_none");
+%! unwind_protect
+%!   mkdir (d);
+%!   fid = fopen (fullfile (d, "mcpzzbare.m"), "w");
+%!   fprintf (fid, "function mcpzzbare ()\nendfunction\n");
+%!   fclose (fid);
+%!   addpath (d);
+%!   S = mcp.__newSession__ ("eval");
+%!   [A, S] = testcall (S, "mcpzzbare");
+%!   assert_equal (isempty (strfind (A.result.content{1}.text, "[tests] none")), false);
+%! unwind_protect_cleanup
+%!   warning ("off", "Octave:rmpath-not-found", "local");
+%!   rmpath (d);
+%!   confirm_recursive_rmdir (false, "local");
+%!   rmdir (d, "s");
+%! end_unwind_protect
+
+%!test
+%! ## A built-in has no file of its own, and a name that resolves nowhere has
+%! ## nothing at all; both are tool errors that name the fallback.
+%! S = mcp.__newSession__ ("eval");
+%! [A, S] = testcall (S, "size");
+%! assert_equal (A.result.isError, true);
+%! assert_equal (isempty (strfind (A.result.content{1}.text, "octave_which")), false);
+%! [A, S] = testcall (S, "mcpzznosuchnameatall");
+%! assert_equal (A.result.isError, true);
+
+%!test
+%! ## The read-only server does not carry it, by D2: it runs code, and that is
+%! ## the whole of what mcp.serve promises not to do.
+%! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
+%! nms = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
+%! assert_equal (any (strcmp (nms, "octave_test")), false);
+%! S = mcp.__newSession__ ("read-only");
+%! [A, S] = testcall (S, "mean");
+%! assert_equal (isfield (A, "error"), true);
+%! assert_equal (A.error.code, -32602);
+
+%!test
+%! ## TOOL_STYLE, and the joins are not glued.
+%! S = mcp.__newSession__ ("eval");
+%! [A, S] = mcp.dispatch (mkreq ("tools/list", ""), S);
+%! nms = cellfun (@(t) t.name, A.result.tools, "UniformOutput", false);
+%! assert_equal (numel (nms), 7);
+%! t = A.result.tools{find(strcmp (nms, "octave_test"), 1)};
+%! d = t.description;
+%! assert_equal (numel (d) <= 300, true);
+%! assert_equal (isempty (strfind (d, "check that code works")), false);
+%! assert_equal (isempty (strfind (d, "assertion that failed")), false);
 
 %!test
 %! ## The instructions of the evaluating server do not carry the read-only
