@@ -264,6 +264,46 @@ function [OK, REPORT] = selftest (CMD)
         endif
       endif
 
+      ## The deadline, end to end: code that never returns must not take the
+      ## server with it.  Two seconds through the environment variable rather
+      ## than the server's own deadline, so that this stays a test and not a
+      ## wait.  setenv rather than a shell prefix, which cmd.exe would not
+      ## understand.
+      had = getenv ("MCP_EVAL_SECONDS");
+      unwind_protect
+        setenv ("MCP_EVAL_SECONDS", "2");
+        loopy = {sprintf(['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+                 '"params":{"name":"octave_eval","arguments":' ...
+                 '{"code":"while (true), mcpzzspin = 1; endwhile",' ...
+                 '"workspace":"new"},%s}}'], meta), ...
+                 sprintf(['{"jsonrpc":"2.0","id":2,"method":"tools/call",' ...
+                 '"params":{"name":"octave_eval","arguments":' ...
+                 '{"code":"mcpzzalive = 42;","workspace":"new"},%s}}'], meta)};
+        fid = fopen (infile, "w");
+        if (fid < 0)
+          error ("mcp.selftest: cannot write a temporary file in %s.", tempdir ());
+        endif
+        fprintf (fid, "%s\n", loopy{:});
+        fclose (fid);
+        [status, out] = system (sprintf ('%s < "%s" 2> "%s"', ECMD, infile, errfile));
+      unwind_protect_cleanup
+        if (isempty (had))
+          unsetenv ("MCP_EVAL_SECONDS");
+        else
+          setenv ("MCP_EVAL_SECONDS", had);
+        endif
+      end_unwind_protect
+
+      lines = strsplit (strrep (out, "\r\n", "\n"), "\n");
+      lines = lines(! cellfun (@isempty, lines));
+      stopped = ! isempty (strfind (out, "[stopped]"));
+      answered = numel (lines) == 2;
+
+      [REPORT, OK] = check (REPORT, ...
+        "eval: code that does not return is stopped, and the server answers on", ...
+        stopped && answered, ...
+        sprintf ("stopped=%d, %d replies", stopped, numel (lines)), OK);
+
       if (isempty (capdir))
         ## No capture built here, so the refusal is the correct answer and the
         ## check is that it refused rather than ran

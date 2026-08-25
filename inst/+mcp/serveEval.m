@@ -71,9 +71,34 @@
 ## @code{input} and @code{keyboard} are shadowed in either case, since there is
 ## no terminal for them to read from.
 ##
+## @subsubheading The deadline
+##
+## An evaluation that is still running after twenty seconds is stopped, and the
+## reply says so.  What the code assigned before it was stopped is still in the
+## workspace and what it printed is still returned, which is the difference
+## between this and letting the host restart the process.
+##
+## The stopping is the interpreter's own interrupt, the mechanism Ctrl-C uses,
+## raised from a thread and caught in @code{__mcp_guard__}.  It cannot be done
+## in Octave: measured on 11.2.0, an interrupt raised this way unwinds straight
+## through @code{try} and takes the process with it, honouring
+## @code{unwind_protect} on the way but never being caught.
+##
+## Set @env{MCP_EVAL_SECONDS} in the launch command for an installation whose
+## work honestly takes longer, up to six hundred.  It is not a tool argument,
+## since that would cost tokens in every request and is a decision for whoever
+## configures the server rather than for the model.
+##
+## The deadline does not recover everything.  A call wedged inside one long
+## native call, or blocked on a read, reaches no checkpoint at which the
+## interrupt can be noticed, and the host restarting the process is what
+## remains.  Where the oct-files could not be built there is no deadline at
+## all.
+##
+## @subsubheading What this is not
+##
 ## None of this is a sandbox.  Evaluated code can read and write files, use the
-## network and consume memory exactly as any code in this interpreter can, and
-## a call that never returns holds the server until the host restarts it.
+## network and consume memory exactly as any code in this interpreter can.
 ## Configure this server only where that is acceptable.
 ##
 ## @seealso{mcp.serve, mcp.selftest}

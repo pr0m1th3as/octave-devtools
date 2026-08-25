@@ -16,11 +16,11 @@
 ## this program; if not, see <http://www.gnu.org/licenses/>.
 
 ## -*- texinfo -*-
-## @deftypefn {mcp} {[@var{out}, @var{vars}, @var{err}] =} mcp.__evalIn__ (@var{vars}, @var{code})
+## @deftypefn {mcp} {[@var{out}, @var{vars}, @var{err}, @var{stopped}] =} mcp.__evalIn__ (@var{vars}, @var{code}, @var{secs})
 ##
 ## Evaluate @var{code} in a scope holding @var{vars}, and return what it
-## printed, the variables left behind, and the error message if it raised one.
-## Internal; not a supported entry point.
+## printed, the variables left behind, the error message if it raised one, and
+## whether a deadline stopped it.  Internal; not a supported entry point.
 ##
 ## The workspace is a structure whose fields are variable names.  They are
 ## assigned into this function's own scope before the code runs and collected
@@ -34,18 +34,31 @@
 ## with @code{mcp__} is therefore not kept, which is the one name a caller
 ## cannot use and is documented rather than defended against.
 ##
-## Output is captured with @code{evalc}, which takes every route to standard
-## output that stays inside the interpreter.  It does @strong{not} take the
-## output of a subprocess: measured, @code{system ("echo x")} writes past it to
-## the real descriptor.  That is why the evaluating server shadows the
-## subprocess-spawning functions while it runs.
+## There are two ways to run the code and @var{secs} chooses between them.
+## With @var{secs} greater than zero the evaluation goes through
+## @code{__mcp_guard__}, which stops it at the deadline and, being C++, can
+## catch the interrupt that stopping it raises; output is then not returned
+## here at all, because the caller is holding the descriptors over a file and
+## that file has everything, in order, including what a subprocess and a
+## warning wrote.  With @var{secs} zero the evaluation goes through
+## @code{evalc}, which returns what the interpreter printed and misses both of
+## those, and nothing stops code that does not return.
+##
+## The second way is the fallback for an installation whose oct-files could not
+## be built.  Choosing it is the caller's business, not this function's.
 ##
 ## @end deftypefn
 
-function [mcp__out, mcp__vars, mcp__err] = __evalIn__ (mcp__vars, mcp__code)
+function [mcp__out, mcp__vars, mcp__err, mcp__stopped] = __evalIn__ (mcp__vars, mcp__code, mcp__secs)
 
-  if (nargin != 2)
+  if (nargin < 2 || nargin > 3)
     error ("mcp.__evalIn__: invalid number of input arguments.");
+  endif
+  if (nargin < 3)
+    mcp__secs = 0;
+  endif
+  if (! (isnumeric (mcp__secs) && isscalar (mcp__secs) && mcp__secs >= 0))
+    error ("mcp.__evalIn__: SECS must be a nonnegative scalar.");
   endif
   if (! (isstruct (mcp__vars) && isscalar (mcp__vars)))
     error ("mcp.__evalIn__: VARS must be a scalar structure.");
@@ -56,17 +69,26 @@ function [mcp__out, mcp__vars, mcp__err] = __evalIn__ (mcp__vars, mcp__code)
 
   mcp__err = "";
   mcp__out = "";
+  mcp__stopped = false;
 
   mcp__names = fieldnames (mcp__vars);
   for mcp__i = 1:numel (mcp__names)
     eval ([mcp__names{mcp__i} " = mcp__vars.(mcp__names{mcp__i});"]);
   endfor
 
-  try
-    mcp__out = evalc (mcp__code);
-  catch mcp__e
-    mcp__err = mcp__e.message;
-  end_try_catch
+  if (mcp__secs > 0)
+    try
+      mcp__stopped = __mcp_guard__ (mcp__code, mcp__secs);
+    catch mcp__e
+      mcp__err = mcp__e.message;
+    end_try_catch
+  else
+    try
+      mcp__out = evalc (mcp__code);
+    catch mcp__e
+      mcp__err = mcp__e.message;
+    end_try_catch
+  endif
 
   ## Collected after the fact rather than tracked, so that clear, a rename and
   ## a variable made inside an if all come out right without parsing anything

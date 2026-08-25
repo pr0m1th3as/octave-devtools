@@ -40,10 +40,12 @@
 #  define MCP_MODE 0600
 #endif
 
-// The descriptor the protocol is written on, parked here while descriptor 1
-// points at a file.  Negative means no capture is running, which is also the
-// state a failed start leaves behind.
-static int mcp_saved_fd = -1;
+// The descriptors parked here while 1 and 2 point at a file: 1 carries the
+// protocol and 2 carries warnings, which are output the model should see.
+// Negative means no capture is running, which is also the state a failed
+// start leaves behind.
+static int mcp_saved_out = -1;
+static int mcp_saved_err = -1;
 
 DEFUN_DLD (__mcp_capture__, args, ,
            R"(-*- texinfo -*-
@@ -51,7 +53,7 @@ DEFUN_DLD (__mcp_capture__, args, ,
 @deftypefnx {mcp} {} __mcp_capture__ ("stop")
 @deftypefnx {mcp} {@var{tf} =} __mcp_capture__ ("active")
 
-Point file descriptor 1 at @var{file} and back again.  Internal; not a
+Point file descriptors 1 and 2 at @var{file} and back again.  Internal; not a
 supported entry point.
 
 @code{evalc} captures every route to standard output that stays inside the
@@ -60,10 +62,14 @@ writes @strong{past} the capture.  In a server whose descriptor 1 carries the
 protocol, that is a corrupted stream rather than stray text, which is why the
 containment here is at the descriptor and not at the name.
 
-@code{start} flushes, duplicates descriptor 1 so that the protocol stream is
-not lost, and puts @var{file} in its place.  @code{stop} flushes, restores the
-duplicate and drops it.  Starting twice without stopping is an error rather
-than a leaked descriptor.
+Descriptor 2 is taken as well, because a warning is output the model should
+see and Octave writes warnings there.  Both land in one file, in the order they
+were written, which no pair of separate captures can reproduce.
+
+@code{start} flushes, duplicates both descriptors so that the protocol stream
+is not lost, and puts @var{file} in their place.  @code{stop} flushes, restores
+the duplicates and drops them.  Starting twice without stopping is an error
+rather than a leaked descriptor.
 
 @end deftypefn)")
 {
@@ -74,14 +80,15 @@ than a leaked descriptor.
   if (nargin < 1 || nargin > 2)
     error ("__mcp_capture__: invalid number of input arguments.");
 
-  std::string action = args(0).xstring_value ("__mcp_capture__: ACTION must be a string.");
+  std::string action
+    = args(0).xstring_value ("__mcp_capture__: ACTION must be a string.");
 
   if (action == "active")
     {
       if (nargin != 1)
         error ("__mcp_capture__: 'active' takes no further argument.");
 
-      return octave_value_list (octave_value (mcp_saved_fd >= 0));
+      return octave_value_list (octave_value (mcp_saved_out >= 0));
     }
 
   if (action == "start")
@@ -89,33 +96,45 @@ than a leaked descriptor.
       if (nargin != 2)
         error ("__mcp_capture__: 'start' needs a file name.");
 
-      if (mcp_saved_fd >= 0)
+      if (mcp_saved_out >= 0)
         error ("__mcp_capture__: a capture is already running.");
 
-      std::string file = args(1).xstring_value ("__mcp_capture__: FILE must be a string.");
+      std::string file
+        = args(1).xstring_value ("__mcp_capture__: FILE must be a string.");
 
       std::fflush (stdout);
+      std::fflush (stderr);
 
-      int saved = MCP_DUP (1);
-      if (saved < 0)
+      int saved_out = MCP_DUP (1);
+      if (saved_out < 0)
         error ("__mcp_capture__: could not duplicate descriptor 1.");
+
+      int saved_err = MCP_DUP (2);
+      if (saved_err < 0)
+        {
+          MCP_CLOSE (saved_out);
+          error ("__mcp_capture__: could not duplicate descriptor 2.");
+        }
 
       int fd = MCP_OPEN (file.c_str (), MCP_WRONLY, MCP_MODE);
       if (fd < 0)
         {
-          MCP_CLOSE (saved);
+          MCP_CLOSE (saved_out);
+          MCP_CLOSE (saved_err);
           error ("__mcp_capture__: could not open '%s'.", file.c_str ());
         }
 
-      if (MCP_DUP2 (fd, 1) < 0)
+      if (MCP_DUP2 (fd, 1) < 0 || MCP_DUP2 (fd, 2) < 0)
         {
           MCP_CLOSE (fd);
-          MCP_CLOSE (saved);
-          error ("__mcp_capture__: could not redirect descriptor 1.");
+          MCP_CLOSE (saved_out);
+          MCP_CLOSE (saved_err);
+          error ("__mcp_capture__: could not redirect the descriptors.");
         }
 
       MCP_CLOSE (fd);
-      mcp_saved_fd = saved;
+      mcp_saved_out = saved_out;
+      mcp_saved_err = saved_err;
 
       return retval;
     }
@@ -125,16 +144,25 @@ than a leaked descriptor.
       if (nargin != 1)
         error ("__mcp_capture__: 'stop' takes no further argument.");
 
-      if (mcp_saved_fd < 0)
+      if (mcp_saved_out < 0)
         error ("__mcp_capture__: no capture is running.");
 
       std::fflush (stdout);
+      std::fflush (stderr);
 
-      if (MCP_DUP2 (mcp_saved_fd, 1) < 0)
-        error ("__mcp_capture__: could not restore descriptor 1.");
+      int bad = 0;
+      if (MCP_DUP2 (mcp_saved_out, 1) < 0)
+        bad = 1;
+      if (MCP_DUP2 (mcp_saved_err, 2) < 0)
+        bad = 2;
 
-      MCP_CLOSE (mcp_saved_fd);
-      mcp_saved_fd = -1;
+      MCP_CLOSE (mcp_saved_out);
+      MCP_CLOSE (mcp_saved_err);
+      mcp_saved_out = -1;
+      mcp_saved_err = -1;
+
+      if (bad)
+        error ("__mcp_capture__: could not restore descriptor %d.", bad);
 
       return retval;
     }

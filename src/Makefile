@@ -7,7 +7,7 @@
 
 MKOCTFILE ?= mkoctfile
 
-all: capture
+all: capture guard
 
 capture:
 	@if $(MKOCTFILE) __mcp_capture__.cc > mcp_build.log 2>&1; then \
@@ -20,7 +20,17 @@ capture:
 	  cat mcp_build.log; \
 	fi
 
+guard:
+	@if $(MKOCTFILE) __mcp_guard__.cc > mcp_build.log 2>&1; then \
+	  echo "mcp: built __mcp_guard__.oct"; \
+	else \
+	  echo "mcp: no working compiler for __mcp_guard__.cc."; \
+	  echo "mcp: the evaluating server will run without a deadline, so code"; \
+	  echo "mcp: that does not return holds it until the host restarts it."; \
+	  cat mcp_build.log; \
+	fi
+
 clean:
 	-rm -f *.o *.oct mcp_build.log
 
-.PHONY: all capture clean
+.PHONY: all capture guard clean

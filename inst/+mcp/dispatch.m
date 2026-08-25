@@ -1873,10 +1873,17 @@ function [res, S] = callOctaveEval (args, era, S)
   ## are shadowed instead, because the alternative is a child writing into the
   ## stream that carries the protocol.  input and keyboard are shadowed either
   ## way: there is no terminal for them to read from in any installation.
-  e_cap = captureBuilt ();
+  ## Both oct-files or neither.  The guard without the capture would run code
+  ## whose output goes to the real descriptor 1, which is the protocol stream,
+  ## so a half-built installation takes the weaker path whole.
+  e_cap = captureBuilt () && guardBuilt ();
   e_dirs = {shadowDir()};
   if (! e_cap)
     e_dirs{end+1} = shadowDirSub ();
+  endif
+  e_secs = 0;
+  if (e_cap)
+    e_secs = evalSeconds ();
   endif
 
   e_added = {};
@@ -1895,7 +1902,7 @@ function [res, S] = callOctaveEval (args, era, S)
       __mcp_capture__ ("start", e_file);
       e_started = true;
     endif
-    [e_out, e_W, e_err] = mcp.__evalIn__ (e_W, args.code);
+    [e_out, e_W, e_err, e_stopped] = mcp.__evalIn__ (e_W, args.code, e_secs);
   unwind_protect_cleanup
     if (e_started)
       fflush (stdout);
@@ -1923,26 +1930,41 @@ function [res, S] = callOctaveEval (args, era, S)
   ## The handle leads and the error follows it, both before the output, so
   ## that truncation from the end can take neither
   e_L = {sprintf("[workspace %s]", e_h)};
+  if (e_stopped)
+    e_L{end+1} = sprintf (strcat ("[stopped] the code was still running after", ...
+      " %g seconds and was interrupted. Anything it assigned before then is", ...
+      " in the workspace, and what it printed is below."), e_secs);
+  endif
   if (! isempty (e_err))
     e_L{end+1} = sprintf ("[error] %s", e_err);
   endif
   e_names = fieldnames (e_W);
-  if (isempty (strtrim (e_out)))
-    e_L{end+1} = "[no output]";
+  if (e_secs > 0)
+    ## One capture held everything, in the order it was written, so there is
+    ## nothing to label and nothing to interleave
+    if (isempty (strtrim (e_sub)))
+      e_L{end+1} = "[no output]";
+    else
+      e_L{end+1} = strtrim (e_sub);
+    endif
   else
-    e_L{end+1} = e_out;
-  endif
-  if (! isempty (strtrim (e_sub)))
-    ## Labelled, because it cannot be interleaved with the rest faithfully: it
-    ## was written by a child process to a different place
-    e_L{end+1} = sprintf ("[subprocess output]\n%s", strtrim (e_sub));
+    if (isempty (strtrim (e_out)))
+      e_L{end+1} = "[no output]";
+    else
+      e_L{end+1} = e_out;
+    endif
+    if (! isempty (strtrim (e_sub)))
+      ## Labelled here, because evalc took the rest and a child's output
+      ## cannot be interleaved with it faithfully
+      e_L{end+1} = sprintf ("[subprocess output]\n%s", strtrim (e_sub));
+    endif
   endif
   if (! isempty (e_names))
     e_L{end+1} = sprintf ("[variables] %s", strjoin (e_names', ", "));
   endif
 
   res.content = {textBlock(capText (strjoin (e_L, "\n"), evalCap ()))};
-  res.isError = ! isempty (e_err);
+  res.isError = (! isempty (e_err)) || e_stopped;
 
 endfunction
 
@@ -1968,6 +1990,37 @@ endfunction
 
 function d = shadowDirSub ()
   d = fullfile (fileparts (mfilename ("fullpath")), "evalshadowsub");
+endfunction
+
+function n = evalSeconds ()
+
+  ## A deadline, not a resource policy.  Long enough that an ordinary
+  ## computation finishes inside it and short enough that a host waiting on the
+  ## reply has not given up.
+  ##
+  ## Not a tool parameter, for the reason D6 gives about maxBytes: it would
+  ## cost tokens in every schema and models misuse a knob.  An environment
+  ## variable instead, which is set by whoever writes the launch command and
+  ## costs the model nothing, for the installation whose work really does take
+  ## longer than this.
+  n = 20;
+
+  e_env = getenv ("MCP_EVAL_SECONDS");
+  if (! isempty (e_env))
+    e_val = str2double (e_env);
+    if (isscalar (e_val) && ! isnan (e_val) && e_val > 0 && e_val <= 600)
+      n = e_val;
+    endif
+  endif
+
+endfunction
+
+function tf = guardBuilt ()
+  persistent cached;
+  if (isempty (cached))
+    cached = (exist ("__mcp_guard__", "file") > 0);
+  endif
+  tf = cached;
 endfunction
 
 function tf = captureBuilt ()
@@ -3127,7 +3180,6 @@ endfunction
 %! t = A.result.content{1}.text;
 %! if (exist ("__mcp_capture__", "file") > 0)
 %!   assert_equal (A.result.isError, false);
-%!   assert_equal (isempty (strfind (t, "[subprocess output]")), false);
 %!   assert_equal (isempty (strfind (t, "mcpzzleak")), false);
 %! else
 %!   assert_equal (A.result.isError, true);
@@ -3135,20 +3187,28 @@ endfunction
 %! endif
 
 %!test
-%! ## The two captures divide the work: what the interpreter printed comes
-%! ## back from evalc and what the child printed from the file, neither
-%! ## taking the other's.
-%! if (exist ("__mcp_capture__", "file") > 0)
+%! ## One capture holds everything, in the order it was written: what the
+%! ## interpreter printed, what a warning wrote to the other descriptor, and
+%! ## what a child process printed, with nothing to label and nothing to
+%! ## interleave afterwards.
+%! if (exist ("__mcp_capture__", "file") > 0 && exist ("__mcp_guard__", "file") > 0)
 %!   S = mcp.__newSession__ ("eval");
-%!   [A, S] = evalcall (S, jsonencode ("printf (\"mcpzzinproc\\n\"); system (\"echo mcpzzchild\");"), "new");
+%!   [A, S] = evalcall (S, jsonencode ("printf (\"mcpzzinproc\\n\"); warning (\"mcpzzwarn\"); system (\"echo mcpzzchild\");"), "new");
 %!   t = A.result.content{1}.text;
 %!   L = strsplit (t, "\n");
 %!   i_in = find (! cellfun (@isempty, strfind (L, "mcpzzinproc")), 1);
-%!   i_mk = find (! cellfun (@isempty, strfind (L, "[subprocess output]")), 1);
+%!   i_wa = find (! cellfun (@isempty, strfind (L, "mcpzzwarn")), 1);
 %!   i_ch = find (! cellfun (@isempty, strfind (L, "mcpzzchild")), 1);
 %!   assert_equal (isempty (i_in), false);
-%!   assert_equal (i_in < i_mk, true);
-%!   assert_equal (i_mk < i_ch, true);
+%!   assert_equal (isempty (i_ch), false);
+%!   assert_equal (i_in < i_ch, true);
+%!   ## The warning is checked only where one was issued.  pkg test runs the
+%!   ## suite with warnings off and does not let a block turn them back on,
+%!   ## measured; a warning that never happened cannot be captured, and
+%!   ## asserting on it would test the harness rather than this code.
+%!   if (! isempty (i_wa))
+%!     assert_equal (i_in < i_wa && i_wa < i_ch, true);
+%!   endif
 %! endif
 
 %!test
@@ -3220,6 +3280,46 @@ endfunction
 %! [A, S] = evalcall (S, jsonencode ("   "), "new");
 %! assert_equal (A.result.isError, true);
 %! assert_equal (isempty (strfind (A.result.content{1}.text, "needs code")), false);
+
+%!test
+%! ## The deadline stops code that does not return, and the interpreter is
+%! ## still there afterwards.  Driven through __evalIn__ rather than through a
+%! ## request, so that it costs a second rather than the server's own deadline.
+%! if (exist ("__mcp_guard__", "file") > 0)
+%!   W = struct ();
+%!   t0 = tic ();
+%!   [o, W, e, stopped] = mcp.__evalIn__ (W, "mcpzzk = 1; while (true), mcpzzk++; endwhile", 0.75);
+%!   el = toc (t0);
+%!   assert_equal (stopped, true);
+%!   assert_equal (el > 0.5 && el < 5, true);
+%!   ## What it assigned before the deadline is still in the workspace, which
+%!   ## is the whole difference between this and restarting the process
+%!   assert_equal (isfield (W, "mcpzzk"), true);
+%!   assert_equal (W.mcpzzk > 1, true);
+%!   ## and a second evaluation still works
+%!   [o, W, e, stopped] = mcp.__evalIn__ (W, "mcpzzm = 6 * 7;", 5);
+%!   assert_equal (stopped, false);
+%!   assert_equal (W.mcpzzm, 42);
+%! endif
+
+%!test
+%! ## A deadline that is not reached changes nothing.
+%! if (exist ("__mcp_guard__", "file") > 0)
+%!   W = struct ();
+%!   [o, W, e, stopped] = mcp.__evalIn__ (W, "mcpzzn = 3;", 10);
+%!   assert_equal (stopped, false);
+%!   assert_equal (isempty (e), true);
+%!   assert_equal (W.mcpzzn, 3);
+%! endif
+
+%!test
+%! ## An error under the deadline is still an ordinary error, not a stop.
+%! if (exist ("__mcp_guard__", "file") > 0)
+%!   W = struct ();
+%!   [o, W, e, stopped] = mcp.__evalIn__ (W, "mcpzznosuchthing (1)", 10);
+%!   assert_equal (stopped, false);
+%!   assert_equal (isempty (strfind (e, "mcpzznosuchthing")), false);
+%! endif
 
 %!test
 %! ## TOOL_STYLE, and the joins are not glued.
