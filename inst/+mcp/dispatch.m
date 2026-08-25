@@ -1861,23 +1861,61 @@ function [res, S] = callOctaveEval (args, era, S)
 
   e_W = S.ws.(e_h);
 
-  ## The shadows stand only while the code runs.  Anything this server does
-  ## between calls, pkg included, needs the real functions back.
-  e_dir = shadowDir ();
-  e_on = false;
+  ## Two containments, and they divide the work between them.  evalc takes
+  ## every route to standard output that stays inside the interpreter;
+  ## __mcp_capture__ holds descriptor 1 over a file, which is the only thing
+  ## that catches a subprocess, since a child inherits the descriptor and
+  ## writes past evalc entirely.  Measured: with both running, evalc returns
+  ## what printf wrote and the file holds what the child wrote, with neither
+  ## taking the other's.
+  ##
+  ## Where the capture could not be built, the subprocess-spawning functions
+  ## are shadowed instead, because the alternative is a child writing into the
+  ## stream that carries the protocol.  input and keyboard are shadowed either
+  ## way: there is no terminal for them to read from in any installation.
+  e_cap = captureBuilt ();
+  e_dirs = {shadowDir()};
+  if (! e_cap)
+    e_dirs{end+1} = shadowDirSub ();
+  endif
+
+  e_added = {};
+  e_file = "";
+  e_started = false;
   unwind_protect
-    if (exist (e_dir, "dir") == 7)
-      warning ("off", "Octave:shadowed-function", "local");
-      addpath (e_dir, "-begin");
-      e_on = true;
+    warning ("off", "Octave:shadowed-function", "local");
+    for e_i = 1:numel (e_dirs)
+      if (exist (e_dirs{e_i}, "dir") == 7)
+        addpath (e_dirs{e_i}, "-begin");
+        e_added{end+1} = e_dirs{e_i};
+      endif
+    endfor
+    if (e_cap)
+      e_file = tempname ();
+      __mcp_capture__ ("start", e_file);
+      e_started = true;
     endif
     [e_out, e_W, e_err] = mcp.__evalIn__ (e_W, args.code);
   unwind_protect_cleanup
-    if (e_on)
-      warning ("off", "Octave:rmpath-not-found", "local");
-      rmpath (e_dir);
+    if (e_started)
+      fflush (stdout);
+      __mcp_capture__ ("stop");
     endif
+    warning ("off", "Octave:rmpath-not-found", "local");
+    for e_i = 1:numel (e_added)
+      rmpath (e_added{e_i});
+    endfor
   end_unwind_protect
+
+  e_sub = "";
+  if (! isempty (e_file) && exist (e_file, "file") == 2)
+    try
+      e_sub = fileread (e_file);
+    catch
+      e_sub = "";
+    end_try_catch
+    delete (e_file);
+  endif
 
   S.ws.(e_h) = e_W;
   S = touchWorkspace (S, e_h);
@@ -1893,6 +1931,11 @@ function [res, S] = callOctaveEval (args, era, S)
     e_L{end+1} = "[no output]";
   else
     e_L{end+1} = e_out;
+  endif
+  if (! isempty (strtrim (e_sub)))
+    ## Labelled, because it cannot be interleaved with the rest faithfully: it
+    ## was written by a child process to a different place
+    e_L{end+1} = sprintf ("[subprocess output]\n%s", strtrim (e_sub));
   endif
   if (! isempty (e_names))
     e_L{end+1} = sprintf ("[variables] %s", strjoin (e_names', ", "));
@@ -1921,6 +1964,22 @@ endfunction
 
 function d = shadowDir ()
   d = fullfile (fileparts (mfilename ("fullpath")), "evalshadow");
+endfunction
+
+function d = shadowDirSub ()
+  d = fullfile (fileparts (mfilename ("fullpath")), "evalshadowsub");
+endfunction
+
+function tf = captureBuilt ()
+  ## The oct-file is optional by construction: src/ never fails a build, so a
+  ## machine without a compiler installs the package and loses this and only
+  ## this.  Asked once per process, since it cannot change under a running
+  ## server.
+  persistent cached;
+  if (isempty (cached))
+    cached = (exist ("__mcp_capture__", "file") > 0);
+  endif
+  tf = cached;
 endfunction
 
 function [h, S] = newWorkspace (S)
@@ -3057,14 +3116,52 @@ endfunction
 %! assert_equal (isempty (strfind (t, "needs workspace")), false);
 
 %!test
-%! ## A subprocess writes past the capture and into the protocol stream, so it
-%! ## is refused while a call runs.  Measured, not assumed: evalc takes every
-%! ## in-process route to stdout and not this one.
+%! ## A subprocess writes past evalc and into the protocol stream: measured,
+%! ## evalc takes every in-process route to stdout and not this one.  Where
+%! ## __mcp_capture__ was built, descriptor 1 is held over a file for the call
+%! ## and the child's output comes back labelled; where it was not, the call is
+%! ## refused, since the alternative is a corrupted stream.  Both are real
+%! ## installations, so the check follows whichever this one is.
 %! S = mcp.__newSession__ ("eval");
 %! [A, S] = evalcall (S, jsonencode ("system (\"echo mcpzzleak\")"), "new");
 %! t = A.result.content{1}.text;
-%! assert_equal (A.result.isError, true);
-%! assert_equal (isempty (strfind (t, "protocol stream")), false);
+%! if (exist ("__mcp_capture__", "file") > 0)
+%!   assert_equal (A.result.isError, false);
+%!   assert_equal (isempty (strfind (t, "[subprocess output]")), false);
+%!   assert_equal (isempty (strfind (t, "mcpzzleak")), false);
+%! else
+%!   assert_equal (A.result.isError, true);
+%!   assert_equal (isempty (strfind (t, "without its output capture")), false);
+%! endif
+
+%!test
+%! ## The two captures divide the work: what the interpreter printed comes
+%! ## back from evalc and what the child printed from the file, neither
+%! ## taking the other's.
+%! if (exist ("__mcp_capture__", "file") > 0)
+%!   S = mcp.__newSession__ ("eval");
+%!   [A, S] = evalcall (S, jsonencode ("printf (\"mcpzzinproc\\n\"); system (\"echo mcpzzchild\");"), "new");
+%!   t = A.result.content{1}.text;
+%!   L = strsplit (t, "\n");
+%!   i_in = find (! cellfun (@isempty, strfind (L, "mcpzzinproc")), 1);
+%!   i_mk = find (! cellfun (@isempty, strfind (L, "[subprocess output]")), 1);
+%!   i_ch = find (! cellfun (@isempty, strfind (L, "mcpzzchild")), 1);
+%!   assert_equal (isempty (i_in), false);
+%!   assert_equal (i_in < i_mk, true);
+%!   assert_equal (i_mk < i_ch, true);
+%! endif
+
+%!test
+%! ## The capture is released whatever the code did: a second call still sees
+%! ## its own output, which it would not if descriptor 1 were still held.
+%! if (exist ("__mcp_capture__", "file") > 0)
+%!   S = mcp.__newSession__ ("eval");
+%!   [A, S] = evalcall (S, jsonencode ("error (\"mcpzzboom\")"), "new");
+%!   assert_equal (A.result.isError, true);
+%!   assert_equal (__mcp_capture__ ("active"), false);
+%!   [A, S] = evalcall (S, jsonencode ("printf (\"mcpzzafter\\n\");"), "new");
+%!   assert_equal (isempty (strfind (A.result.content{1}.text, "mcpzzafter")), false);
+%! endif
 
 %!test
 %! ## The shadows stand only while the call runs; the real function is back

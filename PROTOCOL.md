@@ -129,6 +129,18 @@ Also:
 Our server never needs to: server-to-client interaction is carried by
 `InputRequiredResult` replies, which we do not use.
 
+
+**Consequence for evaluation, found by measurement rather than by reading.**
+`evalc` captures every route to standard output that stays inside the
+interpreter, and none that leaves it: `system ("echo x")` writes past it to the
+real descriptor, which in a stdio server is the stream this section makes
+normative. `mcp.serveEval` therefore holds descriptor 1 over a file for the
+length of every evaluation, through the `__mcp_capture__` oct-file, and returns
+what a child printed as part of the reply. The containment is at the descriptor
+and not at a name, so `builtin ("system", ...)` does not get around it, and
+`mcp.selftest` drives a real evaluating server through a call that spawns a
+child and checks that every line the server wrote was a message.
+
 ## 3. Lifecycle
 
 There is no handshake. From `basic/versioning`:

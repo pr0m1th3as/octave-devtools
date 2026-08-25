@@ -203,6 +203,82 @@ function [OK, REPORT] = selftest (CMD)
                             "nothing until end of input: a live client will time out", OK);
     endif
 
+
+    ## The evaluating server, and the claim only it can break: a child process
+    ## inherits descriptor 1, so code that spawns one writes into the stream
+    ## that carries the protocol unless something holds that descriptor.  Run
+    ## against mcp.serveEval rather than mcp.serve, and only with the default
+    ## commands, since a caller-supplied one may not be an evaluating server.
+    if (nargin < 1)
+
+      [ECMD, capdir] = defaultEvalCommand ();
+      esession = {sprintf(['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+                  '"params":{"name":"octave_eval","arguments":' ...
+                  '{"code":"system (\\"echo mcpzzchild\\");",' ...
+                  '"workspace":"new"},%s}}'], meta)};
+
+      fid = fopen (infile, "w");
+      if (fid < 0)
+        error ("mcp.selftest: cannot write a temporary file in %s.", tempdir ());
+      endif
+      fprintf (fid, "%s\n", esession{:});
+      fclose (fid);
+
+      [status, out] = system (sprintf ('%s < "%s" 2> "%s"', ECMD, infile, errfile));
+
+      lines = strsplit (strrep (out, "\r\n", "\n"), "\n");
+      lines = lines(! cellfun (@isempty, lines));
+
+      [REPORT, OK] = check (REPORT, "eval: server exited cleanly", ...
+                            status == 0, sprintf ("exit status %d", status), OK);
+
+      bad = 0;
+      for i = 1:numel (lines)
+        try
+          jsondecode (lines{i});
+        catch
+          bad = i;
+          break;
+        end_try_catch
+      endfor
+      if (bad > 0)
+        detail = sprintf ("line %d of stdout is not a message: %s", bad, ...
+                          trunc (lines{bad}));
+      else
+        detail = "";
+      endif
+      [REPORT, OK] = check (REPORT, ...
+        "eval: a subprocess wrote nothing into the protocol stream", ...
+        bad == 0, detail, OK);
+
+      txt = "";
+      if (numel (lines) == 1 && bad == 0)
+        A = jsondecode (lines{1});
+        if (isfield (A, "result") && isfield (A.result, "content"))
+          C = A.result.content;
+          if (iscell (C) && ! isempty (C) && isfield (C{1}, "text"))
+            txt = C{1}.text;
+          elseif (isstruct (C) && ! isempty (C) && isfield (C, "text"))
+            txt = C(1).text;
+          endif
+        endif
+      endif
+
+      if (isempty (capdir))
+        ## No capture built here, so the refusal is the correct answer and the
+        ## check is that it refused rather than ran
+        [REPORT, OK] = check (REPORT, ...
+          "eval: without the capture, a subprocess is refused", ...
+          ! isempty (strfind (txt, "without its output capture")), ...
+          trunc (txt), OK);
+      else
+        [REPORT, OK] = check (REPORT, ...
+          "eval: what the subprocess printed came back in the result", ...
+          ! isempty (strfind (txt, "mcpzzchild")), trunc (txt), OK);
+      endif
+
+    endif
+
   unwind_protect_cleanup
     if (exist (infile, "file") == 2)
       delete (infile);
@@ -228,6 +304,32 @@ function CMD = defaultCommand ()
   instdir = fileparts (fileparts (mfilename ("fullpath")));
   CMD = sprintf ('"%s" -q --no-init-file --eval "addpath (''%s''); mcp.serve ()"', ...
                  exe, instdir);
+endfunction
+
+function [CMD, capdir] = defaultEvalCommand ()
+
+  ## The same command the README gives for the evaluating server, plus
+  ## whatever directory holds __mcp_capture__ in this process, so that a
+  ## source tree is exercised the way an installed package is.
+  exe = fullfile (OCTAVE_HOME (), "bin", "octave-cli");
+  if (exist (exe, "file") != 2)
+    exe = "octave-cli";
+  endif
+  instdir = fileparts (fileparts (mfilename ("fullpath")));
+
+  capdir = "";
+  cap = which ("__mcp_capture__");
+  if (! isempty (cap))
+    capdir = fileparts (cap);
+  endif
+
+  add = sprintf ("addpath ('%s');", instdir);
+  if (! isempty (capdir))
+    add = [add sprintf(" addpath ('%s');", capdir)];
+  endif
+  CMD = sprintf ('"%s" -q --no-init-file --eval "%s mcp.serveEval ()"', ...
+                 exe, add);
+
 endfunction
 
 function [REPORT, OK] = check (REPORT, what, passed, detail, OK)

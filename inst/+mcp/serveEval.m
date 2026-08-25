@@ -53,18 +53,28 @@
 ##
 ## @subsubheading What contains it, and what does not
 ##
-## Output is captured, so what evaluated code prints is returned to the model
-## rather than written into the protocol stream.  While a call is running,
-## @code{input} and @code{keyboard} are shadowed by functions that raise, since
-## there is no terminal for either to read from, and so are @code{system},
-## @code{unix}, @code{dos}, @code{popen} and @code{popen2}, because a
-## subprocess inherits the real standard output and writes @strong{past} the
-## capture and into the stream that carries the protocol.
+## Output is captured twice over, and the two halves catch different things.
+## @code{evalc} takes every route to standard output that stays inside the
+## interpreter, and @code{__mcp_capture__} holds descriptor 1 over a file for
+## the length of the call, which is the only thing that catches a
+## @strong{subprocess}: a child inherits the descriptor and writes past
+## @code{evalc} entirely, into the stream that carries the protocol.  What a
+## child printed comes back labelled in the reply.
 ##
-## The shadowing is a guard against accident, not a sandbox.  It is defeated by
-## @code{builtin}, and evaluated code can read and write files, use the network
-## and consume memory exactly as any code in this interpreter can.  Configure
-## this server only where that is acceptable.
+## Because that containment is at the descriptor and not at a name,
+## @code{builtin ("system", @dots{})} does not get around it.  Where the
+## package was installed without a compiler and @code{__mcp_capture__} could
+## not be built, @code{system}, @code{unix}, @code{dos}, @code{popen} and
+## @code{popen2} are shadowed by functions that raise instead, which is
+## weaker: that shadowing @emph{is} defeated by @code{builtin}.
+##
+## @code{input} and @code{keyboard} are shadowed in either case, since there is
+## no terminal for them to read from.
+##
+## None of this is a sandbox.  Evaluated code can read and write files, use the
+## network and consume memory exactly as any code in this interpreter can, and
+## a call that never returns holds the server until the host restarts it.
+## Configure this server only where that is acceptable.
 ##
 ## @seealso{mcp.serve, mcp.selftest}
 ## @end deftypefn
