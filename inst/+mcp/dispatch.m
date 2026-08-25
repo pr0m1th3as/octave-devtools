@@ -878,20 +878,38 @@ function res = callOctaveHelp (args, era)
   endif
 
   h_name = strtrim (args.name);
-  h_txt = "";
-  h_err = "";
-  try
-    h_txt = help (h_name);
-  catch h_e
-    h_err = h_e.message;
-  end_try_catch
 
-  if (! isempty (h_err) || isempty (strtrim (h_txt)))
-    res.content = {textBlock(sprintf (strcat ("No help for %s on this", ...
-      " server's load path. It may exist in a package this server did not", ...
-      " load; octave_which reports where a name resolves."), h_name))};
-    res.isError = true;
-    return;
+  ## The documentation caches first.  They hold text makeinfo has already
+  ## rendered, so a hit costs a lookup where help costs a process: measured on
+  ## 11.2.0, help is 0.32 s for any name, of which 0.31 s is __makeinfo__
+  ## shelling out to makeinfo, against 0.001 s here.  A miss falls through to
+  ## help unchanged, which is what covers namespaces and classdef methods,
+  ## since doc_cache_create reaches neither.  Which cache may answer for a
+  ## given name is helpCached's rule, and it is not simply whichever holds it.
+  [h_txt, h_note] = helpCached (h_name);
+
+  if (isempty (h_txt))
+    h_err = "";
+    try
+      h_txt = help (h_name);
+    catch h_e
+      h_txt = "";
+      h_err = h_e.message;
+    end_try_catch
+
+    if (! isempty (h_err) || isempty (strtrim (h_txt)))
+      res.content = {textBlock(sprintf (strcat ("No help for %s on this", ...
+        " server's load path. It may exist in a package this server did not", ...
+        " load; octave_which reports where a name resolves."), h_name))};
+      res.isError = true;
+      return;
+    endif
+  endif
+
+  ## Before the text, never after: the cap cuts from the end, and a note that
+  ## truncation can remove is worse than no note at all.
+  if (! isempty (h_note))
+    h_txt = [h_note "\n\n" h_txt];
   endif
 
   res.content = {textBlock(capText (h_txt, helpCap ()))};
@@ -945,6 +963,185 @@ function T = capText (txt, cap)
   T = strjoin (L(1:keep), "\n");
   T = sprintf ("%s\n[truncated: %d of %d lines, %d of %d bytes]", T, keep, nl, ...
                numel (T), nb);
+
+endfunction
+
+function [T, N] = helpCached (c_name)
+
+  ## Rendered help text out of the documentation caches, or "" when the name
+  ## is in none of them.  N is a note to place before that text, empty unless
+  ## the answer comes from a package this server has not loaded.
+  ##
+  ## Locals are prefixed for the reason given in whichReport: which () resolves
+  ## against this function's workspace, so a query for a name this function
+  ## also uses would come back as "variable".
+
+  T = "";
+  N = "";
+
+  C = helpCacheData ();
+  c_i = find (strcmp (C.names, c_name));
+  if (isempty (c_i))
+    return;
+  endif
+
+  ## Where the interpreter would resolve this name.  A cached entry is served
+  ## only when it belongs to the same place: a name shadowed by a directory no
+  ## cache covers must be rendered rather than recalled, or the tool would
+  ## describe a function other than the one that would run.
+  c_owner = "";
+  c_onpath = true;
+  if (exist (c_name) == 5)
+    c_owner = "core";                 # a built-in has no file on this machine
+  else
+    c_p = "";
+    try
+      c_p = which (c_name);
+    catch
+      c_p = "";
+    end_try_catch
+    if (isempty (c_p) || strcmp (c_p, "variable"))
+      c_onpath = false;
+    else
+      c_owner = pathOwner (c_p, C.pkglist);
+    endif
+  endif
+
+  if (c_onpath)
+    ## Whichever cache owns the place the name resolves to answers, core's or
+    ## a package's alike.  A release regenerates its cache, so the two travel
+    ## in the same tarball; a maintainer's working tree installed over its own
+    ## release label is the one case where they part, and that is a property
+    ## of that machine rather than of the format.
+    c_k = c_i(find (strcmp (C.owners(c_i), c_owner), 1));
+  else
+    ## Not on the load path, so the only entry that can answer is one from an
+    ## installed package this server did not load.  Here the comparison is not
+    ## against help, which cannot answer at all, but against nothing, so the
+    ## cache is served with a note saying what the text is and what it is not:
+    ## a model reading a cached answer as proof the function can be called
+    ## here would be wrong, and would have no way to tell.
+    c_k = c_i(find (! C.loaded(c_i), 1));
+    if (! isempty (c_k))
+      N = sprintf (strcat ("[%s is installed but NOT loaded by this", ...
+        " server: this help comes from the package's documentation cache,", ...
+        " and the function cannot be called until the package is loaded]"), ...
+        C.owners{c_k});
+    endif
+  endif
+
+  if (isempty (c_k))
+    return;
+  endif
+
+  T = cacheText (C.texts{c_k});
+
+endfunction
+
+function C = helpCacheData ()
+
+  ## Every documentation cache on this machine, read once per process and only
+  ## when octave_help is first called: a session that never asks pays nothing,
+  ## and one that does pays about two tenths of a second for 2238 entries
+  ## across 27 files.  Like the ecosystem index this is a cache of files that
+  ## cannot change while the process lives, not state.
+  persistent cachedC;
+
+  if (! isempty (cachedC))
+    C = cachedC;
+    return;
+  endif
+
+  C = struct ();
+  C.names = {};
+  C.texts = {};
+  C.owners = {};
+  C.loaded = logical ([]);
+  C.pkglist = {};
+
+  try
+    C.pkglist = pkg ("list");
+  catch
+    C.pkglist = {};
+  end_try_catch
+
+  c_files = {};
+  c_owner = {};
+  c_load = logical ([]);
+
+  c_core = "";
+  try
+    c_core = doc_cache_file ();
+  catch
+    c_core = "";
+  end_try_catch
+  if (! isempty (c_core) && exist (c_core, "file") == 2)
+    c_files{end+1} = c_core;
+    c_owner{end+1} = "core";
+    c_load(end+1) = true;
+  endif
+
+  for c_j = 1:numel (C.pkglist)
+    P = C.pkglist{c_j};
+    ## The file in the package root must be named on its own: a dir () pattern
+    ## with a "**" component matches at least one directory level, so it never
+    ## returns d/doc-cache.  Four of the eleven packages installed here keep
+    ## their only cache there, so relying on the walk alone loses them.
+    c_hits = {fullfile(P.dir, "doc-cache")};
+    c_d = dir (fullfile (P.dir, "**", "doc-cache"));
+    for c_m = 1:numel (c_d)
+      c_hits{end+1} = fullfile (c_d(c_m).folder, c_d(c_m).name);
+    endfor
+    for c_m = 1:numel (c_hits)
+      if (exist (c_hits{c_m}, "file") == 2)
+        c_files{end+1} = c_hits{c_m};
+        c_owner{end+1} = sprintf ("%s %s", P.name, P.version);
+        c_load(end+1) = logical (P.loaded);
+      endif
+    endfor
+  endfor
+
+  for c_m = 1:numel (c_files)
+    c_c = {};
+    try
+      c_s = load (c_files{c_m});
+      if (isfield (c_s, "cache"))
+        c_c = c_s.cache;
+      endif
+    catch
+      c_c = {};
+    end_try_catch
+    if (! iscell (c_c) || rows (c_c) < 2 || columns (c_c) < 1)
+      continue;
+    endif
+    c_n = columns (c_c);
+    C.names = [C.names, c_c(1,:)];
+    C.texts = [C.texts, c_c(2,:)];
+    C.owners = [C.owners, repmat(c_owner(c_m), 1, c_n)];
+    C.loaded = [C.loaded, repmat(c_load(c_m), 1, c_n)];
+  endfor
+
+  cachedC = C;
+
+endfunction
+
+function T = cacheText (T)
+
+  ## Core's cache is not the one doc_cache_create writes.  The file shipped
+  ## with the interpreter is built by doc/interpreter/mk-doc-cache.pl, which
+  ## runs makeinfo at --fill-column=1024 and applies neither of the
+  ## substitutions __makeinfo__ makes, so its text keeps the " -- : " deftypefn
+  ## prefix (1666 of 1670 entries) and leaks the manual's cross-reference
+  ## anchors, as in "see 'dbstop': XREFdbstop for details" (85 entries).  Both
+  ## rules below are core's own, taken from __makeinfo__, and with them applied
+  ## the entries that differed from help in content stop differing.  The
+  ## wrapping is not restored: it carries no information a model can use, and
+  ## re-wrapping would mean reimplementing makeinfo's fill.  A package cache is
+  ## written through __makeinfo__ and carries neither pattern, measured, which
+  ## is why this is safe to run over every entry.
+  T = regexprep (T, '^ -- : +', ' -- ', "lineanchors");
+  T = regexprep (T, ': XREF[A-Za-z0-9_]+', '');
+  T = regexprep (T, '\s+$', '');
 
 endfunction
 
@@ -2093,6 +2290,83 @@ endfunction
 %! ## thinking something was withheld.
 %! RESP = mcp.dispatch (callhelp ("+"), []);
 %! assert_equal (isempty (strfind (RESP.result.content{1}.text, "truncated")), true);
+
+%!test
+%! ## The cache answers with what help would have rendered, tested on a name
+%! ## that proves the normalisation rather than one that never differed:
+%! ## core's shipped cache is built by mk-doc-cache.pl, not by
+%! ## doc_cache_create, and leaks the manual's cross-reference anchors.
+%! RESP = mcp.dispatch (callhelp ("fgets"), []);
+%! t = RESP.result.content{1}.text;
+%! assert_equal (RESP.result.isError, false);
+%! assert_equal (isempty (strfind (t, "XREF")), true);
+%! assert_equal (regexprep (strtrim (t), '\s+', " "), ...
+%!               regexprep (strtrim (help ("fgets")), '\s+', " "));
+
+%!test
+%! ## The deftypefn prefix of that same renderer is core's artefact and does
+%! ## not reach a model either.
+%! RESP = mcp.dispatch (callhelp ("dbclear"), []);
+%! t = RESP.result.content{1}.text;
+%! assert_equal (isempty (strfind (t, " -- : ")), true);
+%! assert_equal (strncmp (t, " -- dbclear FCN", 15), true);
+
+%!test
+%! ## A shadowed name is rendered, never recalled: the cache holds core's
+%! ## nthargout, the load path holds this one, and the tool must describe the
+%! ## function that would run.  This is the same guard that keeps a loaded
+%! ## package's own cache out of its answers.
+%! d = fullfile (tempdir (), "mcp_help_shadow");
+%! unwind_protect
+%!   warning ("off", "Octave:shadowed-function", "local");
+%!   mkdir (d);
+%!   fid = fopen (fullfile (d, "nthargout.m"), "w");
+%!   fprintf (fid, "## mcpzzshadow fixture\nfunction nthargout ()\nendfunction\n");
+%!   fclose (fid);
+%!   addpath (d);
+%!   RESP = mcp.dispatch (callhelp ("nthargout"), []);
+%!   t = RESP.result.content{1}.text;
+%!   assert_equal (isempty (strfind (t, "mcpzzshadow")), false);
+%! unwind_protect_cleanup
+%!   warning ("off", "Octave:rmpath-not-found", "local");
+%!   rmpath (d);
+%!   confirm_recursive_rmdir (false, "local");
+%!   rmdir (d, "s");
+%! end_unwind_protect
+
+%!test
+%! ## A name in an installed package this server did not load is answered from
+%! ## that package's cache and labelled, which is an answer help cannot give at
+%! ## all.  The fixture is whatever this machine has, so the check asserts
+%! ## nothing where every installed package is loaded or none ships a cache.
+%! L = pkg ("list");
+%! nm = "";
+%! for i = 1:numel (L)
+%!   if (L{i}.loaded)
+%!     continue;
+%!   endif
+%!   f = fullfile (L{i}.dir, "doc-cache");
+%!   if (exist (f, "file") != 2)
+%!     continue;
+%!   endif
+%!   c = load (f);
+%!   for j = 1:columns (c.cache)
+%!     if (isempty (which (c.cache{1,j})))
+%!       nm = c.cache{1,j};
+%!       break;
+%!     endif
+%!   endfor
+%!   if (! isempty (nm))
+%!     break;
+%!   endif
+%! endfor
+%! if (! isempty (nm))
+%!   RESP = mcp.dispatch (callhelp (nm), []);
+%!   t = RESP.result.content{1}.text;
+%!   assert_equal (RESP.result.isError, false);
+%!   assert_equal (strncmp (t, "[", 1), true);
+%!   assert_equal (isempty (strfind (t, "installed but NOT loaded")), false);
+%! endif
 
 %!test
 %! ## TOOL_STYLE, and the joins are not glued.
