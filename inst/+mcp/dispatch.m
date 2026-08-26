@@ -1881,7 +1881,8 @@ function [res, S] = callOctaveEval (args, era, S)
 
   e_W = S.ws.(e_h);
 
-  [e_W, e_out, e_err, e_stopped, e_sub, e_secs] = runContained (e_W, args.code);
+  [e_W, e_out, e_err, e_stopped, e_sub, e_cinfo] = ...
+    runContained (e_W, args.code);
 
   S.ws.(e_h) = e_W;
   S = touchWorkspace (S, e_h);
@@ -1890,15 +1891,19 @@ function [res, S] = callOctaveEval (args, era, S)
   ## that truncation from the end can take neither
   e_L = {sprintf("[workspace %s]", e_h)};
   if (e_stopped)
-    e_L{end+1} = sprintf (strcat ("[stopped] the code was still running after", ...
-      " %g seconds and was interrupted. Anything it assigned before then is", ...
-      " in the workspace, and what it printed is below."), e_secs);
+    ## Both numbers.  The deadline says why it was interrupted, the elapsed
+    ## time says what happened, and they differ whenever the code was blocked
+    ## outside the interpreter's checkpoints and returned of its own accord.
+    e_L{end+1} = sprintf (strcat ("[stopped] the code was interrupted at", ...
+      " its deadline of %g seconds and returned after %.2f seconds.", ...
+      " Anything it assigned before then is in the workspace, and what it", ...
+      " printed is below."), e_cinfo.deadline, e_cinfo.elapsed);
   endif
   if (! isempty (e_err))
     e_L{end+1} = sprintf ("[error] %s", e_err);
   endif
   e_names = fieldnames (e_W);
-  if (e_secs > 0)
+  if (e_cinfo.captured)
     ## One capture held everything, in the order it was written, so there is
     ## nothing to label and nothing to interleave
     if (isempty (strtrim (e_sub)))
@@ -1996,7 +2001,8 @@ function res = callOctaveTest (args, era)
     " [mcpTestN, mcpTestMax] = test ('%s', 'quiet', mcpTestLid);", ...
     " fclose (mcpTestLid);"), quoteFor (t_log), quoteFor (t_path));
 
-  [t_W, t_out, t_err, t_stopped, t_sub, t_secs] = runContained (struct (), t_code);
+  [t_W, t_out, t_err, t_stopped, t_sub, t_cinfo] = ...
+    runContained (struct (), t_code);
 
   t_text = "";
   if (exist (t_log, "file") == 2)
@@ -2026,9 +2032,9 @@ function res = callOctaveTest (args, era)
 
   t_L = {};
   if (t_stopped)
-    t_L{end+1} = sprintf (strcat ("[stopped] the tests were still running", ...
-      " after %g seconds and were interrupted; what is below is as far as", ...
-      " they got."), t_secs);
+    t_L{end+1} = sprintf (strcat ("[stopped] the tests were interrupted at", ...
+      " the deadline of %g seconds and returned after %.2f seconds; what is", ...
+      " below is as far as they got."), t_cinfo.deadline, t_cinfo.elapsed);
   elseif (t_max == 0)
     t_L{end+1} = sprintf ("[tests] none in %s", t_path);
   elseif (t_n >= 0)
@@ -2056,7 +2062,7 @@ function q = quoteFor (str)
   q = strrep (str, "'", "''");
 endfunction
 
-function [W, out, err, stopped, sub, secs] = runContained (W, code)
+function [W, out, err, stopped, sub, cinfo] = runContained (W, code)
 
   ## Everything that runs code goes through here, the evaluating tool and the
   ## testing one alike, so that a deadline, a capture and a shadow cannot be
@@ -2082,9 +2088,12 @@ function [W, out, err, stopped, sub, secs] = runContained (W, code)
   if (! c_cap)
     c_dirs{end+1} = shadowDirSub ();
   endif
-  secs = 0;
+  ## Three facts, each under its own name: what the deadline was, whether the
+  ## capture path was taken, and how long the call really took.  They travelled
+  ## as one number before, so a caller reading it for one of them got another.
+  cinfo = struct ("deadline", 0, "captured", c_cap, "elapsed", 0);
   if (c_cap)
-    secs = evalSeconds ();
+    cinfo.deadline = evalSeconds ();
   endif
 
   c_added = {};
@@ -2103,7 +2112,11 @@ function [W, out, err, stopped, sub, secs] = runContained (W, code)
       __mcp_capture__ ("start", c_file);
       c_started = true;
     endif
-    [out, W, err, stopped] = mcp.__evalIn__ (W, code, secs);
+    ## Timed by id and never by the bare tic: the code being evaluated shares
+    ## this interpreter, and its own tic would reset the default timer.
+    c_t0 = tic ();
+    [out, W, err, stopped] = mcp.__evalIn__ (W, code, cinfo.deadline);
+    cinfo.elapsed = toc (c_t0);
   unwind_protect_cleanup
     if (c_started)
       fflush (stdout);
@@ -3380,6 +3393,23 @@ endfunction
 %!   assert_equal (__mcp_capture__ ("active"), false);
 %!   [A, S] = evalcall (S, jsonencode ("printf (\"mcpzzafter\\n\");"), "new");
 %!   assert_equal (isempty (strfind (A.result.content{1}.text, "mcpzzafter")), false);
+%! endif
+
+%!test
+%! ## The mirror of the two tests above, for the installation without the
+%! ## oct-files: evalc took the output there, so the reply carries it from the
+%! ## other arm of the same routing decision.  Inert wherever the oct-files are
+%! ## built, which is how that arm came to have nothing over it.
+%! c_cap = exist ("__mcp_capture__", "file");
+%! c_grd = exist ("__mcp_guard__", "file");
+%! if (c_cap == 0 || c_grd == 0)
+%!   S = mcp.__newSession__ ("eval");
+%!   c = jsonencode ("printf (\"mcpzzfallback\\n\");");
+%!   [A, S] = evalcall (S, c, "new");
+%!   assert_equal (A.result.isError, false);
+%!   t = A.result.content{1}.text;
+%!   assert_equal (isempty (strfind (t, "mcpzzfallback")), false);
+%!   assert_equal (isempty (strfind (t, "[no output]")), true);
 %! endif
 
 %!test
