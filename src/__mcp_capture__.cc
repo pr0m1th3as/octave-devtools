@@ -22,6 +22,7 @@
 #if defined (_WIN32) && ! defined (__CYGWIN__)
 #  include <io.h>
 #  include <fcntl.h>
+#  include <sys/stat.h>
 #  define MCP_DUP _dup
 #  define MCP_DUP2 _dup2
 #  define MCP_CLOSE _close
