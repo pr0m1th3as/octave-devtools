@@ -181,7 +181,15 @@ function [OK, REPORT] = selftest (CMD)
     ## The check that a file-fed session structurally cannot make: a pipe that
     ## stays open after the request.  A server that answers only at end of
     ## input passes every check above and works with no real client.
-    if (OK && haveTimeout ())
+    if (! haveTimeout ())
+      REPORT = skipped (REPORT, ...
+        "answers before the input stream closes", ...
+        "nothing here can bound a run, so a live pipe cannot be held open");
+    elseif (! OK)
+      REPORT = skipped (REPORT, ...
+        "answers before the input stream closes", ...
+        "an earlier check failed, so this one was not attempted");
+    else
       outfile = tempname ();
       shfile = tempname ();
       fid = fopen (infile, "w");
@@ -409,10 +417,24 @@ function REPORT = skipped (REPORT, what, why)
 endfunction
 
 function tf = haveTimeout ()
+
   ## The responsiveness check needs a way to bound a run; skip it where there
-  ## is none rather than fail for a reason that is not the server's
+  ## is none rather than fail for a reason that is not the server's.
+  ##
+  ## Asked without a shell on Windows, which has neither command nor a timeout
+  ## that bounds anything: its timeout.exe waits rather than limiting another
+  ## program.  The probe itself was the second half of the problem there, since
+  ## system captures stdout and not stderr, and cmd.exe cannot redirect to
+  ## /dev/null, so it wrote "The system cannot find the path specified." into
+  ## the real stderr on every run.
+  if (ispc () && ! isunix ())
+    tf = false;
+    return;
+  endif
+
   [status, ~] = system ("command -v timeout > /dev/null 2>&1");
   tf = (status == 0);
+
 endfunction
 
 function s = trunc (s)
