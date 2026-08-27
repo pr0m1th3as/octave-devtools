@@ -3346,21 +3346,18 @@ endfunction
 
 %!test
 %! ## A subprocess writes past evalc and into the protocol stream: measured,
-%! ## evalc takes every in-process route to stdout and not this one.  Where
-%! ## __mcp_capture__ was built, descriptor 1 is held over a file for the call
-%! ## and the child's output comes back labelled; where it was not, the call is
-%! ## refused, since the alternative is a corrupted stream.  Both are real
-%! ## installations, so the check follows whichever this one is.
+%! ## evalc takes every in-process route to stdout and not this one.  Where the
+%! ## oct-files were built, descriptor 1 is held over a file for the call and
+%! ## the child's output comes back labelled; where they were not, the shadow
+%! ## takes the output back and prints it through the interpreter, where evalc
+%! ## does catch it.  Both are real installations, and since the fix the reply
+%! ## is the same in either: the call succeeds and the child's text is in it,
+%! ## by two different routes and with nothing to tell them apart.
 %! S = mcp.__newSession__ ("eval");
 %! [A, S] = evalcall (S, jsonencode ("system (\"echo mcpzzleak\")"), "new");
 %! t = A.result.content{1}.text;
-%! if (exist ("__mcp_capture__", "file") > 0)
-%!   assert_equal (A.result.isError, false);
-%!   assert_equal (isempty (strfind (t, "mcpzzleak")), false);
-%! else
-%!   assert_equal (A.result.isError, true);
-%!   assert_equal (isempty (strfind (t, "without its output capture")), false);
-%! endif
+%! assert_equal (A.result.isError, false);
+%! assert_equal (isempty (strfind (t, "mcpzzleak")), false);
 
 %!test
 %! ## One capture holds everything, in the order it was written: what the

@@ -211,7 +211,7 @@ function [OK, REPORT] = selftest (CMD)
     ## commands, since a caller-supplied one may not be an evaluating server.
     if (nargin < 1)
 
-      [ECMD, capdir] = defaultEvalCommand ();
+      [ECMD, capdir, contained] = defaultEvalCommand ();
       esession = {sprintf(['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
                   '"params":{"name":"octave_eval","arguments":' ...
                   '{"code":"system (\\"echo mcpzzchild\\");",' ...
@@ -269,51 +269,65 @@ function [OK, REPORT] = selftest (CMD)
       ## than the server's own deadline, so that this stays a test and not a
       ## wait.  setenv rather than a shell prefix, which cmd.exe would not
       ## understand.
-      had = getenv ("MCP_EVAL_SECONDS");
-      unwind_protect
-        setenv ("MCP_EVAL_SECONDS", "2");
-        loopy = {sprintf(['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
-                 '"params":{"name":"octave_eval","arguments":' ...
-                 '{"code":"while (true), mcpzzspin = 1; endwhile",' ...
-                 '"workspace":"new"},%s}}'], meta), ...
-                 sprintf(['{"jsonrpc":"2.0","id":2,"method":"tools/call",' ...
-                 '"params":{"name":"octave_eval","arguments":' ...
-                 '{"code":"mcpzzalive = 42;","workspace":"new"},%s}}'], meta)};
-        fid = fopen (infile, "w");
-        if (fid < 0)
-          error ("mcp.selftest: cannot write a temporary file in %s.", tempdir ());
-        endif
-        fprintf (fid, "%s\n", loopy{:});
-        fclose (fid);
-        [status, out] = system (sprintf ('%s < "%s" 2> "%s"', ECMD, infile, errfile));
-      unwind_protect_cleanup
-        if (isempty (had))
-          unsetenv ("MCP_EVAL_SECONDS");
-        else
-          setenv ("MCP_EVAL_SECONDS", had);
-        endif
-      end_unwind_protect
-
-      lines = strsplit (strrep (out, "\r\n", "\n"), "\n");
-      lines = lines(! cellfun (@isempty, lines));
-      stopped = ! isempty (strfind (out, "[stopped]"));
-      answered = numel (lines) == 2;
-
-      [REPORT, OK] = check (REPORT, ...
-        "eval: code that does not return is stopped, and the server answers on", ...
-        stopped && answered, ...
-        sprintf ("stopped=%d, %d replies", stopped, numel (lines)), OK);
-
-      if (isempty (capdir))
-        ## No capture built here, so the refusal is the correct answer and the
-        ## check is that it refused rather than ran
-        [REPORT, OK] = check (REPORT, ...
-          "eval: without the capture, a subprocess is refused", ...
-          ! isempty (strfind (txt, "without its output capture")), ...
-          trunc (txt), OK);
+      ##
+      ## Only where there is a deadline to reach.  Without __mcp_guard__ code
+      ## that does not return never does, so sending it would hang this
+      ## function rather than fail it, for as long as the machine runs.  The
+      ## skip is reported rather than dropped: a selftest that quietly stops
+      ## testing the deadline is worse than one that says it cannot.
+      if (! contained)
+        REPORT = skipped (REPORT, ...
+          "eval: code that does not return is stopped", ...
+          "no __mcp_guard__ here, so there is no deadline to reach");
       else
+        had = getenv ("MCP_EVAL_SECONDS");
+        unwind_protect
+          setenv ("MCP_EVAL_SECONDS", "2");
+          loopy = {sprintf(['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+                   '"params":{"name":"octave_eval","arguments":' ...
+                   '{"code":"while (true), mcpzzspin = 1; endwhile",' ...
+                   '"workspace":"new"},%s}}'], meta), ...
+                   sprintf(['{"jsonrpc":"2.0","id":2,"method":"tools/call",' ...
+                   '"params":{"name":"octave_eval","arguments":' ...
+                 '{"code":"mcpzzalive = 42;","workspace":"new"},%s}}'], meta)};
+          fid = fopen (infile, "w");
+          if (fid < 0)
+            error ("mcp.selftest: cannot write a temporary file in %s.", ...
+                   tempdir ());
+          endif
+          fprintf (fid, "%s\n", loopy{:});
+          fclose (fid);
+          ecmd = sprintf ('%s < "%s" 2> "%s"', ECMD, infile, errfile);
+          [status, out] = system (ecmd);
+        unwind_protect_cleanup
+          if (isempty (had))
+            unsetenv ("MCP_EVAL_SECONDS");
+          else
+            setenv ("MCP_EVAL_SECONDS", had);
+          endif
+        end_unwind_protect
+
+        lines = strsplit (strrep (out, "\r\n", "\n"), "\n");
+        lines = lines(! cellfun (@isempty, lines));
+        stopped = ! isempty (strfind (out, "[stopped]"));
+        answered = numel (lines) == 2;
+
+        [REPORT, OK] = check (REPORT, ...
+          "eval: code that does not return is stopped, and the server answers on", ...
+          stopped && answered, ...
+          sprintf ("stopped=%d, %d replies", stopped, numel (lines)), OK);
+      endif
+
+      if (contained)
         [REPORT, OK] = check (REPORT, ...
           "eval: what the subprocess printed came back in the result", ...
+          ! isempty (strfind (txt, "mcpzzchild")), trunc (txt), OK);
+      else
+        ## No capture here, so the shadow took the output back and printed it
+        ## through the interpreter.  It still reaches the reply, by the other
+        ## route and without the label the capture adds.
+        [REPORT, OK] = check (REPORT, ...
+          "eval: without the capture, the subprocess output came back", ...
           ! isempty (strfind (txt, "mcpzzchild")), trunc (txt), OK);
       endif
 
@@ -346,7 +360,7 @@ function CMD = defaultCommand ()
                  exe, instdir);
 endfunction
 
-function [CMD, capdir] = defaultEvalCommand ()
+function [CMD, capdir, contained] = defaultEvalCommand ()
 
   ## The same command the README gives for the evaluating server, plus
   ## whatever directory holds __mcp_capture__ in this process, so that a
@@ -362,6 +376,10 @@ function [CMD, capdir] = defaultEvalCommand ()
   if (! isempty (cap))
     capdir = fileparts (cap);
   endif
+
+  ## The condition dispatch itself routes on, both oct-files or neither, so
+  ## that a check asks for the arm the spawned server will actually take.
+  contained = (! isempty (cap)) && (! isempty (which ("__mcp_guard__")));
 
   add = sprintf ("addpath ('%s');", instdir);
   if (! isempty (capdir))
@@ -384,6 +402,12 @@ function [REPORT, OK] = check (REPORT, what, passed, detail, OK)
   endif
 endfunction
 
+function REPORT = skipped (REPORT, what, why)
+  ## A check this installation cannot run, named rather than dropped.  It
+  ## leaves OK alone: a skip is not a failure and must not read as a pass.
+  REPORT{end+1} = sprintf ("SKIP  %s: %s", what, why);
+endfunction
+
 function tf = haveTimeout ()
   ## The responsiveness check needs a way to bound a run; skip it where there
   ## is none rather than fail for a reason that is not the server's
@@ -401,7 +425,8 @@ endfunction
 %! [ok, rep] = mcp.selftest ();
 %! assert_equal (ok, true);
 %! assert_equal (iscellstr (rep), true);
-%! assert_equal (all (strncmp (rep, "PASS", 4)), true);
+%! done = strncmp (rep, "PASS", 4) | strncmp (rep, "SKIP", 4);
+%! assert_equal (all (done), true);
 
 %!test
 %! ## A command that writes something other than a message must be caught.
