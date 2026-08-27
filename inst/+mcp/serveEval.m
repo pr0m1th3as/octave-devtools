@@ -78,9 +78,13 @@
 ## Because that containment is at the descriptor and not at a name,
 ## @code{builtin ("system", @dots{})} does not get around it.  Where the
 ## package was installed without a compiler and @code{__mcp_capture__} could
-## not be built, @code{system}, @code{unix}, @code{dos}, @code{popen} and
-## @code{popen2} are shadowed by functions that raise instead, which is
-## weaker: that shadowing @emph{is} defeated by @code{builtin}.
+## not be built, the containment moves to the two forms that let a child
+## inherit descriptor 1: @code{system} is shadowed by one that asks for the
+## output back and prints it through the interpreter, where @code{evalc} takes
+## it, and @code{popen} by one that refuses its write mode, whose output
+## nothing there could read.  That is weaker in one way, since a shadow at a
+## name @emph{is} defeated by @code{builtin}, and it costs an asynchronous
+## @code{system}, whose output core will not return at all.
 ##
 ## @code{input} and @code{keyboard} are shadowed in either case, since there is
 ## no terminal for them to read from.

@@ -15,8 +15,10 @@ capture:
 	else \
 	  echo "mcp: no working compiler for __mcp_capture__.cc."; \
 	  echo "mcp: the read-only server is unaffected; the evaluating server"; \
-	  echo "mcp: will refuse subprocess-spawning functions instead of"; \
-	  echo "mcp: capturing what they print.  Build log follows."; \
+	  echo "mcp: will take a subprocess's output back and print it through"; \
+	  echo "mcp: the interpreter instead of capturing it at the descriptor,"; \
+	  echo "mcp: refusing only the two forms that cannot be taken back."; \
+	  echo "mcp: Build log follows."; \
 	  cat mcp_build.log; \
 	fi
 

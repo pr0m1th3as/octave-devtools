@@ -2076,10 +2076,14 @@ function [W, out, err, stopped, sub, cinfo] = runContained (W, code)
   ## what printf wrote and the file holds what the child wrote, with neither
   ## taking the other's.
   ##
-  ## Where the capture could not be built, the subprocess-spawning functions
-  ## are shadowed instead, because the alternative is a child writing into the
-  ## stream that carries the protocol.  input and keyboard are shadowed either
-  ## way: there is no terminal for them to read from in any installation.
+  ## Where the capture could not be built, the two forms that let a child
+  ## inherit descriptor 1 are narrowed rather than refused: system asks for the
+  ## output back and prints it through the interpreter, where evalc takes it,
+  ## and popen refuses only its write mode, which nothing here could read.
+  ## Every other form was already contained, unix and dos included, since core
+  ## routes both through system with two outputs.  input and keyboard are
+  ## shadowed either way: there is no terminal for them to read from in any
+  ## installation.
   ## Both oct-files or neither.  The guard without the capture would run code
   ## whose output goes to the real descriptor 1, which is the protocol stream,
   ## so a half-built installation takes the weaker path whole.
@@ -3420,6 +3424,70 @@ endfunction
 %! [st, out] = system ("echo mcpzzback");
 %! assert_equal (st, 0);
 %! assert_equal (isempty (strfind (out, "mcpzzback")), false);
+
+%!function t = undershadows (code)
+%!  ## Run CODE with the fallback subprocess shadows in front of the real
+%!  ## functions.  They are reachable by path alone, so the arm that only an
+%!  ## installation without a compiler otherwise takes is tested everywhere,
+%!  ## which is how it came to have nothing over it.
+%!  d = fullfile (fileparts (which ("mcp.dispatch")), "evalshadowsub");
+%!  warning ("off", "Octave:shadowed-function", "local");
+%!  addpath (d, "-begin");
+%!  unwind_protect
+%!    t = evalc (code);
+%!  unwind_protect_cleanup
+%!    rmpath (d);
+%!  end_unwind_protect
+%!endfunction
+
+%!test
+%! ## Asking for the output back is what keeps the stream clean, so that form
+%! ## passes straight through to the real function.
+%! t = undershadows ('[s, o] = system ("echo mcpzztwoout"); puts (o);');
+%! assert_equal (isempty (strfind (t, "mcpzztwoout")), false);
+
+%!test
+%! ## Without it, core would let the child write past evalc into the stream
+%! ## that carries the protocol.  evalc returning the text is the proof that
+%! ## it came through the interpreter instead.
+%! t = undershadows ('system ("echo mcpzzbare");');
+%! assert_equal (isempty (strfind (t, "mcpzzbare")), false);
+
+%!test
+%! ## copyfile shells out, so refusing system refused an ordinary file copy
+%! ## and told the model to rebuild the package.
+%! f1 = tempname ();
+%! f2 = tempname ();
+%! fid = fopen (f1, "w");
+%! fputs (fid, "mcpzzcopy");
+%! fclose (fid);
+%! unwind_protect
+%!   undershadows (sprintf ('copyfile (''%s'', ''%s'');', f1, f2));
+%!   assert_equal (exist (f2, "file") == 2, true);
+%! unwind_protect_cleanup
+%!   unlink (f1);
+%!   unlink (f2);
+%! end_unwind_protect
+
+%!test
+%! ## unix reaches system with two outputs and prints through the interpreter,
+%! ## so it never needed a shadow of its own.
+%! if (isunix ())
+%!   t = undershadows ('unix ("echo mcpzzunix");');
+%!   assert_equal (isempty (strfind (t, "mcpzzunix")), false);
+%! endif
+
+%!test
+%! ## popen for reading pipes the child, so it is passed through.
+%! c = 'f = popen ("echo mcpzzpopen", "r"); puts (fgetl (f)); pclose (f);';
+%! t = undershadows (c);
+%! assert_equal (isempty (strfind (t, "mcpzzpopen")), false);
+
+%!error <popen: this server was installed without its output capture, so a subprocess opened for writing would write into the stream that carries the protocol. Open it for reading instead, or run the command with system and take its output back.>
+%! undershadows ('f = popen ("cat", "w");');
+
+%!error <system: this server was installed without its output capture, and the output of an asynchronous command cannot be captured, so it would write into the stream that carries the protocol. Run it synchronously, or rebuild the package with a working compiler.>
+%! undershadows ('system ("echo mcpzzasync", false, "async");');
 
 %!test
 %! ## input has no terminal to read from and would wait for ever.

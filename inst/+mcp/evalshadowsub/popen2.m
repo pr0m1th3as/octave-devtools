@@ -1,9 +1,0 @@
-## Part of the mcp package: a shadow that stands in front of a core function
-## while mcp.serveEval evaluates code, and only where this installation has no
-## __mcp_capture__ to hold descriptor 1.  See mcp.serveEval for why.
-function varargout = popen2 (varargin)
-  error (strcat ("popen2: this server was installed without its output capture,", ...
-                 " so a subprocess would write into the stream that carries", ...
-                 " the protocol. Rebuild the package with a working compiler", ...
-                 " to use it."));
-endfunction

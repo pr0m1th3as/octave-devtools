@@ -183,10 +183,12 @@ back when code does not return, not about defending against code that means
 harm. Configure this server only where that is acceptable.
 
 Where the package was installed without a compiler, two of those guarantees
-weaken: there is no deadline, and instead of capturing what a subprocess
-prints, `system`, `unix`, `dos`, `popen` and `popen2` raise while a call runs,
-because a child process would otherwise write into the protocol stream. The
-read-only server is unaffected either way.
+weaken: there is no deadline, and a subprocess is contained by name rather than
+at the descriptor. `system` still runs, taking its output back and printing it
+through the interpreter, so ordinary code and core's own `copyfile`, `ls` and
+`unpack` are unaffected. What is refused is `popen` opened for writing and an
+asynchronous `system`, whose output cannot be taken back at all. The read-only
+server is unaffected either way.
 
 ## License
 
