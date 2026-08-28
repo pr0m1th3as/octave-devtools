@@ -65,7 +65,7 @@ function [OK, REPORT] = selftest (CMD)
 
   REPORT = {};
   if (nargin < 1)
-    CMD = defaultCommand ();
+    [CMD, dexe, dargv] = defaultCommand ();
   endif
 
   ## Two sessions, one per protocol era, because a client may open either way
@@ -186,37 +186,64 @@ function [OK, REPORT] = selftest (CMD)
                             "the tool call did not return content", OK);
     endfor
 
-    ## The check that a file-fed session structurally cannot make: a pipe that
-    ## stays open after the request.  A server that answers only at end of
-    ## input passes every check above and works with no real client.
-    if (! haveTimeout ())
-      REPORT = skipped (REPORT, ...
-        "answers before the input stream closes", ...
-        "nothing here can bound a run, so a live pipe cannot be held open");
-    elseif (! OK)
+    ## The check that a file-fed session structurally cannot make: a pipe held
+    ## open after the request, and requests arriving in more than one burst.  A
+    ## server that answers only at end of input passes every check above and
+    ## works with no real client.
+    ##
+    ## popen2 rather than a shell script, which is what lets this run
+    ## everywhere: it holds standard input and standard output for the child's
+    ## lifetime, the shape a host has, and the run is bounded by killing the
+    ## child rather than by a command that bounds one, which Windows does not
+    ## have.  Nothing is read until after the kill, since a read before it
+    ## would block for ever against exactly the server being looked for; what
+    ## the child wrote stays in the pipe.
+    if (! OK)
       REPORT = skipped (REPORT, ...
         "answers before the input stream closes", ...
         "an earlier check failed, so this one was not attempted");
     else
-      outfile = tempname ();
-      shfile = tempname ();
-      fid = fopen (infile, "w");
-      fprintf (fid, "%s\n", modern{1});
-      fclose (fid);
-      fid = fopen (shfile, "w");
-      fprintf (fid, "#!/bin/sh\n{ cat \"%s\"; sleep 6; } | %s > \"%s\" 2>/dev/null\n", ...
-               infile, CMD, outfile);
-      fclose (fid);
-      system (sprintf ('timeout 3 sh "%s"', shfile));
-      resp = "";
-      if (exist (outfile, "file") == 2)
-        resp = fileread (outfile);
-        delete (outfile);
+      if (nargin < 1)
+        pexe = dexe;
+        pargv = dargv;
+      elseif (ispc () && ! isunix ())
+        pexe = "cmd";
+        pargv = {"/c", CMD};
+      else
+        pexe = "/bin/sh";
+        pargv = {"-c", CMD};
       endif
-      delete (shfile);
+
+      ## Two small replies on purpose.  Nothing is read until the kill, and a
+      ## pipe holds about 4 KB on Windows against 64 on Linux, so a reply
+      ## larger than that blocks the server in its own write and is lost when
+      ## the child dies: measured with tools/list, whose 4.4 KB answer never
+      ## arrived while a 664 byte one did.  A real host reads continuously and
+      ## never meets this, and octave_which answers in a few hundred bytes.
+      probe = {sprintf(['{"jsonrpc":"2.0","id":1,"method":"tools/call","params":' ...
+                        '{"name":"octave_which","arguments":{"name":"mean"},%s}}'], ...
+                       meta), ...
+               sprintf(['{"jsonrpc":"2.0","id":2,"method":"tools/call","params":' ...
+                        '{"name":"octave_which","arguments":{"name":"sum"},%s}}'], ...
+                       meta)};
+
+      resp = burstPipe (pexe, pargv, probe);
+      lines = strsplit (strrep (strtrim (resp), "\r\n", "\n"), "\n");
+      lines = lines(! cellfun (@isempty, lines));
+      answered = 0;
+      for i = 1:numel (lines)
+        try
+          jsondecode (lines{i});
+          answered = answered + 1;
+        catch
+          ## Not a message.  Which line is not one is another check's business
+        end_try_catch
+      endfor
+
       [REPORT, OK] = check (REPORT, "answers before the input stream closes", ...
-                            ! isempty (strtrim (resp)), ...
-                            "nothing until end of input: a live client will time out", OK);
+        answered == 2, ...
+        sprintf ("%d of 2 bursts answered: a live client will time out", ...
+                 answered), OK);
     endif
 
 
@@ -371,14 +398,34 @@ function [OK, REPORT] = selftest (CMD)
 
 endfunction
 
-function CMD = defaultCommand ()
-  exe = fullfile (OCTAVE_HOME (), "bin", "octave-cli");
-  if (exist (exe, "file") != 2)
-    exe = "octave-cli";
-  endif
+function [CMD, exe, argv] = defaultCommand ()
+
+  ## The command string and the argument array describe one launch: a shell
+  ## takes the first, popen2 takes the second, and they must not drift apart.
+  exe = octaveExe ();
   instdir = fileparts (fileparts (mfilename ("fullpath")));
-  CMD = sprintf ('"%s" -q --no-init-file --eval "addpath (''%s''); devtools.mcp ()"', ...
-                 exe, instdir);
+  code = sprintf ("addpath ('%s'); devtools.mcp ()", instdir);
+  argv = {"-q", "--no-init-file", "--eval", code};
+  CMD = sprintf ('"%s" -q --no-init-file --eval "%s"', exe, code);
+
+endfunction
+
+function exe = octaveExe ()
+
+  ## The interpreter a spawned server runs.  On Windows the file carries .exe
+  ## and OCTAVE_HOME names the mingw64 directory, so the unsuffixed path never
+  ## exists there; without the second candidate every launch fell through to
+  ## the bare name and depended on PATH, which a host configuration cannot set.
+  exe = fullfile (OCTAVE_HOME (), "bin", "octave-cli");
+  if (exist (exe, "file") == 2)
+    return;
+  endif
+  if (exist ([exe ".exe"], "file") == 2)
+    exe = [exe ".exe"];
+    return;
+  endif
+  exe = "octave-cli";
+
 endfunction
 
 function [CMD, capdir, contained] = defaultEvalCommand ()
@@ -386,10 +433,7 @@ function [CMD, capdir, contained] = defaultEvalCommand ()
   ## The same command the README gives for the evaluating server, plus
   ## whatever directory holds __devtools_capture__ in this process, so that a
   ## source tree is exercised the way an installed package is.
-  exe = fullfile (OCTAVE_HOME (), "bin", "octave-cli");
-  if (exist (exe, "file") != 2)
-    exe = "octave-cli";
-  endif
+  exe = octaveExe ();
   instdir = fileparts (fileparts (mfilename ("fullpath")));
 
   capdir = "";
@@ -429,24 +473,51 @@ function REPORT = skipped (REPORT, what, why)
   REPORT{end+1} = sprintf ("SKIP  %s: %s", what, why);
 endfunction
 
-function tf = haveTimeout ()
+function txt = burstPipe (exe, argv, bursts)
 
-  ## The responsiveness check needs a way to bound a run; skip it where there
-  ## is none rather than fail for a reason that is not the server's.
-  ##
-  ## Asked without a shell on Windows, which has neither command nor a timeout
-  ## that bounds anything: its timeout.exe waits rather than limiting another
-  ## program.  The probe itself was the second half of the problem there, since
-  ## system captures stdout and not stderr, and cmd.exe cannot redirect to
-  ## /dev/null, so it wrote "The system cannot find the path specified." into
-  ## the real stderr on every run.
-  if (ispc () && ! isunix ())
-    tf = false;
+  ## Two seconds after each burst.  A running server answers in tens of
+  ## milliseconds; the first burst also pays for the interpreter starting and
+  ## loading the package, measured at a quarter of a second on both platforms.
+
+  txt = "";
+  [in, out, pid] = popen2 (exe, argv);
+  if (pid < 0)
     return;
   endif
 
-  [status, ~] = system ("command -v timeout > /dev/null 2>&1");
-  tf = (status == 0);
+  unwind_protect
+    for i = 1:numel (bursts)
+      fprintf (in, "%s\n", bursts{i});
+      fflush (in);
+      pause (2);
+    endfor
+    killPid (pid);
+    pause (0.5);
+    while (true)
+      line = fgetl (out);
+      if (! ischar (line))
+        break;
+      endif
+      txt = [txt line "\n"];
+    endwhile
+  unwind_protect_cleanup
+    fclose (in);
+    fclose (out);
+  end_unwind_protect
+
+endfunction
+
+function killPid (pid)
+
+  ## The bound on the run.  Windows has no timeout that limits another program,
+  ## its timeout.exe waiting rather than limiting, so the deadline is this kill
+  ## rather than the launch.  /T takes the whole tree, cmd.exe having spawned a
+  ## child of its own where a caller supplied a command line.
+  if (ispc () && ! isunix ())
+    [~, ~] = system (sprintf ("taskkill /PID %d /F /T 2>&1", pid));
+  else
+    [~, ~] = system (sprintf ("kill -9 %d 2> /dev/null", pid));
+  endif
 
 endfunction
 

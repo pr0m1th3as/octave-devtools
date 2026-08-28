@@ -117,9 +117,10 @@ devtools.selftest ()
 ```
 
 which starts both servers exactly as configured above, completes a handshake,
-drives a call that spawns a subprocess and one that never returns, and reports
-whether standard output stayed clean throughout, naming the offending first
-line if it did not.  It reads standard error as well, where the server's own
+holds a pipe open across two bursts of requests the way a host does, drives a
+call that spawns a subprocess and one that never returns, and reports whether
+standard output stayed clean throughout, naming the offending first line if it
+did not.  It reads standard error as well, where the server's own
 diagnostics belong but a diagnostic the interpreter raised about the server
 does not.
 
