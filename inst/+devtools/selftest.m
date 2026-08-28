@@ -31,7 +31,10 @@
 ## standard output was a protocol message}.  A stray @code{printf}, an
 ## unsuppressed statement or a line printed by @file{~/.octaverc} corrupts the
 ## stream, and the only symptom a host can show for it is an unexplained
-## failure to connect.
+## failure to connect.  Standard error is read too, for the complementary
+## claim: the server may write its own diagnostics there, but a diagnostic the
+## @emph{interpreter} raised about the server is a defect nothing else here
+## would see.
 ##
 ## @code{@var{OK} = devtools.selftest ()} returns true when every check passed and
 ## prints nothing, which is the form a test uses.
@@ -109,6 +112,11 @@ function [OK, REPORT] = selftest (CMD)
 
       [REPORT, OK] = check (REPORT, [tag ": server exited cleanly"], ...
                             status == 0, sprintf ("exit status %d", status), OK);
+
+      [quiet, noisy] = quietStderr (errfile);
+      [REPORT, OK] = check (REPORT, ...
+        [tag ": the interpreter raised nothing about the server"], ...
+        quiet, trunc (noisy), OK);
 
       ## The check this function exists for
       bad = 0;
@@ -239,6 +247,11 @@ function [OK, REPORT] = selftest (CMD)
 
       [REPORT, OK] = check (REPORT, "eval: server exited cleanly", ...
                             status == 0, sprintf ("exit status %d", status), OK);
+
+      [quiet, noisy] = quietStderr (errfile);
+      [REPORT, OK] = check (REPORT, ...
+        "eval: the interpreter raised nothing about the server", ...
+        quiet, trunc (noisy), OK);
 
       bad = 0;
       for i = 1:numel (lines)
@@ -434,6 +447,34 @@ function tf = haveTimeout ()
 
   [status, ~] = system ("command -v timeout > /dev/null 2>&1");
   tf = (status == 0);
+
+endfunction
+
+function [tf, first] = quietStderr (errfile)
+
+  ## The server's own diagnostics belong on standard error; a diagnostic the
+  ## interpreter raised about the server does not.  A function whose name
+  ## disagrees with its filename, a deprecated call and a failed parse all
+  ## announce themselves this way and nothing else here reads that stream, so
+  ## each of them survives a run in which every other check passes.
+  ##
+  ## Matched by the interpreter's own two prefixes rather than by the entry
+  ## point's name, which a caller-supplied command is free to choose.
+
+  tf = true;
+  first = "";
+  if (exist (errfile, "file") != 2)
+    return;
+  endif
+
+  lines = strsplit (strrep (fileread (errfile), "\r\n", "\n"), "\n");
+  for i = 1:numel (lines)
+    if (strncmp (lines{i}, "warning:", 8) || strncmp (lines{i}, "error:", 6))
+      tf = false;
+      first = lines{i};
+      return;
+    endif
+  endfor
 
 endfunction
 
