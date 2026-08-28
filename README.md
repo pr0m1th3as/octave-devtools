@@ -82,17 +82,33 @@ The evaluating server, under its own name:
 }
 ```
 
-**Do not shorten either command line.** `-q` and `--no-init-file` are
-correctness requirements, not tidiness:
+**Do not shorten either command line.** The server communicates over standard
+output, so anything written there that is not a message corrupts the stream,
+and a corrupted stream usually appears in the host as an unexplained connection
+failure.
 
-- `-q` suppresses the startup banner, which is written to standard output.
-- `--no-init-file` skips `~/.octaverc`, which may print, and whose output is
-  also written to standard output.
+- `--no-init-file` skips `~/.octaverc`, which may print. Its output arrives
+  before the server starts running, so the server cannot undo it. This flag is
+  load bearing.
+- `-q` suppresses the startup banner. Measured on 11.2.0, `--eval` already
+  makes the run non-interactive and no banner is written either way, so today
+  the flag changes nothing; it is kept because nothing else guards that output
+  if a future release prints it.
 
-The server communicates over standard output, so anything else written there
-corrupts the stream. Both of these happen before the server starts running, so
-it cannot undo them. A corrupted stream usually appears in the host as an
-unexplained connection failure.
+**On Windows, name `octave-cli.exe` in full.** A host spawns the command
+without a shell, so a bare `octave-cli` is found only if the interpreter is
+already on `PATH`, which a Windows installation does not guarantee. When it is
+not, the process never starts and there is no output of any kind to diagnose it
+with, which reads like the corrupted stream above and is nothing to do with it.
+Give the path instead and change nothing else:
+
+```json
+      "command": "C:\\Octave\\octave-11.2.0-w64\\mingw64\\bin\\octave-cli.exe",
+```
+
+A configuration file cannot set `PATH`, so this is the only remedy where the
+interpreter is not on it. Both stanzas were verified this way and produce
+byte-identical output whether the command is found by `PATH` or named in full.
 
 To check a configuration before blaming the host, run
 

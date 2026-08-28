@@ -122,12 +122,12 @@
 ## @seealso{devtools.mcp, devtools.selftest}
 ## @end deftypefn
 
-function serveEval ()
+function mcpEval ()
 
   if (nargin != 0)
     error ("devtools.mcpEval: invalid number of input arguments.");
   endif
 
-  devtools.__serveLoop__ ("eval", "serveEval");
+  devtools.__serveLoop__ ("eval", "mcpEval");
 
 endfunction

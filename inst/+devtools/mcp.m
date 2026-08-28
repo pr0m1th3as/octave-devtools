@@ -63,13 +63,13 @@
 ## @seealso{devtools.selftest, devtools.dispatch}
 ## @end deftypefn
 
-function serve ()
+function mcp ()
 
   if (nargin != 0)
     error ("devtools.mcp: invalid number of input arguments.");
   endif
 
-  devtools.__serveLoop__ ("read-only", "serve");
+  devtools.__serveLoop__ ("read-only", "mcp");
 
 endfunction
 
