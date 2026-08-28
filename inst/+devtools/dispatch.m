@@ -1,6 +1,6 @@
 ## Copyright (C) 2026 Andreas Bertsatos <abertsatos@biol.uoa.gr>
 ##
-## This file is part of the mcp package for GNU Octave.
+## This file is part of the devtools package for GNU Octave.
 ##
 ## This program is free software; you can redistribute it and/or modify it under
 ## the terms of the GNU General Public License as published by the Free Software
@@ -16,18 +16,18 @@
 ## this program; if not, see <http://www.gnu.org/licenses/>.
 
 ## -*- texinfo -*-
-## @deftypefn  {mcp} {@var{RESP} =} mcp.dispatch (@var{R})
-## @deftypefnx {mcp} {[@var{RESP}, @var{S}] =} mcp.dispatch (@var{R}, @var{S})
+## @deftypefn  {devtools} {@var{RESP} =} devtools.dispatch (@var{R})
+## @deftypefnx {devtools} {[@var{RESP}, @var{S}] =} devtools.dispatch (@var{R}, @var{S})
 ##
 ## Answer one decoded request.
 ##
-## @code{@var{RESP} = mcp.dispatch (@var{R})} takes the structure returned by
-## @code{mcp.decodeRequest} and returns the response structure to send, or the
+## @code{@var{RESP} = devtools.dispatch (@var{R})} takes the structure returned by
+## @code{devtools.decodeRequest} and returns the response structure to send, or the
 ## empty matrix when nothing is to be sent.  A notification and a blank line are
 ## the two cases that produce no response, and a notification producing one
 ## would be a protocol violation rather than a nuisance.
 ##
-## @code{[@var{RESP}, @var{S}] = mcp.dispatch (@var{R}, @var{S})} threads the
+## @code{[@var{RESP}, @var{S}] = devtools.dispatch (@var{R}, @var{S})} threads the
 ## session structure @var{S} through the call and returns it updated.  Pass the
 ## empty matrix for the first request of a connection.
 ##
@@ -70,28 +70,28 @@
 ## text sent once at connection rather than in a tool that would charge its
 ## description against every request.
 ##
-## @seealso{mcp.decodeRequest, mcp.encodeResponse, mcp.serve}
+## @seealso{devtools.decodeRequest, devtools.encodeResponse, devtools.mcp}
 ## @end deftypefn
 
 function [RESP, S] = dispatch (R, S)
 
   ## Input validation
   if (nargin < 1 || nargin > 2)
-    error ("mcp.dispatch: invalid number of input arguments.");
+    error ("devtools.dispatch: invalid number of input arguments.");
   endif
   if (! (isstruct (R) && isscalar (R)))
-    error ("mcp.dispatch: R must be a scalar structure.");
+    error ("devtools.dispatch: R must be a scalar structure.");
   endif
   need = {'type', 'method', 'params', 'hasid', 'id', 'code', 'message'};
   if (! all (isfield (R, need)))
-    error (strcat ("mcp.dispatch: R must be a structure as returned by", ...
-                   " mcp.decodeRequest."));
+    error (strcat ("devtools.dispatch: R must be a structure as returned by", ...
+                   " devtools.decodeRequest."));
   endif
   if (nargin < 2 || isempty (S))
-    S = mcp.__newSession__ ("read-only");
+    S = devtools.__newSession__ ("read-only");
   endif
   if (! (isstruct (S) && isscalar (S) && all (isfield (S, {'era', 'version'}))))
-    error (strcat ("mcp.dispatch: S must be a session structure, or empty", ...
+    error (strcat ("devtools.dispatch: S must be a session structure, or empty", ...
                    " for a fresh one."));
   endif
   ## A session made before the evaluating surface existed, or by hand, is
@@ -119,15 +119,15 @@ function [RESP, S] = dispatch (R, S)
       return;
     case 'invalid'
       if (R.hasid)
-        RESP = mcp.jsonrpcError (R.id, R.code, R.message);
+        RESP = devtools.jsonrpcError (R.id, R.code, R.message);
       else
-        RESP = mcp.jsonrpcError ([], R.code, R.message);
+        RESP = devtools.jsonrpcError ([], R.code, R.message);
       endif
       return;
     case 'request'
       ## Handled below
     otherwise
-      error ("mcp.dispatch: unknown request type '%s'.", R.type);
+      error ("devtools.dispatch: unknown request type '%s'.", R.type);
   endswitch
 
   ## The era is chosen by how the client opens and then held for the process.
@@ -139,7 +139,7 @@ function [RESP, S] = dispatch (R, S)
     elseif (! strcmp (R.method, "ping"))
       [code, msg, data] = checkMeta (R.params);
       if (code != 0)
-        RESP = mcp.jsonrpcError (R.id, code, msg, data);
+        RESP = devtools.jsonrpcError (R.id, code, msg, data);
         return;
       endif
       S.era = "modern";
@@ -148,7 +148,7 @@ function [RESP, S] = dispatch (R, S)
   elseif (strcmp (S.era, "modern"))
     [code, msg, data] = checkMeta (R.params);
     if (code != 0)
-      RESP = mcp.jsonrpcError (R.id, code, msg, data);
+      RESP = devtools.jsonrpcError (R.id, code, msg, data);
       return;
     endif
   endif
@@ -167,7 +167,7 @@ function [RESP, S] = dispatch (R, S)
 
     case 'server/discover'
       if (strcmp (era, "legacy"))
-        RESP = mcp.jsonrpcError (R.id, -32601, ...
+        RESP = devtools.jsonrpcError (R.id, -32601, ...
                  "Method not found: server/discover is not part of this session's protocol revision.");
       else
         RESP = mkResponse (R.id, discoverResult (S.surface), era);
@@ -182,7 +182,7 @@ function [RESP, S] = dispatch (R, S)
     case 'resources/read'
       [res, code, msg, data] = resourcesRead (R.params, era);
       if (code != 0)
-        RESP = mcp.jsonrpcError (R.id, code, msg, data);
+        RESP = devtools.jsonrpcError (R.id, code, msg, data);
       else
         RESP = mkResponse (R.id, res, era);
       endif
@@ -190,13 +190,13 @@ function [RESP, S] = dispatch (R, S)
     case 'tools/call'
       [res, code, msg, S] = toolsCall (R.params, era, S);
       if (code != 0)
-        RESP = mcp.jsonrpcError (R.id, code, msg);
+        RESP = devtools.jsonrpcError (R.id, code, msg);
       else
         RESP = mkResponse (R.id, res, era);
       endif
 
     otherwise
-      RESP = mcp.jsonrpcError (R.id, -32601, ...
+      RESP = devtools.jsonrpcError (R.id, -32601, ...
                                sprintf ("Method not found: %s", R.method));
 
   endswitch
@@ -257,7 +257,7 @@ endfunction
 function [N, V] = serverIdentity ()
   ## Bumped with DESCRIPTION at every release; there is no path from an
   ## installed package back to its DESCRIPTION that is reliable enough to read
-  N = "mcp";
+  N = "devtools";
   V = "0.1.0";
 endfunction
 
@@ -488,7 +488,7 @@ function T = toolTable (surface)
     return;
   endif
 
-  ## Everything past here runs code and is reachable only from mcp.serveEval
+  ## Everything past here runs code and is reachable only from devtools.mcpEval
   t = struct ();
   t.name = "octave_eval";
   t.title = "Evaluate Octave Code";
@@ -1960,7 +1960,7 @@ function res = callOctaveTest (args, era)
   t_name = strtrim (args.name);
 
   ## Resolved with which and then run by path, never by name.  Core's test
-  ## cannot resolve a namespaced name: measured, test ("mcp.jsonrpcError")
+  ## cannot resolve a namespaced name: measured, test ("devtools.jsonrpcError")
   ## prints "does not exist in path" and returns zero, which a model reads as
   ## "there are no tests" rather than as "you asked the wrong way".
   ## which first, a path second.  exist (NAME, "file") answers 2 for a
@@ -1997,9 +1997,9 @@ function res = callOctaveTest (args, era)
   endif
 
   t_log = tempname ();
-  t_code = sprintf (strcat ("mcpTestLid = fopen ('%s', 'w');", ...
-    " [mcpTestN, mcpTestMax] = test ('%s', 'quiet', mcpTestLid);", ...
-    " fclose (mcpTestLid);"), quoteFor (t_log), quoteFor (t_path));
+  t_code = sprintf (strcat ("devtoolsTestLid = fopen ('%s', 'w');", ...
+    " [devtoolsTestN, devtoolsTestMax] = test ('%s', 'quiet', devtoolsTestLid);", ...
+    " fclose (devtoolsTestLid);"), quoteFor (t_log), quoteFor (t_path));
 
   [t_W, t_out, t_err, t_stopped, t_sub, t_cinfo] = ...
     runContained (struct (), t_code);
@@ -2023,11 +2023,11 @@ function res = callOctaveTest (args, era)
 
   t_n = -1;
   t_max = -1;
-  if (isfield (t_W, "mcpTestN") && isnumeric (t_W.mcpTestN))
-    t_n = t_W.mcpTestN;
+  if (isfield (t_W, "devtoolsTestN") && isnumeric (t_W.devtoolsTestN))
+    t_n = t_W.devtoolsTestN;
   endif
-  if (isfield (t_W, "mcpTestMax") && isnumeric (t_W.mcpTestMax))
-    t_max = t_W.mcpTestMax;
+  if (isfield (t_W, "devtoolsTestMax") && isnumeric (t_W.devtoolsTestMax))
+    t_max = t_W.devtoolsTestMax;
   endif
 
   t_L = {};
@@ -2070,7 +2070,7 @@ function [W, out, err, stopped, sub, cinfo] = runContained (W, code)
   ##
   ## Two containments, and they divide the work between them.  evalc takes
   ## every route to standard output that stays inside the interpreter;
-  ## __mcp_capture__ holds descriptor 1 over a file, which is the only thing
+  ## __devtools_capture__ holds descriptor 1 over a file, which is the only thing
   ## that catches a subprocess, since a child inherits the descriptor and
   ## writes past evalc entirely.  Measured: with both running, evalc returns
   ## what printf wrote and the file holds what the child wrote, with neither
@@ -2113,18 +2113,18 @@ function [W, out, err, stopped, sub, cinfo] = runContained (W, code)
     endfor
     if (c_cap)
       c_file = tempname ();
-      __mcp_capture__ ("start", c_file);
+      __devtools_capture__ ("start", c_file);
       c_started = true;
     endif
     ## Timed by id and never by the bare tic: the code being evaluated shares
     ## this interpreter, and its own tic would reset the default timer.
     c_t0 = tic ();
-    [out, W, err, stopped] = mcp.__evalIn__ (W, code, cinfo.deadline);
+    [out, W, err, stopped] = devtools.__evalIn__ (W, code, cinfo.deadline);
     cinfo.elapsed = toc (c_t0);
   unwind_protect_cleanup
     if (c_started)
       fflush (stdout);
-      __mcp_capture__ ("stop");
+      __devtools_capture__ ("stop");
     endif
     warning ("off", "Octave:rmpath-not-found", "local");
     for c_i = 1:numel (c_added)
@@ -2181,7 +2181,7 @@ function n = evalSeconds ()
   ## longer than this.
   n = 20;
 
-  e_env = getenv ("MCP_EVAL_SECONDS");
+  e_env = getenv ("DEVTOOLS_EVAL_SECONDS");
   if (! isempty (e_env))
     e_val = str2double (e_env);
     if (isscalar (e_val) && ! isnan (e_val) && e_val > 0 && e_val <= 600)
@@ -2194,7 +2194,7 @@ endfunction
 function tf = guardBuilt ()
   persistent cached;
   if (isempty (cached))
-    cached = (exist ("__mcp_guard__", "file") > 0);
+    cached = (exist ("__devtools_guard__", "file") > 0);
   endif
   tf = cached;
 endfunction
@@ -2206,7 +2206,7 @@ function tf = captureBuilt ()
   ## server.
   persistent cached;
   if (isempty (cached))
-    cached = (exist ("__mcp_capture__", "file") > 0);
+    cached = (exist ("__devtools_capture__", "file") > 0);
   endif
   tf = cached;
 endfunction
@@ -2261,62 +2261,62 @@ endfunction
 %!  else
 %!    p = ['{' extra ',' meta '}'];
 %!  endif
-%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"' method ...
+%!  R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"' method ...
 %!                          '","params":' p '}']);
 %!endfunction
 
 %!test
 %! ## A blank line is not answered.
-%! assert_equal (mcp.dispatch (mcp.decodeRequest ("")), []);
+%! assert_equal (devtools.dispatch (devtools.decodeRequest ("")), []);
 
 %!test
 %! ## A notification is never answered, which is a MUST NOT and not a nicety.
-%! R = mcp.decodeRequest ('{"jsonrpc":"2.0","method":"notifications/cancelled"}');
-%! assert_equal (mcp.dispatch (R), []);
+%! R = devtools.decodeRequest ('{"jsonrpc":"2.0","method":"notifications/cancelled"}');
+%! assert_equal (devtools.dispatch (R), []);
 
 %!test
 %! ## An unparseable line is answered without an identifier, having none.
-%! RESP = mcp.dispatch (mcp.decodeRequest ("garbage"));
+%! RESP = devtools.dispatch (devtools.decodeRequest ("garbage"));
 %! assert_equal (RESP.error.code, -32700);
 %! assert_equal (isfield (RESP, "id"), false);
 
 %!test
 %! ## An identifier recovered from an invalid message is echoed back.
-%! RESP = mcp.dispatch (mcp.decodeRequest ('{"jsonrpc":"2.0","id":9}'));
+%! RESP = devtools.dispatch (devtools.decodeRequest ('{"jsonrpc":"2.0","id":9}'));
 %! assert_equal (RESP.error.code, -32600);
 %! assert_equal (RESP.id, 9);
 
 %!test
 %! ## A legacy client opens with initialize and is served, not refused.
-%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"initialize",' ...
+%! R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"initialize",' ...
 %!      '"params":{"protocolVersion":"2025-11-25","capabilities":{},' ...
 %!      '"clientInfo":{"name":"c","version":"1"}}}']);
-%! [RESP, S] = mcp.dispatch (R, []);
+%! [RESP, S] = devtools.dispatch (R, []);
 %! assert_equal (S.era, "legacy");
 %! assert_equal (RESP.result.protocolVersion, "2025-11-25");
-%! assert_equal (RESP.result.serverInfo.name, "mcp");
+%! assert_equal (RESP.result.serverInfo.name, "devtools");
 %! assert_equal (isfield (RESP.result, "resultType"), false);
 
 %!test
 %! ## Metadata is required on every request, not established once per session.
-%! R = mcp.decodeRequest ('{"jsonrpc":"2.0","id":1,"method":"tools/list"}');
-%! RESP = mcp.dispatch (R);
+%! R = devtools.decodeRequest ('{"jsonrpc":"2.0","id":1,"method":"tools/list"}');
+%! RESP = devtools.dispatch (R);
 %! assert_equal (RESP.error.code, -32602);
 
 %!test
 %! p = '"_meta":{"io.modelcontextprotocol/clientCapabilities":{}}';
-%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/list",' ...
+%! R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/list",' ...
 %!                         '"params":{' p '}}']);
-%! RESP = mcp.dispatch (R);
+%! RESP = devtools.dispatch (R);
 %! assert_equal (RESP.error.code, -32602);
 %! assert_equal (RESP.error.message, ...
 %!   "Invalid params: missing io.modelcontextprotocol/protocolVersion.");
 
 %!test
 %! p = '"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}';
-%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/list",' ...
+%! R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/list",' ...
 %!                         '"params":{' p '}}']);
-%! RESP = mcp.dispatch (R);
+%! RESP = devtools.dispatch (R);
 %! assert_equal (RESP.error.message, ...
 %!   "Invalid params: missing io.modelcontextprotocol/clientCapabilities.");
 
@@ -2324,29 +2324,29 @@ endfunction
 %! ## An unsupported version names what we do speak, so the client can retry.
 %! p = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"1900-01-01",' ...
 %!      '"io.modelcontextprotocol/clientCapabilities":{}}'];
-%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/list",' ...
+%! R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/list",' ...
 %!                         '"params":{' p '}}']);
-%! RESP = mcp.dispatch (R);
+%! RESP = devtools.dispatch (R);
 %! assert_equal (RESP.error.code, -32022);
 %! assert_equal (RESP.error.data.supported, {'2026-07-28'});
 %! assert_equal (RESP.error.data.requested, "1900-01-01");
 
 %!test
-%! RESP = mcp.dispatch (mkreq ("server/discover", ""));
+%! RESP = devtools.dispatch (mkreq ("server/discover", ""));
 %! assert_equal (RESP.result.resultType, "complete");
 %! assert_equal (RESP.result.supportedVersions, {'2026-07-28'});
 %! assert_equal (isfield (RESP.result.capabilities, "tools"), true);
 
 %!test
 %! ## Every result identifies the server without relying on prior state.
-%! RESP = mcp.dispatch (mkreq ("server/discover", ""));
+%! RESP = devtools.dispatch (mkreq ("server/discover", ""));
 %! si = RESP.result._meta.io_modelcontextprotocol_serverInfo;
-%! assert_equal (si.name, "mcp");
+%! assert_equal (si.name, "devtools");
 
 %!test
 %! ## The advertised set is frozen API: renaming a tool silently breaks every
 %! ## configuration and every prompt built on it, with no error anywhere.
-%! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
+%! RESP = devtools.dispatch (mkreq ("tools/list", ""), []);
 %! names = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
 %! assert_equal (names, ...
 %!   {'octave_which', 'octave_help', 'octave_search', 'octave_pkg', ...
@@ -2354,13 +2354,13 @@ endfunction
 
 %!test
 %! ## The tool list is fixed for the life of the process, so it may be cached.
-%! RESP = mcp.dispatch (mkreq ("tools/list", ""));
+%! RESP = devtools.dispatch (mkreq ("tools/list", ""));
 %! assert_equal (RESP.result.cacheScope, "public");
 
 %!test
 %! ## Every tool carries a valid schema object and closes it, which is the
 %! ## declaration the unknown-argument check exists to honour.
-%! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
+%! RESP = devtools.dispatch (mkreq ("tools/list", ""), []);
 %! for i = 1:numel (RESP.result.tools)
 %!   sc = RESP.result.tools{i}.inputSchema;
 %!   assert_equal (sc.type, "object");
@@ -2369,14 +2369,14 @@ endfunction
 
 %!test
 %! ## TOOL_STYLE caps a description at 300 bytes, paid on every request.
-%! RESP = mcp.dispatch (mkreq ("tools/list", ""));
+%! RESP = devtools.dispatch (mkreq ("tools/list", ""));
 %! for i = 1:numel (RESP.result.tools)
 %!   assert_equal (numel (RESP.result.tools{i}.description) <= 300, true);
 %! endfor
 
 %!test
 %! ## The same trap in the guidance the model reads about the whole server.
-%! RESP = mcp.dispatch (mkreq ("server/discover", ""));
+%! RESP = devtools.dispatch (mkreq ("server/discover", ""));
 %! s = RESP.result.instructions;
 %! assert_equal (isempty (strfind (s, "No tool reports that")), false);
 %! assert_equal (isempty (strfind (s, "its own launch command loaded")), false);
@@ -2384,9 +2384,9 @@ endfunction
 
 %!test
 %! ## And in the guidance carried by the legacy initialize result.
-%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"initialize",' ...
+%! R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"initialize",' ...
 %!      '"params":{"protocolVersion":"2025-11-25"}}']);
-%! RESP = mcp.dispatch (R, []);
+%! RESP = devtools.dispatch (R, []);
 %! s = RESP.result.instructions;
 %! assert_equal (isempty (strfind (s, "No tool reports that")), false);
 %! assert_equal (isempty (strfind (s, "function, and writes nothing")), false);
@@ -2394,7 +2394,7 @@ endfunction
 %!test
 %! ## An argument the schema does not allow is a tool error naming it, since
 %! ## additionalProperties false has to be enforced and not merely declared.
-%! RESP = mcp.dispatch (mkreq ("tools/call", ...
+%! RESP = devtools.dispatch (mkreq ("tools/call", ...
 %!                       '"name":"octave_which","arguments":{"name":"mean","zz":1}'), []);
 %! t = RESP.result.content{1}.text;
 %! assert_equal (RESP.result.isError, true);
@@ -2403,14 +2403,14 @@ endfunction
 
 %!test
 %! ## Tool names must hold to the character set the protocol allows.
-%! RESP = mcp.dispatch (mkreq ("tools/list", ""));
+%! RESP = devtools.dispatch (mkreq ("tools/list", ""));
 %! for i = 1:numel (RESP.result.tools)
 %!   n = RESP.result.tools{i}.name;
 %!   assert_equal (isempty (regexp (n, '^[A-Za-z0-9_.-]{1,128}$', "once")), false);
 %! endfor
 
 %!test
-%! RESP = mcp.dispatch (mkreq ("tools/call", ...
+%! RESP = devtools.dispatch (mkreq ("tools/call", ...
 %!                       '"name":"octave_which","arguments":{"name":"mean"}'), []);
 %! assert_equal (RESP.result.isError, false);
 %! assert_equal (RESP.result.content{1}.type, "text");
@@ -2418,19 +2418,19 @@ endfunction
 
 %!test
 %! ## Content must survive encoding as a JSON array, not a bare object.
-%! RESP = mcp.dispatch (mkreq ("tools/call", ...
+%! RESP = devtools.dispatch (mkreq ("tools/call", ...
 %!                       '"name":"octave_which","arguments":{"name":"mean"}'), []);
-%! T = mcp.encodeResponse (RESP);
+%! T = devtools.encodeResponse (RESP);
 %! assert_equal (isempty (strfind (T, '"content":[{')), false);
 
 %!test
 %! ## An unknown tool is a protocol error: the model cannot correct it.
-%! RESP = mcp.dispatch (mkreq ("tools/call", '"name":"nope"'));
+%! RESP = devtools.dispatch (mkreq ("tools/call", '"name":"nope"'));
 %! assert_equal (RESP.error.code, -32602);
 %! assert_equal (RESP.error.message, "Unknown tool: nope");
 
 %!test
-%! RESP = mcp.dispatch (mkreq ("tools/call", ""));
+%! RESP = devtools.dispatch (mkreq ("tools/call", ""));
 %! assert_equal (RESP.error.code, -32602);
 %! assert_equal (RESP.error.message, ...
 %!               "Invalid params: tools/call requires a string name.");
@@ -2438,26 +2438,26 @@ endfunction
 %!test
 %! ## A bad argument is a tool error carrying text the model can act on,
 %! ## never a protocol error, which a model cannot recover from.
-%! RESP = mcp.dispatch (mkreq ("tools/call", ...
+%! RESP = devtools.dispatch (mkreq ("tools/call", ...
 %!                       '"name":"octave_search","arguments":{"x":1}'), []);
 %! assert_equal (isfield (RESP, "error"), false);
 %! assert_equal (RESP.result.isError, true);
 %! assert_equal (isempty (strfind (RESP.result.content{1}.text, "octave_search")), false);
 
 %!test
-%! RESP = mcp.dispatch (mkreq ("no/such/method", ""));
+%! RESP = devtools.dispatch (mkreq ("no/such/method", ""));
 %! assert_equal (RESP.error.code, -32601);
 %! assert_equal (RESP.error.message, "Method not found: no/such/method");
 
-%!error <mcp\.dispatch: invalid number of input arguments\.> mcp.dispatch ()
-%!error <mcp\.dispatch: R must be a scalar structure\.> mcp.dispatch (5)
-%!error <mcp\.dispatch: R must be a structure as returned by mcp\.decodeRequest\.> ...
-%! mcp.dispatch (struct ("type", "request"))
+%!error <devtools\.dispatch: invalid number of input arguments\.> devtools.dispatch ()
+%!error <devtools\.dispatch: R must be a scalar structure\.> devtools.dispatch (5)
+%!error <devtools\.dispatch: R must be a structure as returned by devtools\.decodeRequest\.> ...
+%! devtools.dispatch (struct ("type", "request"))
 
 %!function S = legacySession ()
-%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":0,"method":"initialize",' ...
+%!  R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":0,"method":"initialize",' ...
 %!       '"params":{"protocolVersion":"2025-11-25","capabilities":{}}}']);
-%!  [~, S] = mcp.dispatch (R, []);
+%!  [~, S] = devtools.dispatch (R, []);
 %!endfunction
 
 %!function R = plainreq (method, extra)
@@ -2466,14 +2466,14 @@ endfunction
 %!  else
 %!    p = ['{' extra '}'];
 %!  endif
-%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"' method ...
+%!  R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"' method ...
 %!                          '","params":' p '}']);
 %!endfunction
 
 %!test
 %! ## A legacy session needs no per-request metadata and must not be asked for it.
 %! S = legacySession ();
-%! RESP = mcp.dispatch (plainreq ("tools/list", ""), S);
+%! RESP = devtools.dispatch (plainreq ("tools/list", ""), S);
 %! names = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
 %! assert_equal (names, ...
 %!   {'octave_which', 'octave_help', 'octave_search', 'octave_pkg', ...
@@ -2483,7 +2483,7 @@ endfunction
 %! ## The legacy envelope carries neither resultType nor the cache hints, both
 %! ## of which the 2026-07-28 revision introduced.
 %! S = legacySession ();
-%! RESP = mcp.dispatch (plainreq ("tools/list", ""), S);
+%! RESP = devtools.dispatch (plainreq ("tools/list", ""), S);
 %! assert_equal (isfield (RESP.result, "resultType"), false);
 %! assert_equal (isfield (RESP.result, "ttlMs"), false);
 %! assert_equal (isfield (RESP.result, "_meta"), false);
@@ -2491,7 +2491,7 @@ endfunction
 %!test
 %! ## The tool itself is the same object in both eras.
 %! S = legacySession ();
-%! RESP = mcp.dispatch (plainreq ("tools/call", ...
+%! RESP = devtools.dispatch (plainreq ("tools/call", ...
 %!          '"name":"octave_which","arguments":{"name":"mean"}'), S);
 %! assert_equal (RESP.result.isError, false);
 %! assert_equal (RESP.result.structuredContent.kind, "function");
@@ -2500,58 +2500,58 @@ endfunction
 %!test
 %! ## An unknown version is answered with one we speak, never refused: that is
 %! ## the legacy negotiation rule and it is the opposite of the modern one.
-%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"initialize",' ...
+%! R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"initialize",' ...
 %!      '"params":{"protocolVersion":"2024-11-05"}}']);
-%! RESP = mcp.dispatch (R, []);
+%! RESP = devtools.dispatch (R, []);
 %! assert_equal (isfield (RESP, "error"), false);
 %! assert_equal (RESP.result.protocolVersion, "2025-11-25");
 
 %!test
 %! ## server/discover belongs to the modern era alone.
 %! S = legacySession ();
-%! RESP = mcp.dispatch (plainreq ("server/discover", ""), S);
+%! RESP = devtools.dispatch (plainreq ("server/discover", ""), S);
 %! assert_equal (RESP.error.code, -32601);
 
 %!test
 %! ## notifications/initialized is recorded and never answered.
 %! S = legacySession ();
-%! R = mcp.decodeRequest ('{"jsonrpc":"2.0","method":"notifications/initialized"}');
-%! [RESP, S] = mcp.dispatch (R, S);
+%! R = devtools.decodeRequest ('{"jsonrpc":"2.0","method":"notifications/initialized"}');
+%! [RESP, S] = devtools.dispatch (R, S);
 %! assert_equal (RESP, []);
 %! assert_equal (S.initialized, true);
 
 %!test
 %! ## ping is allowed before initialization completes, in either era.
-%! [RESP, S] = mcp.dispatch (plainreq ("ping", ""), []);
+%! [RESP, S] = devtools.dispatch (plainreq ("ping", ""), []);
 %! assert_equal (isfield (RESP, "error"), false);
 %! assert_equal (S.era, "unknown");
-%! assert_equal (mcp.encodeResponse (RESP), '{"jsonrpc":"2.0","id":1,"result":{}}');
+%! assert_equal (devtools.encodeResponse (RESP), '{"jsonrpc":"2.0","id":1,"result":{}}');
 
 %!test
 %! ## The era is chosen once and held: a modern session stays modern.
-%! [~, S] = mcp.dispatch (mkreq ("tools/list", ""), []);
+%! [~, S] = devtools.dispatch (mkreq ("tools/list", ""), []);
 %! assert_equal (S.era, "modern");
 %! assert_equal (S.version, "2026-07-28");
 
 %!test
 %! ## A modern session keeps demanding its metadata on every request.
-%! [~, S] = mcp.dispatch (mkreq ("tools/list", ""), []);
-%! RESP = mcp.dispatch (plainreq ("tools/list", ""), S);
+%! [~, S] = devtools.dispatch (mkreq ("tools/list", ""), []);
+%! RESP = devtools.dispatch (plainreq ("tools/list", ""), S);
 %! assert_equal (RESP.error.code, -32602);
 
 %!test
 %! ## A legacy session is never asked for a modern protocol version.
 %! S = legacySession ();
 %! assert_equal (S.era, "legacy");
-%! RESP = mcp.dispatch (plainreq ("tools/call", '"name":"nope"'), S);
+%! RESP = devtools.dispatch (plainreq ("tools/call", '"name":"nope"'), S);
 %! assert_equal (RESP.error.code, -32602);
 %! assert_equal (RESP.error.message, "Unknown tool: nope");
 
-%!error <mcp\.dispatch: S must be a session structure, or empty for a fresh one\.> ...
-%! mcp.dispatch (mcp.decodeRequest (""), 5)
+%!error <devtools\.dispatch: S must be a session structure, or empty for a fresh one\.> ...
+%! devtools.dispatch (devtools.decodeRequest (""), 5)
 
 %!function T = toolNamed (name)
-%!  RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
+%!  RESP = devtools.dispatch (mkreq ("tools/list", ""), []);
 %!  T = [];
 %!  for i = 1:numel (RESP.result.tools)
 %!    if (strcmp (RESP.result.tools{i}.name, name))
@@ -2564,14 +2564,14 @@ endfunction
 %!function R = callwhich (name)
 %!  meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
 %!          '"io.modelcontextprotocol/clientCapabilities":{}}'];
-%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%!  R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
 %!       '"params":{"name":"octave_which","arguments":{"name":"' name '"},' ...
 %!       meta '}}']);
 %!endfunction
 
 %!test
 %! ## A core m-file resolves to its file and is attributed to core.
-%! RESP = mcp.dispatch (callwhich ("mean"), []);
+%! RESP = devtools.dispatch (callwhich ("mean"), []);
 %! W = RESP.result.structuredContent;
 %! assert_equal (RESP.result.isError, false);
 %! assert_equal (W.found, true);
@@ -2581,7 +2581,7 @@ endfunction
 %!test
 %! ## A built-in reports a source file inside the interpreter, which is not a
 %! ## path on this machine and must not be offered as one.
-%! RESP = mcp.dispatch (callwhich ("sin"), []);
+%! RESP = devtools.dispatch (callwhich ("sin"), []);
 %! W = RESP.result.structuredContent;
 %! assert_equal (W.kind, "built-in function");
 %! t = RESP.result.content{1}.text;
@@ -2590,28 +2590,28 @@ endfunction
 
 %!test
 %! ## exist () reports 0 for a namespaced name, so the kind cannot come from it.
-%! RESP = mcp.dispatch (callwhich ("containers.Map"), []);
+%! RESP = devtools.dispatch (callwhich ("containers.Map"), []);
 %! W = RESP.result.structuredContent;
 %! assert_equal (W.found, true);
 %! assert_equal (W.kind, "classdef");
 
 %!test
 %! ## A dotted name landing on the classdef it belongs to was a method query.
-%! RESP = mcp.dispatch (callwhich ("containers.Map.keys"), []);
+%! RESP = devtools.dispatch (callwhich ("containers.Map.keys"), []);
 %! W = RESP.result.structuredContent;
 %! assert_equal (W.found, true);
 %! assert_equal (W.kind, "method");
 
 %!test
 %! ## Not found is a tool error, which a model can act on, never a protocol one.
-%! RESP = mcp.dispatch (callwhich ("mcpzznosuchname"), []);
+%! RESP = devtools.dispatch (callwhich ("devtoolszznosuchname"), []);
 %! assert_equal (isfield (RESP, "error"), false);
 %! assert_equal (RESP.result.isError, true);
 %! assert_equal (RESP.result.structuredContent.found, false);
 
 %!test
 %! ## The hint names the fallback, since an operator never resolves by symbol.
-%! RESP = mcp.dispatch (callwhich ("mcpzznosuchname"), []);
+%! RESP = devtools.dispatch (callwhich ("devtoolszznosuchname"), []);
 %! t = RESP.result.content{1}.text;
 %! assert_equal (isempty (strfind (t, "plus for +")), false);
 %! assert_equal (isempty (strfind (t, "no installed package provides it")), false);
@@ -2620,31 +2620,31 @@ endfunction
 %! ## A missing argument is a tool error naming what was wanted.
 %! meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
 %!         '"io.modelcontextprotocol/clientCapabilities":{}}'];
-%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%! R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
 %!      '"params":{"name":"octave_which","arguments":{},' meta '}}']);
-%! RESP = mcp.dispatch (R, []);
+%! RESP = devtools.dispatch (R, []);
 %! assert_equal (RESP.result.isError, true);
 %! assert_equal (isempty (strfind (RESP.result.content{1}.text, "needs a name")), false);
 
 %!test
 %! ## Shadowing is the whole point of this tool, and it is also the guard that
 %! ## keeps anyone from reaching for which (..., "all"), which returns one hit.
-%! d1 = fullfile (tempdir (), "mcp_shadow_a");
-%! d2 = fullfile (tempdir (), "mcp_shadow_b");
+%! d1 = fullfile (tempdir (), "devtools_shadow_a");
+%! d2 = fullfile (tempdir (), "devtools_shadow_b");
 %! unwind_protect
 %!   mkdir (d1); mkdir (d2);
 %!   for d = {d1, d2}
-%!     fid = fopen (fullfile (d{1}, "mcpzzfixture.m"), "w");
-%!     fprintf (fid, "function y = mcpzzfixture ()\n  y = 1;\nendfunction\n");
+%!     fid = fopen (fullfile (d{1}, "devtoolszzfixture.m"), "w");
+%!     fprintf (fid, "function y = devtoolszzfixture ()\n  y = 1;\nendfunction\n");
 %!     fclose (fid);
 %!   endfor
 %!   addpath (d2); addpath (d1);
-%!   RESP = mcp.dispatch (callwhich ("mcpzzfixture"), []);
+%!   RESP = devtools.dispatch (callwhich ("devtoolszzfixture"), []);
 %!   W = RESP.result.structuredContent;
 %!   assert_equal (W.shadowed, 1);
 %!   assert_equal (numel (W.matches), 2);
-%!   assert_equal (W.matches{1}.path, fullfile (d1, "mcpzzfixture.m"));
-%!   assert_equal (W.matches{2}.path, fullfile (d2, "mcpzzfixture.m"));
+%!   assert_equal (W.matches{1}.path, fullfile (d1, "devtoolszzfixture.m"));
+%!   assert_equal (W.matches{2}.path, fullfile (d2, "devtoolszzfixture.m"));
 %!   assert_equal (W.path, W.matches{1}.path);
 %! unwind_protect_cleanup
 %!   warning ("off", "Octave:rmpath-not-found", "local");
@@ -2665,7 +2665,7 @@ endfunction
 %!test
 %! ## The legacy envelope reaches the new tool too.
 %! S = legacySession ();
-%! RESP = mcp.dispatch (plainreq ("tools/call", ...
+%! RESP = devtools.dispatch (plainreq ("tools/call", ...
 %!          '"name":"octave_which","arguments":{"name":"mean"}'), S);
 %! assert_equal (RESP.result.isError, false);
 %! assert_equal (isfield (RESP.result, "resultType"), false);
@@ -2674,7 +2674,7 @@ endfunction
 %!test
 %! ## A tool that declares an outputSchema promises structured content on every
 %! ## result, an error result included, or the schema is not a contract.
-%! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
+%! RESP = devtools.dispatch (mkreq ("tools/list", ""), []);
 %! schemad = {};
 %! for i = 1:numel (RESP.result.tools)
 %!   if (isfield (RESP.result.tools{i}, "outputSchema"))
@@ -2685,9 +2685,9 @@ endfunction
 %! ## Note: no space before the paren would be needed inside {}, so the
 %! ## requests are built first rather than inline.
 %! good = callwhich ("mean");
-%! bad = callwhich ("mcpzznosuchname");
-%! A = mcp.dispatch (good, []);
-%! B = mcp.dispatch (bad, []);
+%! bad = callwhich ("devtoolszznosuchname");
+%! A = devtools.dispatch (good, []);
+%! B = devtools.dispatch (bad, []);
 %! assert_equal (isfield (A.result, "structuredContent"), true);
 %! assert_equal (isfield (B.result, "structuredContent"), true);
 %! assert_equal (B.result.isError, true);
@@ -2695,51 +2695,51 @@ endfunction
 %!function R = callhelp (name)
 %!  meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
 %!          '"io.modelcontextprotocol/clientCapabilities":{}}'];
-%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%!  R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
 %!       '"params":{"name":"octave_help","arguments":{"name":"' name '"},' ...
 %!       meta '}}']);
 %!endfunction
 
 %!test
 %! ## The ordinary case: the help of a core function comes back as help wrote it.
-%! RESP = mcp.dispatch (callhelp ("mean"), []);
+%! RESP = devtools.dispatch (callhelp ("mean"), []);
 %! assert_equal (RESP.result.isError, false);
 %! assert_equal (isempty (strfind (RESP.result.content{1}.text, "mean (X)")), false);
 
 %!test
 %! ## An operator has help but does not resolve through which, which is why
 %! ## both tools exist and why the description says so.
-%! RESP = mcp.dispatch (callhelp ("+"), []);
+%! RESP = devtools.dispatch (callhelp ("+"), []);
 %! assert_equal (RESP.result.isError, false);
 %! assert_equal (isempty (strfind (RESP.result.content{1}.text, "Addition")), false);
 
 %!test
 %! ## An unknown name is a tool error naming the fallback, not a protocol error.
-%! RESP = mcp.dispatch (callhelp ("mcpzznosuchname"), []);
+%! RESP = devtools.dispatch (callhelp ("devtoolszznosuchname"), []);
 %! assert_equal (isfield (RESP, "error"), false);
 %! assert_equal (RESP.result.isError, true);
 %! assert_equal (isempty (strfind (RESP.result.content{1}.text, "octave_which")), false);
 
 %!test
 %! ## Help carrying no structuredContent is deliberate: the payload is prose.
-%! RESP = mcp.dispatch (callhelp ("mean"), []);
+%! RESP = devtools.dispatch (callhelp ("mean"), []);
 %! assert_equal (isfield (RESP.result, "structuredContent"), false);
 
 %!test
 %! ## Truncation, on a fixture built for it rather than on whichever function
 %! ## happens to have long help in this installation.
-%! d = fullfile (tempdir (), "mcp_help_big");
+%! d = fullfile (tempdir (), "devtools_help_big");
 %! unwind_protect
 %!   mkdir (d);
-%!   fid = fopen (fullfile (d, "mcpzzbig.m"), "w");
+%!   fid = fopen (fullfile (d, "devtoolszzbig.m"), "w");
 %!   fprintf (fid, "## -*- texinfo -*-\n");
 %!   for i = 1:400
 %!     fprintf (fid, "## line %03d %s\n", i, repmat ("z", 1, 50));
 %!   endfor
-%!   fprintf (fid, "function mcpzzbig ()\nendfunction\n");
+%!   fprintf (fid, "function devtoolszzbig ()\nendfunction\n");
 %!   fclose (fid);
 %!   addpath (d);
-%!   RESP = mcp.dispatch (callhelp ("mcpzzbig"), []);
+%!   RESP = devtools.dispatch (callhelp ("devtoolszzbig"), []);
 %!   t = RESP.result.content{1}.text;
 %!   assert_equal (RESP.result.isError, false);
 %!   assert_equal (numel (t) <= 8192, true);
@@ -2757,15 +2757,15 @@ endfunction
 %!test
 %! ## A single line longer than the whole budget has no boundary to cut at, so
 %! ## the marker says mid-line rather than pretending the text ended.
-%! d = fullfile (tempdir (), "mcp_help_line");
+%! d = fullfile (tempdir (), "devtools_help_line");
 %! unwind_protect
 %!   mkdir (d);
-%!   fid = fopen (fullfile (d, "mcpzzline.m"), "w");
+%!   fid = fopen (fullfile (d, "devtoolszzline.m"), "w");
 %!   fprintf (fid, "## %s\n", repmat ("q", 1, 20000));
-%!   fprintf (fid, "function mcpzzline ()\nendfunction\n");
+%!   fprintf (fid, "function devtoolszzline ()\nendfunction\n");
 %!   fclose (fid);
 %!   addpath (d);
-%!   RESP = mcp.dispatch (callhelp ("mcpzzline"), []);
+%!   RESP = devtools.dispatch (callhelp ("devtoolszzline"), []);
 %!   t = RESP.result.content{1}.text;
 %!   assert_equal (numel (t) <= 8192, true);
 %!   assert_equal (isempty (strfind (t, "truncated mid-line")), false);
@@ -2779,7 +2779,7 @@ endfunction
 %!test
 %! ## Short help is returned whole, with no marker to mislead a model into
 %! ## thinking something was withheld.
-%! RESP = mcp.dispatch (callhelp ("+"), []);
+%! RESP = devtools.dispatch (callhelp ("+"), []);
 %! assert_equal (isempty (strfind (RESP.result.content{1}.text, "truncated")), true);
 
 %!test
@@ -2787,7 +2787,7 @@ endfunction
 %! ## that proves the normalisation rather than one that never differed:
 %! ## core's shipped cache is built by mk-doc-cache.pl, not by
 %! ## doc_cache_create, and leaks the manual's cross-reference anchors.
-%! RESP = mcp.dispatch (callhelp ("fgets"), []);
+%! RESP = devtools.dispatch (callhelp ("fgets"), []);
 %! t = RESP.result.content{1}.text;
 %! assert_equal (RESP.result.isError, false);
 %! assert_equal (isempty (strfind (t, "XREF")), true);
@@ -2797,7 +2797,7 @@ endfunction
 %!test
 %! ## The deftypefn prefix of that same renderer is core's artefact and does
 %! ## not reach a model either.
-%! RESP = mcp.dispatch (callhelp ("dbclear"), []);
+%! RESP = devtools.dispatch (callhelp ("dbclear"), []);
 %! t = RESP.result.content{1}.text;
 %! assert_equal (isempty (strfind (t, " -- : ")), true);
 %! assert_equal (strncmp (t, " -- dbclear FCN", 15), true);
@@ -2807,17 +2807,17 @@ endfunction
 %! ## nthargout, the load path holds this one, and the tool must describe the
 %! ## function that would run.  This is the same guard that keeps a loaded
 %! ## package's own cache out of its answers.
-%! d = fullfile (tempdir (), "mcp_help_shadow");
+%! d = fullfile (tempdir (), "devtools_help_shadow");
 %! unwind_protect
 %!   warning ("off", "Octave:shadowed-function", "local");
 %!   mkdir (d);
 %!   fid = fopen (fullfile (d, "nthargout.m"), "w");
-%!   fprintf (fid, "## mcpzzshadow fixture\nfunction nthargout ()\nendfunction\n");
+%!   fprintf (fid, "## devtoolszzshadow fixture\nfunction nthargout ()\nendfunction\n");
 %!   fclose (fid);
 %!   addpath (d);
-%!   RESP = mcp.dispatch (callhelp ("nthargout"), []);
+%!   RESP = devtools.dispatch (callhelp ("nthargout"), []);
 %!   t = RESP.result.content{1}.text;
-%!   assert_equal (isempty (strfind (t, "mcpzzshadow")), false);
+%!   assert_equal (isempty (strfind (t, "devtoolszzshadow")), false);
 %! unwind_protect_cleanup
 %!   warning ("off", "Octave:rmpath-not-found", "local");
 %!   rmpath (d);
@@ -2852,7 +2852,7 @@ endfunction
 %!   endif
 %! endfor
 %! if (! isempty (nm))
-%!   RESP = mcp.dispatch (callhelp (nm), []);
+%!   RESP = devtools.dispatch (callhelp (nm), []);
 %!   t = RESP.result.content{1}.text;
 %!   assert_equal (RESP.result.isError, false);
 %!   assert_equal (strncmp (t, "[", 1), true);
@@ -2872,7 +2872,7 @@ endfunction
 %!function R = callsearch (query)
 %!  meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
 %!          '"io.modelcontextprotocol/clientCapabilities":{}}'];
-%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%!  R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
 %!       '"params":{"name":"octave_search","arguments":{"query":"' query '"},' ...
 %!       meta '}}']);
 %!endfunction
@@ -2880,7 +2880,7 @@ endfunction
 %!test
 %! ## A core query returns the obvious function, and searching the whole help
 %! ## text is what finds it: eig's summary sentence does not say "eigenvalue".
-%! RESP = mcp.dispatch (callsearch ("eigenvalue"), []);
+%! RESP = devtools.dispatch (callsearch ("eigenvalue"), []);
 %! assert_equal (RESP.result.isError, false);
 %! names = cellfun (@(m) m.name, RESP.result.structuredContent.matches, ...
 %!                  "UniformOutput", false);
@@ -2890,12 +2890,12 @@ endfunction
 %! ## Ranking, on a fixture built for it rather than on whatever this
 %! ## installation happens to hold: exact name, then name containing the
 %! ## query, then a match found only in the body of the help.
-%! d = fullfile (tempdir (), "mcp_search_rank");
+%! d = fullfile (tempdir (), "devtools_search_rank");
 %! unwind_protect
 %!   mkdir (d);
-%!   defs = {"mcpzzother", "Compute something using mcpzzterm internally."; ...
-%!           "mcpzztermlong", "A longer relative of the operation."; ...
-%!           "mcpzzterm", "The basic operation."};
+%!   defs = {"devtoolszzother", "Compute something using devtoolszzterm internally."; ...
+%!           "devtoolszztermlong", "A longer relative of the operation."; ...
+%!           "devtoolszzterm", "The basic operation."};
 %!   for i = 1:rows (defs)
 %!     fid = fopen (fullfile (d, [defs{i,1} ".m"]), "w");
 %!     fprintf (fid, "## -*- texinfo -*-\n## @deftypefn {} {} %s ()\n## %s\n", ...
@@ -2904,10 +2904,10 @@ endfunction
 %!     fclose (fid);
 %!   endfor
 %!   addpath (d);
-%!   RESP = mcp.dispatch (callsearch ("mcpzzterm"), []);
+%!   RESP = devtools.dispatch (callsearch ("devtoolszzterm"), []);
 %!   names = cellfun (@(m) m.name, RESP.result.structuredContent.matches, ...
 %!                    "UniformOutput", false);
-%!   assert_equal (names, {'mcpzzterm', 'mcpzztermlong', 'mcpzzother'});
+%!   assert_equal (names, {'devtoolszzterm', 'devtoolszztermlong', 'devtoolszzother'});
 %! unwind_protect_cleanup
 %!   warning ("off", "Octave:rmpath-not-found", "local");
 %!   rmpath (d);
@@ -2918,7 +2918,7 @@ endfunction
 %!test
 %! ## A broad query is capped, and says so, because a model can act on the
 %! ## total by narrowing but cannot act on a silently shortened list.
-%! RESP = mcp.dispatch (callsearch ("matrix"), []);
+%! RESP = devtools.dispatch (callsearch ("matrix"), []);
 %! sc = RESP.result.structuredContent;
 %! assert_equal (sc.shown, 40);
 %! assert_equal (sc.total > sc.shown, true);
@@ -2928,7 +2928,7 @@ endfunction
 %!test
 %! ## Nothing found is not a tool error: a lookup of a name that does not
 %! ## exist is a wrong assumption to correct, an empty search is a fact.
-%! RESP = mcp.dispatch (callsearch ("mcpzznothingmatchesthis"), []);
+%! RESP = devtools.dispatch (callsearch ("devtoolszznothingmatchesthis"), []);
 %! assert_equal (RESP.result.isError, false);
 %! assert_equal (RESP.result.structuredContent.total, 0);
 %! assert_equal (isempty (strfind (RESP.result.content{1}.text, "launch command")), false);
@@ -2937,16 +2937,16 @@ endfunction
 %! ## A missing query is a tool error, and still conforms to the schema.
 %! meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
 %!         '"io.modelcontextprotocol/clientCapabilities":{}}'];
-%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%! R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
 %!      '"params":{"name":"octave_search","arguments":{},' meta '}}']);
-%! RESP = mcp.dispatch (R, []);
+%! RESP = devtools.dispatch (R, []);
 %! assert_equal (RESP.result.isError, true);
 %! assert_equal (RESP.result.structuredContent.total, 0);
 
 %!test
 %! ## Summaries are one line each: a wrapped help sentence must not become
 %! ## several rows in what is presented as a table.
-%! RESP = mcp.dispatch (callsearch ("eigenvalue"), []);
+%! RESP = devtools.dispatch (callsearch ("eigenvalue"), []);
 %! for i = 1:numel (RESP.result.structuredContent.matches)
 %!   s = RESP.result.structuredContent.matches{i}.summary;
 %!   assert_equal (any (s == "\n"), false);
@@ -2956,8 +2956,8 @@ endfunction
 %!test
 %! ## The same query twice gives the same page, which is what lets a client
 %! ## cache and a model reason about "the first result".
-%! A = mcp.dispatch (callsearch ("matrix"), []);
-%! B = mcp.dispatch (callsearch ("matrix"), []);
+%! A = devtools.dispatch (callsearch ("matrix"), []);
+%! B = devtools.dispatch (callsearch ("matrix"), []);
 %! assert_equal (A.result.structuredContent.matches, B.result.structuredContent.matches);
 
 %!test
@@ -2972,27 +2972,27 @@ endfunction
 %!function R = callpkg (argjson)
 %!  meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
 %!          '"io.modelcontextprotocol/clientCapabilities":{}}'];
-%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%!  R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
 %!       '"params":{"name":"octave_pkg","arguments":' argjson ',' meta '}}']);
 %!endfunction
 
 %!test
 %! ## With no argument, every installed package is listed, loaded or not.
-%! RESP = mcp.dispatch (callpkg ("{}"), []);
+%! RESP = devtools.dispatch (callpkg ("{}"), []);
 %! sc = RESP.result.structuredContent;
 %! assert_equal (RESP.result.isError, false);
 %! assert_equal (sc.total, numel (sc.packages));
 %! assert_equal (sc.total >= 1, true);
 
 %!test
-%! ## mcp is necessarily installed while these tests run.  The loaded count is
+%! ## devtools is necessarily installed while these tests run.  The loaded count is
 %! ## an invariant of the rows, not an assumption about this environment: a
 %! ## source tree reached by addpath is on the path without pkg calling it
 %! ## loaded, so asserting a count here would fail for the wrong reason.
-%! RESP = mcp.dispatch (callpkg ("{}"), []);
+%! RESP = devtools.dispatch (callpkg ("{}"), []);
 %! sc = RESP.result.structuredContent;
 %! names = cellfun (@(q) q.name, sc.packages, "UniformOutput", false);
-%! assert_equal (any (strcmp ("mcp", names)), true);
+%! assert_equal (any (strcmp ("devtools", names)), true);
 %! n = 0;
 %! for i = 1:numel (sc.packages)
 %!   n += sc.packages{i}.loaded;
@@ -3001,16 +3001,16 @@ endfunction
 
 %!test
 %! ## Naming a package gives its dependencies and directory.
-%! RESP = mcp.dispatch (callpkg ('{"name":"mcp"}'), []);
+%! RESP = devtools.dispatch (callpkg ('{"name":"devtools"}'), []);
 %! sc = RESP.result.structuredContent;
 %! assert_equal (numel (sc.packages), 1);
-%! assert_equal (sc.packages{1}.name, "mcp");
+%! assert_equal (sc.packages{1}.name, "devtools");
 %! assert_equal (isempty (sc.packages{1}.dir), false);
 %! assert_equal (isempty (strfind (RESP.result.content{1}.text, "depends:")), false);
 
 %!test
 %! ## A package that is not installed is a wrong assumption to correct.
-%! RESP = mcp.dispatch (callpkg ('{"name":"mcpzznosuchpackage"}'), []);
+%! RESP = devtools.dispatch (callpkg ('{"name":"devtoolszznosuchpackage"}'), []);
 %! assert_equal (RESP.result.isError, true);
 %! assert_equal (RESP.result.structuredContent.total >= 1, true);
 %! assert_equal (numel (RESP.result.structuredContent.packages), 0);
@@ -3020,8 +3020,8 @@ endfunction
 %! ## still what is loaded after it, which is the whole posture of this server.
 %! before = pkg ("list");
 %! nb = 0; for i = 1:numel (before), nb += before{i}.loaded; endfor
-%! mcp.dispatch (callpkg ("{}"), []);
-%! mcp.dispatch (callpkg ('{"name":"statistics"}'), []);
+%! devtools.dispatch (callpkg ("{}"), []);
+%! devtools.dispatch (callpkg ('{"name":"statistics"}'), []);
 %! after = pkg ("list");
 %! na = 0; for i = 1:numel (after), na += after{i}.loaded; endfor
 %! assert_equal (na, nb);
@@ -3053,7 +3053,7 @@ endfunction
 %!   endif
 %! endfor
 %! if (! isempty (target))
-%!   RESP = mcp.dispatch (callwhich (target), []);
+%!   RESP = devtools.dispatch (callwhich (target), []);
 %!   W = RESP.result.structuredContent;
 %!   assert_equal (W.found, true);
 %!   assert_equal (W.state, "installed but not loaded");
@@ -3063,47 +3063,47 @@ endfunction
 
 %!test
 %! ## A name in neither place says so plainly, now that both were searched.
-%! RESP = mcp.dispatch (callwhich ("mcpzznosuchnameanywhere"), []);
+%! RESP = devtools.dispatch (callwhich ("devtoolszznosuchnameanywhere"), []);
 %! assert_equal (RESP.result.structuredContent.state, "absent");
 %! assert_equal (RESP.result.isError, true);
 
 %!test
 %! ## A resolvable name reports the state it is actually in.
-%! RESP = mcp.dispatch (callwhich ("mean"), []);
+%! RESP = devtools.dispatch (callwhich ("mean"), []);
 %! assert_equal (RESP.result.structuredContent.state, "on the load path");
 
 %!test
 %! ## The version is carried by the instructions, sent once at connection,
 %! ## rather than by a tool charging its description against every request.
-%! RESP = mcp.dispatch (mkreq ("server/discover", ""), []);
+%! RESP = devtools.dispatch (mkreq ("server/discover", ""), []);
 %! s = RESP.result.instructions;
 %! assert_equal (isempty (strfind (s, version ())), false);
 %! assert_equal (isempty (strfind (s, computer ())), false);
 
 %!test
 %! ## A legacy client is told the same, in the initialize result.
-%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"initialize",' ...
+%! R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"initialize",' ...
 %!      '"params":{"protocolVersion":"2025-11-25"}}']);
-%! RESP = mcp.dispatch (R, []);
+%! RESP = devtools.dispatch (R, []);
 %! assert_equal (isempty (strfind (RESP.result.instructions, version ())), false);
 
 %!test
 %! ## Both eras declare the resources capability, or a client will never ask.
-%! A = mcp.dispatch (mkreq ("server/discover", ""), []);
+%! A = devtools.dispatch (mkreq ("server/discover", ""), []);
 %! assert_equal (isfield (A.result.capabilities, "resources"), true);
-%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"initialize",' ...
+%! R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"initialize",' ...
 %!      '"params":{"protocolVersion":"2025-11-25"}}']);
-%! B = mcp.dispatch (R, []);
+%! B = devtools.dispatch (R, []);
 %! assert_equal (isfield (B.result.capabilities, "resources"), true);
 
 %!test
 %! ## One resource, and it is the one no tool duplicates.
-%! RESP = mcp.dispatch (mkreq ("resources/list", ""), []);
+%! RESP = devtools.dispatch (mkreq ("resources/list", ""), []);
 %! assert_equal (numel (RESP.result.resources), 1);
 %! assert_equal (RESP.result.resources{1}.uri, "octave://environment");
 
 %!test
-%! RESP = mcp.dispatch (mkreq ("resources/read", ...
+%! RESP = devtools.dispatch (mkreq ("resources/read", ...
 %!                       '"uri":"octave://environment"'), []);
 %! c = RESP.result.contents{1};
 %! assert_equal (c.uri, "octave://environment");
@@ -3114,20 +3114,20 @@ endfunction
 %!test
 %! ## A resource that does not exist is -32602, and must never come back as an
 %! ## empty contents array, which is ambiguous between blank and absent.
-%! RESP = mcp.dispatch (mkreq ("resources/read", '"uri":"octave://nope"'), []);
+%! RESP = devtools.dispatch (mkreq ("resources/read", '"uri":"octave://nope"'), []);
 %! assert_equal (RESP.error.code, -32602);
 %! assert_equal (RESP.error.data.uri, "octave://nope");
 %! assert_equal (isfield (RESP, "result"), false);
 
 %!test
-%! RESP = mcp.dispatch (mkreq ("resources/read", ""), []);
+%! RESP = devtools.dispatch (mkreq ("resources/read", ""), []);
 %! assert_equal (RESP.error.code, -32602);
 %! assert_equal (isempty (strfind (RESP.error.message, "string uri")), false);
 
 %!test
 %! ## The legacy envelope reaches resources too, and carries no resultType.
 %! S = legacySession ();
-%! RESP = mcp.dispatch (plainreq ("resources/read", ...
+%! RESP = devtools.dispatch (plainreq ("resources/read", ...
 %!                       '"uri":"octave://environment"'), S);
 %! assert_equal (isfield (RESP.result, "resultType"), false);
 %! assert_equal (isempty (strfind (RESP.result.contents{1}.text, "platform:")), false);
@@ -3135,14 +3135,14 @@ endfunction
 %!function R = callreg (name)
 %!  meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
 %!          '"io.modelcontextprotocol/clientCapabilities":{}}'];
-%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%!  R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
 %!       '"params":{"name":"octave_registry","arguments":{"name":"' name '"},' ...
 %!       meta '}}']);
 %!endfunction
 
 %!test
 %! ## A name provided by one package, with that package's newest version.
-%! RESP = mcp.dispatch (callreg ("kmeans"), []);
+%! RESP = devtools.dispatch (callreg ("kmeans"), []);
 %! sc = RESP.result.structuredContent;
 %! assert_equal (RESP.result.isError, false);
 %! assert_equal (sc.found, true);
@@ -3153,7 +3153,7 @@ endfunction
 %!test
 %! ## A contested name reports every provider, which is the whole point of
 %! ## carrying the index: 193 of its names have more than one.
-%! RESP = mcp.dispatch (callreg ("normcdf"), []);
+%! RESP = devtools.dispatch (callreg ("normcdf"), []);
 %! sc = RESP.result.structuredContent;
 %! p = cellfun (@(x) x.package, sc.providers, "UniformOutput", false);
 %! assert_equal (numel (sc.providers) > 1, true);
@@ -3161,7 +3161,7 @@ endfunction
 
 %!test
 %! ## Core is a package in this data and must be named as what it is.
-%! RESP = mcp.dispatch (callreg ("mean"), []);
+%! RESP = devtools.dispatch (callreg ("mean"), []);
 %! p = cellfun (@(x) x.package, RESP.result.structuredContent.providers, ...
 %!              "UniformOutput", false);
 %! assert_equal (any (strcmp ("__core__", p)), true);
@@ -3172,7 +3172,7 @@ endfunction
 %! ## that is not an identifier, and 44% of these names carry a dot, which is
 %! ## why the index is reshaped into arrays at release time rather than shipped
 %! ## as an object keyed by name.
-%! RESP = mcp.dispatch (callreg ("AutoDiff.abs"), []);
+%! RESP = devtools.dispatch (callreg ("AutoDiff.abs"), []);
 %! sc = RESP.result.structuredContent;
 %! assert_equal (sc.found, true);
 %! assert_equal (sc.name, "AutoDiff.abs");
@@ -3181,8 +3181,8 @@ endfunction
 %!test
 %! ## Every answer carries the snapshot date, found or not: without it a "no"
 %! ## cannot be told from "not as of August".
-%! A = mcp.dispatch (callreg ("kmeans"), []);
-%! B = mcp.dispatch (callreg ("mcpzznosuchnameatall"), []);
+%! A = devtools.dispatch (callreg ("kmeans"), []);
+%! B = devtools.dispatch (callreg ("devtoolszznosuchnameatall"), []);
 %! assert_equal (isempty (A.result.structuredContent.snapshot), false);
 %! assert_equal (A.result.structuredContent.snapshot, B.result.structuredContent.snapshot);
 %! assert_equal (isempty (strfind (A.result.content{1}.text, "snapshot")), false);
@@ -3191,7 +3191,7 @@ endfunction
 %!test
 %! ## A name in no package is a failed lookup, and the near names make it a
 %! ## next step rather than a dead end.
-%! RESP = mcp.dispatch (callreg ("nanmaxx"), []);
+%! RESP = devtools.dispatch (callreg ("nanmaxx"), []);
 %! assert_equal (RESP.result.isError, true);
 %! assert_equal (RESP.result.structuredContent.found, false);
 %! t = RESP.result.content{1}.text;
@@ -3201,14 +3201,14 @@ endfunction
 %!test
 %! ## The answer says it is about the index and not about this server, because
 %! ## a result that reads as callable is the one trap this tool must avoid.
-%! RESP = mcp.dispatch (callreg ("kmeans"), []);
+%! RESP = devtools.dispatch (callreg ("kmeans"), []);
 %! t = RESP.result.content{1}.text;
 %! assert_equal (isempty (strfind (t, "not this server")), false);
 %! assert_equal (isempty (strfind (t, "octave_which")), false);
 
 %!test
 %! ## Case is the thing a model gets wrong most often.
-%! RESP = mcp.dispatch (callreg ("KMEANS"), []);
+%! RESP = devtools.dispatch (callreg ("KMEANS"), []);
 %! assert_equal (RESP.result.isError, false);
 %! assert_equal (RESP.result.structuredContent.name, "kmeans");
 
@@ -3224,7 +3224,7 @@ endfunction
 %!test
 %! ## The legacy envelope reaches it too.
 %! S = legacySession ();
-%! RESP = mcp.dispatch (plainreq ("tools/call", ...
+%! RESP = devtools.dispatch (plainreq ("tools/call", ...
 %!          '"name":"octave_registry","arguments":{"name":"kmeans"}'), S);
 %! assert_equal (RESP.result.isError, false);
 %! assert_equal (isfield (RESP.result, "resultType"), false);
@@ -3242,15 +3242,15 @@ endfunction
 %!    a = [a ',"workspace":"' ws '"'];
 %!  endif
 %!  a = [a '}'];
-%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%!  R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
 %!       '"params":{"name":"octave_eval","arguments":' a ',' meta '}}']);
-%!  [A, S] = mcp.dispatch (R, S);
+%!  [A, S] = devtools.dispatch (R, S);
 %!endfunction
 
 %!test
 %! ## The read-only surface does not carry the evaluating tool, which is the
 %! ## property that lets a user grant that server blanket permission.
-%! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
+%! RESP = devtools.dispatch (mkreq ("tools/list", ""), []);
 %! nms = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
 %! assert_equal (any (strcmp (nms, "octave_eval")), false);
 %! assert_equal (numel (nms), 5);
@@ -3258,15 +3258,15 @@ endfunction
 %!test
 %! ## And a host configured for it cannot reach the tool by asking: an unknown
 %! ## tool is a protocol error, not a tool that quietly runs.
-%! S = mcp.__newSession__ ("read-only");
+%! S = devtools.__newSession__ ("read-only");
 %! [A, S] = evalcall (S, jsonencode ("1 + 1"), "new");
 %! assert_equal (isfield (A, "error"), true);
 %! assert_equal (A.error.code, -32602);
 
 %!test
 %! ## The evaluating surface carries all six.
-%! S = mcp.__newSession__ ("eval");
-%! [A, S] = mcp.dispatch (mkreq ("tools/list", ""), S);
+%! S = devtools.__newSession__ ("eval");
+%! [A, S] = devtools.dispatch (mkreq ("tools/list", ""), S);
 %! nms = cellfun (@(t) t.name, A.result.tools, "UniformOutput", false);
 %! assert_equal (numel (nms), 7);
 %! assert_equal (any (strcmp (nms, "octave_eval")), true);
@@ -3274,24 +3274,24 @@ endfunction
 %!test
 %! ## A first call opens a workspace and says which, a second one carries the
 %! ## variables forward, and clear takes one away.
-%! S = mcp.__newSession__ ("eval");
-%! [A, S] = evalcall (S, jsonencode ("mcpzza = 6; mcpzzb = 7;"), "new");
+%! S = devtools.__newSession__ ("eval");
+%! [A, S] = evalcall (S, jsonencode ("devtoolszza = 6; devtoolszzb = 7;"), "new");
 %! t = A.result.content{1}.text;
 %! assert_equal (A.result.isError, false);
 %! h = wshandle (t);
-%! [A, S] = evalcall (S, jsonencode ("mcpzzc = mcpzza * mcpzzb"), h);
+%! [A, S] = evalcall (S, jsonencode ("devtoolszzc = devtoolszza * devtoolszzb"), h);
 %! t = A.result.content{1}.text;
 %! assert_equal (wshandle (t), h);
-%! assert_equal (isempty (strfind (t, "mcpzzc = 42")), false);
-%! [A, S] = evalcall (S, jsonencode ("clear mcpzza"), h);
+%! assert_equal (isempty (strfind (t, "devtoolszzc = 42")), false);
+%! [A, S] = evalcall (S, jsonencode ("clear devtoolszza"), h);
 %! t = A.result.content{1}.text;
-%! assert_equal (isempty (strfind (t, "[variables] mcpzzb, mcpzzc")), false);
+%! assert_equal (isempty (strfind (t, "[variables] devtoolszzb, devtoolszzc")), false);
 
 %!test
 %! ## The handle is opaque and carries entropy, which the specification asks
 %! ## for because a transport may interleave unrelated conversations: a
 %! ## guessable handle is one of them reaching into another's variables.
-%! S = mcp.__newSession__ ("eval");
+%! S = devtools.__newSession__ ("eval");
 %! [A, S] = evalcall (S, jsonencode ("1;"), "new");
 %! h1 = wshandle (A.result.content{1}.text);
 %! [A, S] = evalcall (S, jsonencode ("1;"), "new");
@@ -3304,31 +3304,31 @@ endfunction
 %!test
 %! ## Two workspaces do not see each other, which is what makes the handle
 %! ## worth passing rather than assuming.
-%! S = mcp.__newSession__ ("eval");
-%! [A, S] = evalcall (S, jsonencode ("mcpzzd = 1;"), "new");
+%! S = devtools.__newSession__ ("eval");
+%! [A, S] = evalcall (S, jsonencode ("devtoolszzd = 1;"), "new");
 %! h1 = wshandle (A.result.content{1}.text);
-%! [A, S] = evalcall (S, jsonencode ("exist (\"mcpzzd\")"), "new");
+%! [A, S] = evalcall (S, jsonencode ("exist (\"devtoolszzd\")"), "new");
 %! t = A.result.content{1}.text;
 %! assert_equal (strcmp (wshandle (t), h1), false);
 %! assert_equal (isempty (strfind (t, "ans = 0")), false);
 
 %!test
 %! ## An error is a tool error a model can read, and the workspace survives it.
-%! S = mcp.__newSession__ ("eval");
-%! [A, S] = evalcall (S, jsonencode ("mcpzze = 5;"), "new");
+%! S = devtools.__newSession__ ("eval");
+%! [A, S] = evalcall (S, jsonencode ("devtoolszze = 5;"), "new");
 %! h = wshandle (A.result.content{1}.text);
-%! [A, S] = evalcall (S, jsonencode ("mcpzznosuchfunction (1)"), h);
+%! [A, S] = evalcall (S, jsonencode ("devtoolszznosuchfunction (1)"), h);
 %! t = A.result.content{1}.text;
 %! assert_equal (isfield (A, "error"), false);
 %! assert_equal (A.result.isError, true);
 %! assert_equal (isempty (strfind (t, "[error]")), false);
-%! [A, S] = evalcall (S, jsonencode ("mcpzze"), h);
-%! assert_equal (isempty (strfind (A.result.content{1}.text, "mcpzze = 5")), false);
+%! [A, S] = evalcall (S, jsonencode ("devtoolszze"), h);
+%! assert_equal (isempty (strfind (A.result.content{1}.text, "devtoolszze = 5")), false);
 
 %!test
 %! ## A handle that is not there is a tool error naming the rule, never a
 %! ## fresh workspace: the variables would be missing with nothing said.
-%! S = mcp.__newSession__ ("eval");
+%! S = devtools.__newSession__ ("eval");
 %! [A, S] = evalcall (S, jsonencode ("1 + 1"), "ws99");
 %! t = A.result.content{1}.text;
 %! assert_equal (A.result.isError, true);
@@ -3338,7 +3338,7 @@ endfunction
 %!test
 %! ## The workspace argument is required: a model that omits one is told what
 %! ## to pass rather than handed a clean workspace without being told.
-%! S = mcp.__newSession__ ("eval");
+%! S = devtools.__newSession__ ("eval");
 %! [A, S] = evalcall (S, jsonencode ("1 + 1"), "");
 %! t = A.result.content{1}.text;
 %! assert_equal (A.result.isError, true);
@@ -3353,25 +3353,25 @@ endfunction
 %! ## does catch it.  Both are real installations, and since the fix the reply
 %! ## is the same in either: the call succeeds and the child's text is in it,
 %! ## by two different routes and with nothing to tell them apart.
-%! S = mcp.__newSession__ ("eval");
-%! [A, S] = evalcall (S, jsonencode ("system (\"echo mcpzzleak\")"), "new");
+%! S = devtools.__newSession__ ("eval");
+%! [A, S] = evalcall (S, jsonencode ("system (\"echo devtoolszzleak\")"), "new");
 %! t = A.result.content{1}.text;
 %! assert_equal (A.result.isError, false);
-%! assert_equal (isempty (strfind (t, "mcpzzleak")), false);
+%! assert_equal (isempty (strfind (t, "devtoolszzleak")), false);
 
 %!test
 %! ## One capture holds everything, in the order it was written: what the
 %! ## interpreter printed, what a warning wrote to the other descriptor, and
 %! ## what a child process printed, with nothing to label and nothing to
 %! ## interleave afterwards.
-%! if (exist ("__mcp_capture__", "file") > 0 && exist ("__mcp_guard__", "file") > 0)
-%!   S = mcp.__newSession__ ("eval");
-%!   [A, S] = evalcall (S, jsonencode ("printf (\"mcpzzinproc\\n\"); warning (\"mcpzzwarn\"); system (\"echo mcpzzchild\");"), "new");
+%! if (exist ("__devtools_capture__", "file") > 0 && exist ("__devtools_guard__", "file") > 0)
+%!   S = devtools.__newSession__ ("eval");
+%!   [A, S] = evalcall (S, jsonencode ("printf (\"devtoolszzinproc\\n\"); warning (\"devtoolszzwarn\"); system (\"echo devtoolszzchild\");"), "new");
 %!   t = A.result.content{1}.text;
 %!   L = strsplit (t, "\n");
-%!   i_in = find (! cellfun (@isempty, strfind (L, "mcpzzinproc")), 1);
-%!   i_wa = find (! cellfun (@isempty, strfind (L, "mcpzzwarn")), 1);
-%!   i_ch = find (! cellfun (@isempty, strfind (L, "mcpzzchild")), 1);
+%!   i_in = find (! cellfun (@isempty, strfind (L, "devtoolszzinproc")), 1);
+%!   i_wa = find (! cellfun (@isempty, strfind (L, "devtoolszzwarn")), 1);
+%!   i_ch = find (! cellfun (@isempty, strfind (L, "devtoolszzchild")), 1);
 %!   assert_equal (isempty (i_in), false);
 %!   assert_equal (isempty (i_ch), false);
 %!   assert_equal (i_in < i_ch, true);
@@ -3387,13 +3387,13 @@ endfunction
 %!test
 %! ## The capture is released whatever the code did: a second call still sees
 %! ## its own output, which it would not if descriptor 1 were still held.
-%! if (exist ("__mcp_capture__", "file") > 0)
-%!   S = mcp.__newSession__ ("eval");
-%!   [A, S] = evalcall (S, jsonencode ("error (\"mcpzzboom\")"), "new");
+%! if (exist ("__devtools_capture__", "file") > 0)
+%!   S = devtools.__newSession__ ("eval");
+%!   [A, S] = evalcall (S, jsonencode ("error (\"devtoolszzboom\")"), "new");
 %!   assert_equal (A.result.isError, true);
-%!   assert_equal (__mcp_capture__ ("active"), false);
-%!   [A, S] = evalcall (S, jsonencode ("printf (\"mcpzzafter\\n\");"), "new");
-%!   assert_equal (isempty (strfind (A.result.content{1}.text, "mcpzzafter")), false);
+%!   assert_equal (__devtools_capture__ ("active"), false);
+%!   [A, S] = evalcall (S, jsonencode ("printf (\"devtoolszzafter\\n\");"), "new");
+%!   assert_equal (isempty (strfind (A.result.content{1}.text, "devtoolszzafter")), false);
 %! endif
 
 %!test
@@ -3401,33 +3401,33 @@ endfunction
 %! ## oct-files: evalc took the output there, so the reply carries it from the
 %! ## other arm of the same routing decision.  Inert wherever the oct-files are
 %! ## built, which is how that arm came to have nothing over it.
-%! c_cap = exist ("__mcp_capture__", "file");
-%! c_grd = exist ("__mcp_guard__", "file");
+%! c_cap = exist ("__devtools_capture__", "file");
+%! c_grd = exist ("__devtools_guard__", "file");
 %! if (c_cap == 0 || c_grd == 0)
-%!   S = mcp.__newSession__ ("eval");
-%!   c = jsonencode ("printf (\"mcpzzfallback\\n\");");
+%!   S = devtools.__newSession__ ("eval");
+%!   c = jsonencode ("printf (\"devtoolszzfallback\\n\");");
 %!   [A, S] = evalcall (S, c, "new");
 %!   assert_equal (A.result.isError, false);
 %!   t = A.result.content{1}.text;
-%!   assert_equal (isempty (strfind (t, "mcpzzfallback")), false);
+%!   assert_equal (isempty (strfind (t, "devtoolszzfallback")), false);
 %!   assert_equal (isempty (strfind (t, "[no output]")), true);
 %! endif
 
 %!test
 %! ## The shadows stand only while the call runs; the real function is back
 %! ## before the next request is read.
-%! S = mcp.__newSession__ ("eval");
+%! S = devtools.__newSession__ ("eval");
 %! [A, S] = evalcall (S, jsonencode ("1 + 1"), "new");
-%! [st, out] = system ("echo mcpzzback");
+%! [st, out] = system ("echo devtoolszzback");
 %! assert_equal (st, 0);
-%! assert_equal (isempty (strfind (out, "mcpzzback")), false);
+%! assert_equal (isempty (strfind (out, "devtoolszzback")), false);
 
 %!function t = undershadows (code)
 %!  ## Run CODE with the fallback subprocess shadows in front of the real
 %!  ## functions.  They are reachable by path alone, so the arm that only an
 %!  ## installation without a compiler otherwise takes is tested everywhere,
 %!  ## which is how it came to have nothing over it.
-%!  d = fullfile (fileparts (which ("mcp.dispatch")), "evalshadowsub");
+%!  d = fullfile (fileparts (which ("devtools.dispatch")), "evalshadowsub");
 %!  warning ("off", "Octave:shadowed-function", "local");
 %!  addpath (d, "-begin");
 %!  unwind_protect
@@ -3440,15 +3440,15 @@ endfunction
 %!test
 %! ## Asking for the output back is what keeps the stream clean, so that form
 %! ## passes straight through to the real function.
-%! t = undershadows ('[s, o] = system ("echo mcpzztwoout"); puts (o);');
-%! assert_equal (isempty (strfind (t, "mcpzztwoout")), false);
+%! t = undershadows ('[s, o] = system ("echo devtoolszztwoout"); puts (o);');
+%! assert_equal (isempty (strfind (t, "devtoolszztwoout")), false);
 
 %!test
 %! ## Without it, core would let the child write past evalc into the stream
 %! ## that carries the protocol.  evalc returning the text is the proof that
 %! ## it came through the interpreter instead.
-%! t = undershadows ('system ("echo mcpzzbare");');
-%! assert_equal (isempty (strfind (t, "mcpzzbare")), false);
+%! t = undershadows ('system ("echo devtoolszzbare");');
+%! assert_equal (isempty (strfind (t, "devtoolszzbare")), false);
 
 %!test
 %! ## copyfile shells out, so refusing system refused an ordinary file copy
@@ -3456,7 +3456,7 @@ endfunction
 %! f1 = tempname ();
 %! f2 = tempname ();
 %! fid = fopen (f1, "w");
-%! fputs (fid, "mcpzzcopy");
+%! fputs (fid, "devtoolszzcopy");
 %! fclose (fid);
 %! unwind_protect
 %!   undershadows (sprintf ('copyfile (''%s'', ''%s'');', f1, f2));
@@ -3470,33 +3470,33 @@ endfunction
 %! ## unix reaches system with two outputs and prints through the interpreter,
 %! ## so it never needed a shadow of its own.
 %! if (isunix ())
-%!   t = undershadows ('unix ("echo mcpzzunix");');
-%!   assert_equal (isempty (strfind (t, "mcpzzunix")), false);
+%!   t = undershadows ('unix ("echo devtoolszzunix");');
+%!   assert_equal (isempty (strfind (t, "devtoolszzunix")), false);
 %! endif
 
 %!test
 %! ## popen for reading pipes the child, so it is passed through.
-%! c = 'f = popen ("echo mcpzzpopen", "r"); puts (fgetl (f)); pclose (f);';
+%! c = 'f = popen ("echo devtoolszzpopen", "r"); puts (fgetl (f)); pclose (f);';
 %! t = undershadows (c);
-%! assert_equal (isempty (strfind (t, "mcpzzpopen")), false);
+%! assert_equal (isempty (strfind (t, "devtoolszzpopen")), false);
 
 %!error <popen: this server was installed without its output capture, so a subprocess opened for writing would write into the stream that carries the protocol. Open it for reading instead, or run the command with system and take its output back.>
 %! undershadows ('f = popen ("cat", "w");');
 
 %!error <system: this server was installed without its output capture, and the output of an asynchronous command cannot be captured, so it would write into the stream that carries the protocol. Run it synchronously, or rebuild the package with a working compiler.>
-%! undershadows ('system ("echo mcpzzasync", false, "async");');
+%! undershadows ('system ("echo devtoolszzasync", false, "async");');
 
 %!test
 %! ## input has no terminal to read from and would wait for ever.
-%! S = mcp.__newSession__ ("eval");
-%! [A, S] = evalcall (S, jsonencode ("mcpzzf = input (\"give: \");"), "new");
+%! S = devtools.__newSession__ ("eval");
+%! [A, S] = evalcall (S, jsonencode ("devtoolszzf = input (\"give: \");"), "new");
 %! assert_equal (A.result.isError, true);
 %! assert_equal (isempty (strfind (A.result.content{1}.text, "no terminal")), false);
 
 %!test
 %! ## Output is cut at a line boundary with a marker, and the handle leads the
 %! ## text so that truncation from the end can never take it.
-%! S = mcp.__newSession__ ("eval");
+%! S = devtools.__newSession__ ("eval");
 %! [A, S] = evalcall (S, jsonencode ("for i=1:2000, printf (\"%d padding padding padding\\n\", i); end"), "new");
 %! t = A.result.content{1}.text;
 %! assert_equal (numel (t) <= 8192, true);
@@ -3505,7 +3505,7 @@ endfunction
 
 %!test
 %! ## Nine workspaces, and the oldest is gone rather than the newest refused.
-%! S = mcp.__newSession__ ("eval");
+%! S = devtools.__newSession__ ("eval");
 %! H = {};
 %! for i = 1:9
 %!   [A, S] = evalcall (S, jsonencode ("1;"), "new");
@@ -3518,19 +3518,19 @@ endfunction
 
 %!test
 %! ## Unknown arguments are refused by name, as everywhere else.
-%! S = mcp.__newSession__ ("eval");
+%! S = devtools.__newSession__ ("eval");
 %! meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
 %!         '"io.modelcontextprotocol/clientCapabilities":{}}'];
-%! R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%! R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
 %!      '"params":{"name":"octave_eval","arguments":{"code":"1+1",' ...
 %!      '"workspace":"new","timeout":5},' meta '}}']);
-%! [A, S] = mcp.dispatch (R, S);
+%! [A, S] = devtools.dispatch (R, S);
 %! assert_equal (A.result.isError, true);
 %! assert_equal (isempty (strfind (A.result.content{1}.text, "timeout")), false);
 
 %!test
 %! ## Code is required and must say something.
-%! S = mcp.__newSession__ ("eval");
+%! S = devtools.__newSession__ ("eval");
 %! [A, S] = evalcall (S, jsonencode ("   "), "new");
 %! assert_equal (A.result.isError, true);
 %! assert_equal (isempty (strfind (A.result.content{1}.text, "needs code")), false);
@@ -3539,46 +3539,46 @@ endfunction
 %! ## The deadline stops code that does not return, and the interpreter is
 %! ## still there afterwards.  Driven through __evalIn__ rather than through a
 %! ## request, so that it costs a second rather than the server's own deadline.
-%! if (exist ("__mcp_guard__", "file") > 0)
+%! if (exist ("__devtools_guard__", "file") > 0)
 %!   W = struct ();
 %!   t0 = tic ();
-%!   [o, W, e, stopped] = mcp.__evalIn__ (W, "mcpzzk = 1; while (true), mcpzzk++; endwhile", 0.75);
+%!   [o, W, e, stopped] = devtools.__evalIn__ (W, "devtoolszzk = 1; while (true), devtoolszzk++; endwhile", 0.75);
 %!   el = toc (t0);
 %!   assert_equal (stopped, true);
 %!   assert_equal (el > 0.5 && el < 5, true);
 %!   ## What it assigned before the deadline is still in the workspace, which
 %!   ## is the whole difference between this and restarting the process
-%!   assert_equal (isfield (W, "mcpzzk"), true);
-%!   assert_equal (W.mcpzzk > 1, true);
+%!   assert_equal (isfield (W, "devtoolszzk"), true);
+%!   assert_equal (W.devtoolszzk > 1, true);
 %!   ## and a second evaluation still works
-%!   [o, W, e, stopped] = mcp.__evalIn__ (W, "mcpzzm = 6 * 7;", 5);
+%!   [o, W, e, stopped] = devtools.__evalIn__ (W, "devtoolszzm = 6 * 7;", 5);
 %!   assert_equal (stopped, false);
-%!   assert_equal (W.mcpzzm, 42);
+%!   assert_equal (W.devtoolszzm, 42);
 %! endif
 
 %!test
 %! ## A deadline that is not reached changes nothing.
-%! if (exist ("__mcp_guard__", "file") > 0)
+%! if (exist ("__devtools_guard__", "file") > 0)
 %!   W = struct ();
-%!   [o, W, e, stopped] = mcp.__evalIn__ (W, "mcpzzn = 3;", 10);
+%!   [o, W, e, stopped] = devtools.__evalIn__ (W, "devtoolszzn = 3;", 10);
 %!   assert_equal (stopped, false);
 %!   assert_equal (isempty (e), true);
-%!   assert_equal (W.mcpzzn, 3);
+%!   assert_equal (W.devtoolszzn, 3);
 %! endif
 
 %!test
 %! ## An error under the deadline is still an ordinary error, not a stop.
-%! if (exist ("__mcp_guard__", "file") > 0)
+%! if (exist ("__devtools_guard__", "file") > 0)
 %!   W = struct ();
-%!   [o, W, e, stopped] = mcp.__evalIn__ (W, "mcpzznosuchthing (1)", 10);
+%!   [o, W, e, stopped] = devtools.__evalIn__ (W, "devtoolszznosuchthing (1)", 10);
 %!   assert_equal (stopped, false);
-%!   assert_equal (isempty (strfind (e, "mcpzznosuchthing")), false);
+%!   assert_equal (isempty (strfind (e, "devtoolszznosuchthing")), false);
 %! endif
 
 %!test
 %! ## TOOL_STYLE, and the joins are not glued.
-%! S = mcp.__newSession__ ("eval");
-%! [A, S] = mcp.dispatch (mkreq ("tools/list", ""), S);
+%! S = devtools.__newSession__ ("eval");
+%! [A, S] = devtools.dispatch (mkreq ("tools/list", ""), S);
 %! t = [];
 %! for i = 1:numel (A.result.tools)
 %!   if (strcmp (A.result.tools{i}.name, "octave_eval"))
@@ -3594,28 +3594,28 @@ endfunction
 %!function [A, S] = testcall (S, name)
 %!  meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
 %!          '"io.modelcontextprotocol/clientCapabilities":{}}'];
-%!  R = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
+%!  R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
 %!       '"params":{"name":"octave_test","arguments":{"name":"' name '"},' ...
 %!       meta '}}']);
-%!  [A, S] = mcp.dispatch (R, S);
+%!  [A, S] = devtools.dispatch (R, S);
 %!endfunction
 
 %!test
 %! ## A namespaced name is tested, which core's test cannot do: measured,
-%! ## test ("mcp.jsonrpcError") reports "does not exist in path" and returns
+%! ## test ("devtools.jsonrpcError") reports "does not exist in path" and returns
 %! ## zero, which reads as "no tests" rather than as a name it could not
 %! ## resolve.  Resolving through which and running the file is the fix.
-%! d = fullfile (tempdir (), "mcp_test_ns");
+%! d = fullfile (tempdir (), "devtools_test_ns");
 %! unwind_protect
-%!   mkdir (fullfile (d, "+mcpzzns"));
-%!   fid = fopen (fullfile (d, "+mcpzzns", "twice.m"), "w");
+%!   mkdir (fullfile (d, "+devtoolszzns"));
+%!   fid = fopen (fullfile (d, "+devtoolszzns", "twice.m"), "w");
 %!   fprintf (fid, "function y = twice (x)\n  y = 2 * x;\nendfunction\n");
-%!   fprintf (fid, "%%!assert (mcpzzns.twice (2) == 4)\n");
-%!   fprintf (fid, "%%!assert (mcpzzns.twice (0) == 0)\n");
+%!   fprintf (fid, "%%!assert (devtoolszzns.twice (2) == 4)\n");
+%!   fprintf (fid, "%%!assert (devtoolszzns.twice (0) == 0)\n");
 %!   fclose (fid);
 %!   addpath (d);
-%!   S = mcp.__newSession__ ("eval");
-%!   [A, S] = testcall (S, "mcpzzns.twice");
+%!   S = devtools.__newSession__ ("eval");
+%!   [A, S] = testcall (S, "devtoolszzns.twice");
 %!   t = A.result.content{1}.text;
 %!   assert_equal (A.result.isError, false);
 %!   assert_equal (isempty (strfind (t, "[tests] 2 of 2 passed")), false);
@@ -3629,20 +3629,20 @@ endfunction
 %!test
 %! ## A failure comes back with the assertion that failed, and the count says
 %! ## how many of how many, which is what a model needs to decide what to fix.
-%! d = fullfile (tempdir (), "mcp_test_fail");
+%! d = fullfile (tempdir (), "devtools_test_fail");
 %! unwind_protect
 %!   mkdir (d);
-%!   fid = fopen (fullfile (d, "mcpzzbroken.m"), "w");
-%!   fprintf (fid, "function mcpzzbroken ()\nendfunction\n");
+%!   fid = fopen (fullfile (d, "devtoolszzbroken.m"), "w");
+%!   fprintf (fid, "function devtoolszzbroken ()\nendfunction\n");
 %!   fprintf (fid, "%%!assert (1 == 1)\n");
-%!   fprintf (fid, "%%!assert (mcpzzsentinel == 2)\n");
+%!   fprintf (fid, "%%!assert (devtoolszzsentinel == 2)\n");
 %!   fclose (fid);
 %!   addpath (d);
-%!   S = mcp.__newSession__ ("eval");
-%!   [A, S] = testcall (S, "mcpzzbroken");
+%!   S = devtools.__newSession__ ("eval");
+%!   [A, S] = testcall (S, "devtoolszzbroken");
 %!   t = A.result.content{1}.text;
 %!   assert_equal (isempty (strfind (t, "[tests] 1 of 2 passed")), false);
-%!   assert_equal (isempty (strfind (t, "mcpzzsentinel")), false);
+%!   assert_equal (isempty (strfind (t, "devtoolszzsentinel")), false);
 %!   ## A test that fails is an answer, not a failed call
 %!   assert_equal (A.result.isError, false);
 %! unwind_protect_cleanup
@@ -3655,15 +3655,15 @@ endfunction
 %!test
 %! ## A file with no tests says so, rather than reporting zero of zero and
 %! ## letting that read as a pass.
-%! d = fullfile (tempdir (), "mcp_test_none");
+%! d = fullfile (tempdir (), "devtools_test_none");
 %! unwind_protect
 %!   mkdir (d);
-%!   fid = fopen (fullfile (d, "mcpzzbare.m"), "w");
-%!   fprintf (fid, "function mcpzzbare ()\nendfunction\n");
+%!   fid = fopen (fullfile (d, "devtoolszzbare.m"), "w");
+%!   fprintf (fid, "function devtoolszzbare ()\nendfunction\n");
 %!   fclose (fid);
 %!   addpath (d);
-%!   S = mcp.__newSession__ ("eval");
-%!   [A, S] = testcall (S, "mcpzzbare");
+%!   S = devtools.__newSession__ ("eval");
+%!   [A, S] = testcall (S, "devtoolszzbare");
 %!   assert_equal (isempty (strfind (A.result.content{1}.text, "[tests] none")), false);
 %! unwind_protect_cleanup
 %!   warning ("off", "Octave:rmpath-not-found", "local");
@@ -3675,28 +3675,28 @@ endfunction
 %!test
 %! ## A built-in has no file of its own, and a name that resolves nowhere has
 %! ## nothing at all; both are tool errors that name the fallback.
-%! S = mcp.__newSession__ ("eval");
+%! S = devtools.__newSession__ ("eval");
 %! [A, S] = testcall (S, "size");
 %! assert_equal (A.result.isError, true);
 %! assert_equal (isempty (strfind (A.result.content{1}.text, "octave_which")), false);
-%! [A, S] = testcall (S, "mcpzznosuchnameatall");
+%! [A, S] = testcall (S, "devtoolszznosuchnameatall");
 %! assert_equal (A.result.isError, true);
 
 %!test
 %! ## The read-only server does not carry it, by D2: it runs code, and that is
-%! ## the whole of what mcp.serve promises not to do.
-%! RESP = mcp.dispatch (mkreq ("tools/list", ""), []);
+%! ## the whole of what devtools.mcp promises not to do.
+%! RESP = devtools.dispatch (mkreq ("tools/list", ""), []);
 %! nms = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
 %! assert_equal (any (strcmp (nms, "octave_test")), false);
-%! S = mcp.__newSession__ ("read-only");
+%! S = devtools.__newSession__ ("read-only");
 %! [A, S] = testcall (S, "mean");
 %! assert_equal (isfield (A, "error"), true);
 %! assert_equal (A.error.code, -32602);
 
 %!test
 %! ## TOOL_STYLE, and the joins are not glued.
-%! S = mcp.__newSession__ ("eval");
-%! [A, S] = mcp.dispatch (mkreq ("tools/list", ""), S);
+%! S = devtools.__newSession__ ("eval");
+%! [A, S] = devtools.dispatch (mkreq ("tools/list", ""), S);
 %! nms = cellfun (@(t) t.name, A.result.tools, "UniformOutput", false);
 %! assert_equal (numel (nms), 7);
 %! t = A.result.tools{find(strcmp (nms, "octave_test"), 1)};
@@ -3708,11 +3708,11 @@ endfunction
 %!test
 %! ## The instructions of the evaluating server do not carry the read-only
 %! ## claim, which would be exactly false there.
-%! S = mcp.__newSession__ ("eval");
-%! [A, S] = mcp.dispatch (mkreq ("server/discover", ""), S);
+%! S = devtools.__newSession__ ("eval");
+%! [A, S] = devtools.dispatch (mkreq ("server/discover", ""), S);
 %! t = A.result.instructions;
 %! assert_equal (isempty (strfind (t, "Evaluates no code")), true);
 %! assert_equal (isempty (strfind (t, "workspace named by a handle")), false);
 %! assert_equal (isempty (strfind (t, "pass new to open one")), false);
-%! RO = mcp.dispatch (mkreq ("server/discover", ""), []);
+%! RO = devtools.dispatch (mkreq ("server/discover", ""), []);
 %! assert_equal (isempty (strfind (RO.result.instructions, "Evaluates no code")), false);

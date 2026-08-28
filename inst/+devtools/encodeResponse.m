@@ -1,6 +1,6 @@
 ## Copyright (C) 2026 Andreas Bertsatos <abertsatos@biol.uoa.gr>
 ##
-## This file is part of the mcp package for GNU Octave.
+## This file is part of the devtools package for GNU Octave.
 ##
 ## This program is free software; you can redistribute it and/or modify it under
 ## the terms of the GNU General Public License as published by the Free Software
@@ -16,11 +16,11 @@
 ## this program; if not, see <http://www.gnu.org/licenses/>.
 
 ## -*- texinfo -*-
-## @deftypefn {mcp} {@var{TXT} =} mcp.encodeResponse (@var{R})
+## @deftypefn {devtools} {@var{TXT} =} devtools.encodeResponse (@var{R})
 ##
 ## Encode a response structure into the line that goes on the wire.
 ##
-## @code{@var{TXT} = mcp.encodeResponse (@var{R})} returns the character vector
+## @code{@var{TXT} = devtools.encodeResponse (@var{R})} returns the character vector
 ## carrying the scalar structure @var{R} as one newline-delimited JSON-RPC
 ## message.  The newline itself is not included: the caller appends it, because
 ## the caller is what knows it is writing to a stream.
@@ -48,13 +48,13 @@ function TXT = encodeResponse (R)
 
   ## Input validation
   if (nargin != 1)
-    error ("mcp.encodeResponse: invalid number of input arguments.");
+    error ("devtools.encodeResponse: invalid number of input arguments.");
   endif
   if (! (isstruct (R) && isscalar (R)))
-    error ("mcp.encodeResponse: R must be a scalar structure.");
+    error ("devtools.encodeResponse: R must be a scalar structure.");
   endif
   if (! isfield (R, "jsonrpc"))
-    error ("mcp.encodeResponse: R must have a jsonrpc field.");
+    error ("devtools.encodeResponse: R must have a jsonrpc field.");
   endif
 
   TXT = jsonencode (R);
@@ -64,7 +64,7 @@ function TXT = encodeResponse (R)
                         '"io.modelcontextprotocol/$1":');
 
   if (any (TXT == "\n" | TXT == "\r"))
-    error (strcat ("mcp.encodeResponse: encoded message contains an", ...
+    error (strcat ("devtools.encodeResponse: encoded message contains an", ...
                    " embedded newline, which would desynchronise the stream."));
   endif
 
@@ -72,21 +72,21 @@ endfunction
 
 %!test
 %! R = struct ("jsonrpc", "2.0", "id", 1, "result", struct ("resultType", "complete"));
-%! assert_equal (mcp.encodeResponse (R), ...
+%! assert_equal (devtools.encodeResponse (R), ...
 %!               '{"jsonrpc":"2.0","id":1,"result":{"resultType":"complete"}}');
 
 %!test
 %! ## Field creation order is wire order, so the identifier follows the version.
 %! R = struct ("jsonrpc", "2.0", "id", "a", "error", struct ("code", -1, "message", "m"));
-%! assert_equal (mcp.encodeResponse (R), ...
+%! assert_equal (devtools.encodeResponse (R), ...
 %!               '{"jsonrpc":"2.0","id":"a","error":{"code":-1,"message":"m"}}');
 
 %!test
 %! ## A reserved metadata key is restored from the name a field can carry.
 %! M = struct ("io_modelcontextprotocol_serverInfo", ...
-%!             struct ("name", "mcp", "version", "0.1.0"));
+%!             struct ("name", "devtools", "version", "0.1.0"));
 %! R = struct ("jsonrpc", "2.0", "id", 1, "result", struct ("_meta", M));
-%! T = mcp.encodeResponse (R);
+%! T = devtools.encodeResponse (R);
 %! assert_equal (! isempty (strfind (T, '"io.modelcontextprotocol/serverInfo":')), true);
 %! assert_equal (isempty (strfind (T, "io_modelcontextprotocol")), true);
 
@@ -94,7 +94,7 @@ endfunction
 %! ## A value carrying the same text is not a key and must survive untouched.
 %! R = struct ("jsonrpc", "2.0", "id", 1, ...
 %!             "result", struct ("t", "io_modelcontextprotocol_serverInfo"));
-%! T = mcp.encodeResponse (R);
+%! T = devtools.encodeResponse (R);
 %! assert_equal (T, ...
 %!   '{"jsonrpc":"2.0","id":1,"result":{"t":"io_modelcontextprotocol_serverInfo"}}');
 
@@ -102,7 +102,7 @@ endfunction
 %! ## Text with newlines and quotes is escaped, never emitted raw.
 %! txt = sprintf ("a\nb\t\"c\"\\d\r");
 %! R = struct ("jsonrpc", "2.0", "id", 1, "result", struct ("text", txt));
-%! T = mcp.encodeResponse (R);
+%! T = devtools.encodeResponse (R);
 %! assert_equal (any (T == "\n" | T == "\r"), false);
 %! assert_equal (jsondecode (T).result.text, txt);
 
@@ -113,21 +113,21 @@ endfunction
 %! res.content = {struct("type", "text", "text", "hi")};
 %! R = struct ("jsonrpc", "2.0", "id", 1);
 %! R.result = res;
-%! assert_equal (mcp.encodeResponse (R), ...
+%! assert_equal (devtools.encodeResponse (R), ...
 %!   '{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"hi"}]}}');
 
 %!test
 %! ## An empty structure is the empty JSON object that capabilities need.
 %! R = struct ("jsonrpc", "2.0", "id", 1, ...
 %!             "result", struct ("capabilities", struct ("tools", struct ())));
-%! assert_equal (mcp.encodeResponse (R), ...
+%! assert_equal (devtools.encodeResponse (R), ...
 %!   '{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"tools":{}}}}');
 
-%!error <mcp\.encodeResponse: invalid number of input arguments\.> ...
-%! mcp.encodeResponse ()
-%!error <mcp\.encodeResponse: R must be a scalar structure\.> ...
-%! mcp.encodeResponse (5)
-%!error <mcp\.encodeResponse: R must be a scalar structure\.> ...
-%! mcp.encodeResponse (struct ("jsonrpc", {"2.0", "2.0"}))
-%!error <mcp\.encodeResponse: R must have a jsonrpc field\.> ...
-%! mcp.encodeResponse (struct ("id", 1))
+%!error <devtools\.encodeResponse: invalid number of input arguments\.> ...
+%! devtools.encodeResponse ()
+%!error <devtools\.encodeResponse: R must be a scalar structure\.> ...
+%! devtools.encodeResponse (5)
+%!error <devtools\.encodeResponse: R must be a scalar structure\.> ...
+%! devtools.encodeResponse (struct ("jsonrpc", {"2.0", "2.0"}))
+%!error <devtools\.encodeResponse: R must have a jsonrpc field\.> ...
+%! devtools.encodeResponse (struct ("id", 1))

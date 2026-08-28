@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Andreas Bertsatos <abertsatos@biol.uoa.gr>
 //
-// This file is part of the mcp package for GNU Octave.
+// This file is part of the devtools package for GNU Octave.
 //
 // This program is free software; you can redistribute it and/or modify it under
 // the terms of the GNU General Public License as published by the Free Software
@@ -25,9 +25,9 @@
 #include <string>
 #include <thread>
 
-DEFUN_DLD (__mcp_guard__, args, ,
+DEFUN_DLD (__devtools_guard__, args, ,
            R"(-*- texinfo -*-
-@deftypefn {mcp} {@var{tf} =} __mcp_guard__ (@var{code}, @var{seconds})
+@deftypefn {devtools} {@var{tf} =} __devtools_guard__ (@var{code}, @var{seconds})
 
 Evaluate @var{code} in the caller's scope and stop it after @var{seconds}.
 Returns true if it was stopped.  Internal; not a supported entry point.
@@ -50,19 +50,19 @@ propagates as an ordinary Octave error.
 @end deftypefn)")
 {
   if (args.length () != 2)
-    error ("__mcp_guard__: invalid number of input arguments.");
+    error ("__devtools_guard__: invalid number of input arguments.");
 
   std::string code
-    = args(0).xstring_value ("__mcp_guard__: CODE must be a string.");
+    = args(0).xstring_value ("__devtools_guard__: CODE must be a string.");
   double secs
-    = args(1).xdouble_value ("__mcp_guard__: SECONDS must be numeric.");
+    = args(1).xdouble_value ("__devtools_guard__: SECONDS must be numeric.");
 
   if (! (secs > 0) || octave::math::isinf (secs))
-    error ("__mcp_guard__: SECONDS must be finite and positive.");
+    error ("__devtools_guard__: SECONDS must be finite and positive.");
 
   octave::interpreter *interp = octave::interpreter::the_interpreter ();
   if (! interp)
-    error ("__mcp_guard__: no interpreter is running.");
+    error ("__devtools_guard__: no interpreter is running.");
 
   std::mutex m;
   std::condition_variable cv;

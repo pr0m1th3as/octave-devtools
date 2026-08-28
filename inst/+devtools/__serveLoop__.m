@@ -1,6 +1,6 @@
 ## Copyright (C) 2026 Andreas Bertsatos <abertsatos@biol.uoa.gr>
 ##
-## This file is part of the mcp package for GNU Octave.
+## This file is part of the devtools package for GNU Octave.
 ##
 ## This program is free software; you can redistribute it and/or modify it under
 ## the terms of the GNU General Public License as published by the Free Software
@@ -16,17 +16,17 @@
 ## this program; if not, see <http://www.gnu.org/licenses/>.
 
 ## -*- texinfo -*-
-## @deftypefn {mcp} {} mcp.__serveLoop__ (@var{surface}, @var{name})
+## @deftypefn {devtools} {} devtools.__serveLoop__ (@var{surface}, @var{name})
 ##
 ## Read, dispatch and answer until standard input reaches end of file.
 ## Internal; not a supported entry point.
 ##
-## @var{surface} is passed to @code{mcp.__newSession__} and decides which tool
+## @var{surface} is passed to @code{devtools.__newSession__} and decides which tool
 ## set the session offers; @var{name} is the entry point's name and appears in
 ## every line this writes to standard error.
 ##
-## Both entry points share this loop rather than a flag: @code{mcp.serve} and
-## @code{mcp.serveEval} are separate functions, separate commands and separate
+## Both entry points share this loop rather than a flag: @code{devtools.mcp} and
+## @code{devtools.mcpEval} are separate functions, separate commands and separate
 ## configuration entries, so that the evaluating server cannot be reached by a
 ## host configured for the read-only one.  What they must not have is two
 ## copies of the protocol loop.
@@ -36,13 +36,13 @@
 function __serveLoop__ (surface, name)
 
   if (nargin != 2)
-    error ("mcp.__serveLoop__: invalid number of input arguments.");
+    error ("devtools.__serveLoop__: invalid number of input arguments.");
   endif
 
   logmsg (name, "listening, MCP 2026-07-28 and 2025-11-25, pid %d", getpid ());
   seenfirst = false;
   ## The tool surface belongs to the session, not to a flag on a call
-  S = mcp.__newSession__ (surface);
+  S = devtools.__newSession__ (surface);
 
   while (true)
 
@@ -60,15 +60,15 @@ function __serveLoop__ (surface, name)
 
     R = [];
     try
-      R = mcp.decodeRequest (line);
-      [RESP, S] = mcp.dispatch (R, S);
+      R = devtools.decodeRequest (line);
+      [RESP, S] = devtools.dispatch (R, S);
     catch err
       logmsg (name, "internal error: %s", err.message);
       RESP = internalError (R);
     end_try_catch
 
     if (! isempty (RESP))
-      fputs (stdout, [mcp.encodeResponse(RESP) "\n"]);
+      fputs (stdout, [devtools.encodeResponse(RESP) "\n"]);
       fflush (stdout);
     endif
 
@@ -139,13 +139,13 @@ function RESP = internalError (R)
   if (isstruct (R) && isfield (R, "hasid") && R.hasid)
     id = R.id;
   endif
-  RESP = mcp.jsonrpcError (id, -32603, "Internal error");
+  RESP = devtools.jsonrpcError (id, -32603, "Internal error");
 
 endfunction
 
 function logmsg (name, fmt, varargin)
   ## stderr, never stdout: the specification blesses it for logging and
   ## reserves stdout for messages
-  fprintf (stderr, ["mcp." name ": " fmt "\n"], varargin{:});
+  fprintf (stderr, ["devtools." name ": " fmt "\n"], varargin{:});
   fflush (stderr);
 endfunction

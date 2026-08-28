@@ -1,6 +1,6 @@
 ## Copyright (C) 2026 Andreas Bertsatos <abertsatos@biol.uoa.gr>
 ##
-## This file is part of the mcp package for GNU Octave.
+## This file is part of the devtools package for GNU Octave.
 ##
 ## This program is free software; you can redistribute it and/or modify it under
 ## the terms of the GNU General Public License as published by the Free Software
@@ -16,11 +16,11 @@
 ## this program; if not, see <http://www.gnu.org/licenses/>.
 
 ## -*- texinfo -*-
-## @deftypefn {mcp} {@var{R} =} mcp.decodeRequest (@var{TXT})
+## @deftypefn {devtools} {@var{R} =} devtools.decodeRequest (@var{TXT})
 ##
 ## Decode one line of the wire into a request structure.
 ##
-## @code{@var{R} = mcp.decodeRequest (@var{TXT})} parses the character vector
+## @code{@var{R} = devtools.decodeRequest (@var{TXT})} parses the character vector
 ## @var{TXT}, one newline-delimited JSON-RPC message as the stdio transport
 ## frames it, and returns a scalar structure describing what was received.  It
 ## never raises for anything the peer sent; a peer can only produce a structure
@@ -68,10 +68,10 @@ function R = decodeRequest (TXT)
 
   ## Input validation
   if (nargin != 1)
-    error ("mcp.decodeRequest: invalid number of input arguments.");
+    error ("devtools.decodeRequest: invalid number of input arguments.");
   endif
   if (! (ischar (TXT) && (isrow (TXT) || isempty (TXT))))
-    error ("mcp.decodeRequest: TXT must be a character vector.");
+    error ("devtools.decodeRequest: TXT must be a character vector.");
   endif
 
   R = struct ("type", "invalid", "method", "", "params", struct (), ...
@@ -133,7 +133,7 @@ function R = decodeRequest (TXT)
 endfunction
 
 %!test
-%! R = mcp.decodeRequest ('{"jsonrpc":"2.0","id":1,"method":"tools/list"}');
+%! R = devtools.decodeRequest ('{"jsonrpc":"2.0","id":1,"method":"tools/list"}');
 %! assert_equal (R.type, "request");
 %! assert_equal (R.method, "tools/list");
 %! assert_equal (R.id, 1);
@@ -141,23 +141,23 @@ endfunction
 
 %!test
 %! ## A string identifier must stay a string all the way back out.
-%! R = mcp.decodeRequest ('{"jsonrpc":"2.0","id":"a1","method":"ping"}');
+%! R = devtools.decodeRequest ('{"jsonrpc":"2.0","id":"a1","method":"ping"}');
 %! assert_equal (R.id, "a1");
 %! assert_equal (class (R.id), "char");
 
 %!test
 %! ## No identifier means a notification, which is never answered.
-%! R = mcp.decodeRequest ('{"jsonrpc":"2.0","method":"notifications/cancelled"}');
+%! R = devtools.decodeRequest ('{"jsonrpc":"2.0","method":"notifications/cancelled"}');
 %! assert_equal (R.type, "notification");
 %! assert_equal (R.hasid, false);
 
 %!test
-%! R = mcp.decodeRequest ('{"jsonrpc":"2.0","id":1,"method":"m","params":{"a":5}}');
+%! R = devtools.decodeRequest ('{"jsonrpc":"2.0","id":1,"method":"m","params":{"a":5}}');
 %! assert_equal (R.params.a, 5);
 
 %!test
 %! ## A message with no params still yields a structure, so callers need no guard.
-%! R = mcp.decodeRequest ('{"jsonrpc":"2.0","id":1,"method":"m"}');
+%! R = devtools.decodeRequest ('{"jsonrpc":"2.0","id":1,"method":"m"}');
 %! assert_equal (isstruct (R.params), true);
 %! assert_equal (isempty (fieldnames (R.params)), true);
 
@@ -165,49 +165,49 @@ endfunction
 %! ## The keys of _meta are not valid identifiers and jsondecode mangles them.
 %! txt = ['{"jsonrpc":"2.0","id":1,"method":"m","params":{"_meta":', ...
 %!        '{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}'];
-%! R = mcp.decodeRequest (txt);
+%! R = devtools.decodeRequest (txt);
 %! assert_equal (R.params._meta.io_modelcontextprotocol_protocolVersion, ...
 %!               "2026-07-28");
 
 %!test
-%! R = mcp.decodeRequest ("not json at all");
+%! R = devtools.decodeRequest ("not json at all");
 %! assert_equal (R.type, "invalid");
 %! assert_equal (R.code, -32700);
 %! assert_equal (R.message, "Parse error");
 
 %!test
-%! R = mcp.decodeRequest ('{"jsonrpc":"1.0","id":1,"method":"m"}');
+%! R = devtools.decodeRequest ('{"jsonrpc":"1.0","id":1,"method":"m"}');
 %! assert_equal (R.type, "invalid");
 %! assert_equal (R.code, -32600);
 
 %!test
 %! ## An identifier read from an otherwise invalid message is still reported.
-%! R = mcp.decodeRequest ('{"jsonrpc":"2.0","id":7}');
+%! R = devtools.decodeRequest ('{"jsonrpc":"2.0","id":7}');
 %! assert_equal (R.type, "invalid");
 %! assert_equal (R.hasid, true);
 %! assert_equal (R.id, 7);
 
 %!test
 %! ## A null identifier is forbidden by this protocol, unlike base JSON-RPC.
-%! R = mcp.decodeRequest ('{"jsonrpc":"2.0","id":null,"method":"m"}');
+%! R = devtools.decodeRequest ('{"jsonrpc":"2.0","id":null,"method":"m"}');
 %! assert_equal (R.type, "invalid");
 %! assert_equal (R.hasid, false);
 
 %!test
-%! R = mcp.decodeRequest ('[1,2,3]');
+%! R = devtools.decodeRequest ('[1,2,3]');
 %! assert_equal (R.type, "invalid");
 %! assert_equal (R.code, -32600);
 
 %!test
 %! ## A namespaced call cannot be indexed directly, hence the variables.
-%! A = mcp.decodeRequest ("");
-%! B = mcp.decodeRequest ("   ");
+%! A = devtools.decodeRequest ("");
+%! B = devtools.decodeRequest ("   ");
 %! assert_equal (A.type, "blank");
 %! assert_equal (B.type, "blank");
 
-%!error <mcp\.decodeRequest: invalid number of input arguments\.> ...
-%! mcp.decodeRequest ()
-%!error <mcp\.decodeRequest: TXT must be a character vector\.> ...
-%! mcp.decodeRequest (5)
-%!error <mcp\.decodeRequest: TXT must be a character vector\.> ...
-%! mcp.decodeRequest (["ab"; "cd"])
+%!error <devtools\.decodeRequest: invalid number of input arguments\.> ...
+%! devtools.decodeRequest ()
+%!error <devtools\.decodeRequest: TXT must be a character vector\.> ...
+%! devtools.decodeRequest (5)
+%!error <devtools\.decodeRequest: TXT must be a character vector\.> ...
+%! devtools.decodeRequest (["ab"; "cd"])

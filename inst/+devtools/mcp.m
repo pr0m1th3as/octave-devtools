@@ -1,6 +1,6 @@
 ## Copyright (C) 2026 Andreas Bertsatos <abertsatos@biol.uoa.gr>
 ##
-## This file is part of the mcp package for GNU Octave.
+## This file is part of the devtools package for GNU Octave.
 ##
 ## This program is free software; you can redistribute it and/or modify it under
 ## the terms of the GNU General Public License as published by the Free Software
@@ -16,11 +16,11 @@
 ## this program; if not, see <http://www.gnu.org/licenses/>.
 
 ## -*- texinfo -*-
-## @deftypefn {mcp} {} mcp.serve ()
+## @deftypefn {devtools} {} devtools.mcp ()
 ##
 ## Serve the Model Context Protocol on standard input and output.
 ##
-## @code{mcp.serve ()} reads newline-delimited JSON-RPC messages from standard
+## @code{devtools.mcp ()} reads newline-delimited JSON-RPC messages from standard
 ## input, answers each one, writes the answer to standard output, and returns
 ## only when standard input reaches end of file.  It is the entry point a host
 ## launches; it is not meant to be called at an interactive prompt, where it
@@ -41,14 +41,14 @@
 ## Configure a host to launch it with:
 ##
 ## @example
-## octave-cli -q --no-init-file --eval "pkg load mcp; mcp.serve ()"
+## octave-cli -q --no-init-file --eval "pkg load devtools; devtools.mcp ()"
 ## @end example
 ##
 ## @strong{Do not shorten that command.}  @code{-q} suppresses the startup
 ## banner and @code{--no-init-file} skips @file{~/.octaverc}; both write to
 ## standard output, both happen before this function exists, and a single byte
 ## of either corrupts the stream for the whole session.  Use
-## @code{mcp.selftest} to check a configuration before suspecting the host.
+## @code{devtools.selftest} to check a configuration before suspecting the host.
 ##
 ## Everything diagnostic goes to standard error, which the protocol reserves for
 ## exactly that purpose and which a client may capture, forward or ignore.
@@ -60,21 +60,21 @@
 ## this implementation cannot honour it.  The tools served here return in
 ## milliseconds, so the window is small, but it is real.
 ##
-## @seealso{mcp.selftest, mcp.dispatch}
+## @seealso{devtools.selftest, devtools.dispatch}
 ## @end deftypefn
 
 function serve ()
 
   if (nargin != 0)
-    error ("mcp.serve: invalid number of input arguments.");
+    error ("devtools.mcp: invalid number of input arguments.");
   endif
 
-  mcp.__serveLoop__ ("read-only", "serve");
+  devtools.__serveLoop__ ("read-only", "serve");
 
 endfunction
 
 %!test
 %! ## The one test that no offline test can replace: run the real server as a
 %! ## subprocess and prove that every byte it wrote to stdout was a message.
-%! ok = mcp.selftest ();
+%! ok = devtools.selftest ();
 %! assert_equal (ok, true);

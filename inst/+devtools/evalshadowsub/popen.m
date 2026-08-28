@@ -1,6 +1,6 @@
-## Part of the mcp package: a shadow that stands in front of a core function
-## while mcp.serveEval evaluates code, and only where this installation has no
-## __mcp_capture__ to hold descriptor 1.  See mcp.serveEval for why.
+## Part of the devtools package: a shadow that stands in front of a core function
+## while devtools.mcpEval evaluates code, and only where this installation has no
+## __devtools_capture__ to hold descriptor 1.  See devtools.mcpEval for why.
 ##
 ## Mode "r" pipes the child's output, which then never reaches the stream, so
 ## it is passed through.  Mode "w" leaves the child holding descriptor 1 and

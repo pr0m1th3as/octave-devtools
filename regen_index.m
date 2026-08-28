@@ -1,6 +1,6 @@
 ## Copyright (C) 2026 Andreas Bertsatos <abertsatos@biol.uoa.gr>
 ##
-## This file is part of the mcp package for GNU Octave.
+## This file is part of the devtools package for GNU Octave.
 ##
 ## This program is free software; you can redistribute it and/or modify it under
 ## the terms of the GNU General Public License as published by the Free Software
@@ -42,7 +42,7 @@
 ## @code{@var{M} = regen_index (@var{srcdir})} returns the manifest as a
 ## structure rather than printing a report.
 ##
-## @seealso{mcp.serve}
+## @seealso{devtools.mcp}
 ## @end deftypefn
 
 function M = regen_index (srcdir)

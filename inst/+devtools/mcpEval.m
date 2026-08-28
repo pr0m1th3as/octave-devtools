@@ -1,6 +1,6 @@
 ## Copyright (C) 2026 Andreas Bertsatos <abertsatos@biol.uoa.gr>
 ##
-## This file is part of the mcp package for GNU Octave.
+## This file is part of the devtools package for GNU Octave.
 ##
 ## This program is free software; you can redistribute it and/or modify it under
 ## the terms of the GNU General Public License as published by the Free Software
@@ -16,12 +16,12 @@
 ## this program; if not, see <http://www.gnu.org/licenses/>.
 
 ## -*- texinfo -*-
-## @deftypefn {mcp} {} mcp.serveEval ()
+## @deftypefn {devtools} {} devtools.mcpEval ()
 ##
 ## Serve the Model Context Protocol on standard input and output, with
 ## evaluation.
 ##
-## @code{mcp.serveEval ()} is @code{mcp.serve} plus the two tools that run
+## @code{devtools.mcpEval ()} is @code{devtools.mcp} plus the two tools that run
 ## code, @code{octave_eval} and @code{octave_test}.
 ## It reads newline-delimited JSON-RPC messages from standard input, answers
 ## each one, writes the answer to standard output, and returns only when
@@ -29,7 +29,7 @@
 ##
 ## @strong{This is a separate entry point on purpose.}  It is a separate
 ## function, a separate launch command and a separate entry in a host's
-## configuration, so that a host configured for @code{mcp.serve} cannot reach
+## configuration, so that a host configured for @code{devtools.mcp} cannot reach
 ## these tools however a model asks.  The read-only server evaluates no code,
 ## runs no user function and writes nothing, which is what lets a user grant it
 ## blanket permission; this one does all three, and is meant to be configured
@@ -42,7 +42,7 @@
 ## reports how many passed, with the assertion behind each failure.  It
 ## resolves a name through @code{which} and then runs the @emph{file}, which is
 ## what lets it test a namespaced function or a class method: core's
-## @code{test} cannot resolve @code{mcp.jsonrpcError} and answers
+## @code{test} cannot resolve @code{devtools.jsonrpcError} and answers
 ## @qcode{"does not exist in path"} with a count of zero, and a count of zero
 ## reads as @qcode{"no tests"} rather than as a name it could not resolve.
 ##
@@ -69,7 +69,7 @@
 ##
 ## Output is captured twice over, and the two halves catch different things.
 ## @code{evalc} takes every route to standard output that stays inside the
-## interpreter, and @code{__mcp_capture__} holds descriptor 1 over a file for
+## interpreter, and @code{__devtools_capture__} holds descriptor 1 over a file for
 ## the length of the call, which is the only thing that catches a
 ## @strong{subprocess}: a child inherits the descriptor and writes past
 ## @code{evalc} entirely, into the stream that carries the protocol.  What a
@@ -77,7 +77,7 @@
 ##
 ## Because that containment is at the descriptor and not at a name,
 ## @code{builtin ("system", @dots{})} does not get around it.  Where the
-## package was installed without a compiler and @code{__mcp_capture__} could
+## package was installed without a compiler and @code{__devtools_capture__} could
 ## not be built, the containment moves to the two forms that let a child
 ## inherit descriptor 1: @code{system} is shadowed by one that asks for the
 ## output back and prints it through the interpreter, where @code{evalc} takes
@@ -97,12 +97,12 @@
 ## between this and letting the host restart the process.
 ##
 ## The stopping is the interpreter's own interrupt, the mechanism Ctrl-C uses,
-## raised from a thread and caught in @code{__mcp_guard__}.  It cannot be done
+## raised from a thread and caught in @code{__devtools_guard__}.  It cannot be done
 ## in Octave: measured on 11.2.0, an interrupt raised this way unwinds straight
 ## through @code{try} and takes the process with it, honouring
 ## @code{unwind_protect} on the way but never being caught.
 ##
-## Set @env{MCP_EVAL_SECONDS} in the launch command for an installation whose
+## Set @env{DEVTOOLS_EVAL_SECONDS} in the launch command for an installation whose
 ## work honestly takes longer, up to six hundred.  It is not a tool argument,
 ## since that would cost tokens in every request and is a decision for whoever
 ## configures the server rather than for the model.
@@ -119,15 +119,15 @@
 ## network and consume memory exactly as any code in this interpreter can.
 ## Configure this server only where that is acceptable.
 ##
-## @seealso{mcp.serve, mcp.selftest}
+## @seealso{devtools.mcp, devtools.selftest}
 ## @end deftypefn
 
 function serveEval ()
 
   if (nargin != 0)
-    error ("mcp.serveEval: invalid number of input arguments.");
+    error ("devtools.mcpEval: invalid number of input arguments.");
   endif
 
-  mcp.__serveLoop__ ("eval", "serveEval");
+  devtools.__serveLoop__ ("eval", "serveEval");
 
 endfunction

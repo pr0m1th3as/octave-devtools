@@ -1,4 +1,4 @@
-# mcp
+# devtools
 
 A [Model Context Protocol](https://modelcontextprotocol.io) server that exposes
 GNU Octave to any MCP-capable assistant.
@@ -13,11 +13,11 @@ no second copy of the truth: the interpreter answering "what does `kmeans` do"
 is a real Octave, with a real load path, resolving names exactly as Octave does.
 
 **It sees the packages its own launch command loads, and no others.** The
-commands below load only `mcp` itself, so `octave_which` will not find a
+commands below load only `devtools` itself, so `octave_which` will not find a
 function from `statistics` unless you say so. Load what you want it to see:
 
 ```
---eval "pkg load mcp statistics datatypes; mcp.serve ()"
+--eval "pkg load devtools statistics datatypes; devtools.mcp ()"
 ```
 
 That is a deliberate choice rather than an oversight: loading every installed
@@ -28,8 +28,8 @@ at startup, and the read-only server's whole claim is that it runs none.
 
 | Entry point | What it does | Configure it as |
 |---|---|---|
-| `mcp.serve` | read-only introspection. **Evaluates no code, runs no user function, and writes nothing** | `octave` |
-| `mcp.serveEval` | the same, plus running code and running tests | `octave-eval` |
+| `devtools.mcp` | read-only introspection. **Evaluates no code, runs no user function, and writes nothing** | `octave` |
+| `devtools.mcpEval` | the same, plus running code and running tests | `octave-eval` |
 
 They are separate functions, separate commands and separate entries in your
 host's configuration, so that a host configured for one cannot reach the other.
@@ -51,7 +51,7 @@ under [What contains it](#what-contains-it-and-what-does-not).
 ## Installation
 
 ```
-pkg install mcp
+pkg install devtools
 ```
 
 ## Configuration
@@ -63,7 +63,7 @@ The read-only server:
   "mcpServers": {
     "octave": {
       "command": "octave-cli",
-      "args": ["-q", "--no-init-file", "--eval", "pkg load mcp; mcp.serve ()"]
+      "args": ["-q", "--no-init-file", "--eval", "pkg load devtools; devtools.mcp ()"]
     }
   }
 }
@@ -76,7 +76,7 @@ The evaluating server, under its own name:
   "mcpServers": {
     "octave-eval": {
       "command": "octave-cli",
-      "args": ["-q", "--no-init-file", "--eval", "pkg load mcp; mcp.serveEval ()"]
+      "args": ["-q", "--no-init-file", "--eval", "pkg load devtools; devtools.mcpEval ()"]
     }
   }
 }
@@ -97,7 +97,7 @@ unexplained connection failure.
 To check a configuration before blaming the host, run
 
 ```
-mcp.selftest ()
+devtools.selftest ()
 ```
 
 which starts both servers exactly as configured above, completes a handshake,
@@ -117,7 +117,7 @@ Read-only, served by both entry points:
 | `octave_pkg` | which packages are installed, at which versions, and which are loaded |
 | `octave_registry` | which packages anywhere in the Octave Packages index provide a name, from a dated snapshot |
 
-Served by `mcp.serveEval` only:
+Served by `devtools.mcpEval` only:
 
 | Tool | Answers |
 |------|---------|
@@ -156,11 +156,11 @@ so. What the code assigned before it was stopped is still in the workspace, and
 what it printed is still returned, which is the difference between this and
 letting your host restart the process.
 
-Set `MCP_EVAL_SECONDS` in the launch command, up to six hundred, where the work
+Set `DEVTOOLS_EVAL_SECONDS` in the launch command, up to six hundred, where the work
 honestly takes longer:
 
 ```json
-"env": { "MCP_EVAL_SECONDS": "120" }
+"env": { "DEVTOOLS_EVAL_SECONDS": "120" }
 ```
 
 It is not a tool argument, because that would cost tokens in every request and

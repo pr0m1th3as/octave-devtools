@@ -1,6 +1,6 @@
 ## Copyright (C) 2026 Andreas Bertsatos <abertsatos@biol.uoa.gr>
 ##
-## This file is part of the mcp package for GNU Octave.
+## This file is part of the devtools package for GNU Octave.
 ##
 ## This program is free software; you can redistribute it and/or modify it under
 ## the terms of the GNU General Public License as published by the Free Software
@@ -279,9 +279,9 @@ function sys = serverInstructions ()
 
   meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
           '"io.modelcontextprotocol/clientCapabilities":{}}'];
-  req = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"server/discover",' ...
+  req = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"server/discover",' ...
                             '"params":{' meta '}}']);
-  A = mcp.dispatch (req, []);
+  A = devtools.dispatch (req, []);
   sys = A.result.instructions;
 
 endfunction
@@ -290,9 +290,9 @@ function reg = buildRegistry ()
 
   meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ...
           '"io.modelcontextprotocol/clientCapabilities":{}}'];
-  req = mcp.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/list",' ...
+  req = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,"method":"tools/list",' ...
                             '"params":{' meta '}}']);
-  A = mcp.dispatch (req, []);
+  A = devtools.dispatch (req, []);
 
   tools = {};
   for i = 1:numel (A.result.tools)

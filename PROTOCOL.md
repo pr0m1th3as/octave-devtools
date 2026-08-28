@@ -46,11 +46,11 @@ with the note:
 > transport, and a server must not treat connection or process identity as a
 > proxy for conversation or session continuity.
 
-**Consequence for `mcp.serve`: none.** The read-only tool set is already
+**Consequence for `devtools.mcp`: none.** The read-only tool set is already
 stateless; each call answers from the interpreter's own state, which is a
 property of the machine and not of the conversation.
 
-**Consequence for `mcp.serveEval`: the design in `OCTAVE_MCP_PLAN.md` section 2
+**Consequence for `devtools.mcpEval`: the design in `OCTAVE_DEVTOOLS_PLAN.md` section 2
 is void.** "One interpreter per connection, holding a workspace across calls"
 is exactly what the paragraphs above forbid, and it was written from a mental
 model of MCP that this revision retired. The specification prescribes the
@@ -134,11 +134,11 @@ Our server never needs to: server-to-client interaction is carried by
 `evalc` captures every route to standard output that stays inside the
 interpreter, and none that leaves it: `system ("echo x")` writes past it to the
 real descriptor, which in a stdio server is the stream this section makes
-normative. `mcp.serveEval` therefore holds descriptor 1 over a file for the
-length of every evaluation, through the `__mcp_capture__` oct-file, and returns
+normative. `devtools.mcpEval` therefore holds descriptor 1 over a file for the
+length of every evaluation, through the `__devtools_capture__` oct-file, and returns
 what a child printed as part of the reply. The containment is at the descriptor
 and not at a name, so `builtin ("system", ...)` does not get around it, and
-`mcp.selftest` drives a real evaluating server through a call that spawns a
+`devtools.selftest` drives a real evaluating server through a call that spawns a
 child and checks that every line the server wrote was a message.
 
 ## 3. Lifecycle
@@ -177,7 +177,7 @@ Request params are `_meta` only. The result shape we return:
   "resultType": "complete",
   "supportedVersions": ["2026-07-28"],
   "capabilities": { "tools": {}, "resources": {} },
-  "_meta": { "io.modelcontextprotocol/serverInfo": { "name": "mcp", "version": "0.1.0" } },
+  "_meta": { "io.modelcontextprotocol/serverInfo": { "name": "devtools", "version": "0.1.0" } },
   "instructions": "...",
   "ttlMs": 3600000,
   "cacheScope": "public"
@@ -323,7 +323,7 @@ so `octave://version`, `octave://path` and `octave://packages` are well formed.
 > Servers **SHOULD** stop work on a cancelled request as soon as practical and
 > **MUST NOT** send any further messages for it.
 
-`mcp.serve` reads, dispatches and writes serially in one thread, so a
+`devtools.mcp` reads, dispatches and writes serially in one thread, so a
 `notifications/cancelled` for a request already dispatched cannot be seen until
 that request's response has been written. We therefore **cannot** honour the
 `MUST NOT` for a request already in flight.
@@ -359,12 +359,12 @@ help: the byte arrived at 0.00 s and the remainder of the line still took
 gives up, which is exactly what a real host did, twice, with a 30 s connect
 timeout, while every offline check passed.
 
-`mcp.serve` therefore reads a byte at a time, about 21 KB/s. Requests are small
+`devtools.mcp` therefore reads a byte at a time, about 21 KB/s. Requests are small
 so this is milliseconds; responses are large but are written whole. Doing better
 would need a non-blocking read, which Octave does not expose.
 
 **A test feeding the server a file cannot detect this**, because a file is at
-end of input the moment it is read. `mcp.selftest` therefore includes one check
+end of input the moment it is read. `devtools.selftest` therefore includes one check
 driven through a pipe that stays open after the request.
 
 ## 9. Shutdown

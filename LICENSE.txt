@@ -1,2 +1,2 @@
-All software in the 'mcp' package is published under the
+All software in the 'devtools' package is published under the
 GNU General Public License version 3 (GPLv3).

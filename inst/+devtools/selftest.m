@@ -1,6 +1,6 @@
 ## Copyright (C) 2026 Andreas Bertsatos <abertsatos@biol.uoa.gr>
 ##
-## This file is part of the mcp package for GNU Octave.
+## This file is part of the devtools package for GNU Octave.
 ##
 ## This program is free software; you can redistribute it and/or modify it under
 ## the terms of the GNU General Public License as published by the Free Software
@@ -16,14 +16,14 @@
 ## this program; if not, see <http://www.gnu.org/licenses/>.
 
 ## -*- texinfo -*-
-## @deftypefn  {mcp} {} mcp.selftest ()
-## @deftypefnx {mcp} {@var{OK} =} mcp.selftest ()
-## @deftypefnx {mcp} {[@var{OK}, @var{REPORT}] =} mcp.selftest ()
-## @deftypefnx {mcp} {@dots{} =} mcp.selftest (@var{CMD})
+## @deftypefn  {devtools} {} devtools.selftest ()
+## @deftypefnx {devtools} {@var{OK} =} devtools.selftest ()
+## @deftypefnx {devtools} {[@var{OK}, @var{REPORT}] =} devtools.selftest ()
+## @deftypefnx {devtools} {@dots{} =} devtools.selftest (@var{CMD})
 ##
 ## Check that a configured server starts and speaks cleanly.
 ##
-## @code{mcp.selftest ()} launches the server as a subprocess, drives a short
+## @code{devtools.selftest ()} launches the server as a subprocess, drives a short
 ## session through it in @emph{each} of the two protocol eras, and prints what
 ## it found.  A server that answers only one era works with only some hosts, so
 ## both are exercised.  The check it exists for is the
@@ -33,13 +33,13 @@
 ## stream, and the only symptom a host can show for it is an unexplained
 ## failure to connect.
 ##
-## @code{@var{OK} = mcp.selftest ()} returns true when every check passed and
+## @code{@var{OK} = devtools.selftest ()} returns true when every check passed and
 ## prints nothing, which is the form a test uses.
 ##
-## @code{[@var{OK}, @var{REPORT}] = mcp.selftest ()} also returns the cell array
+## @code{[@var{OK}, @var{REPORT}] = devtools.selftest ()} also returns the cell array
 ## of strings that would have been printed, one per check.
 ##
-## @code{@dots{} = mcp.selftest (@var{CMD})} tests the shell command @var{CMD}
+## @code{@dots{} = devtools.selftest (@var{CMD})} tests the shell command @var{CMD}
 ## rather than the default one.  Give it the exact command from your host
 ## configuration to find out whether that configuration is sound; it must launch
 ## a server that reads standard input and writes standard output, and nothing
@@ -47,17 +47,17 @@
 ## package directory this file lives in, which works from a source tree as well
 ## as from an installed package.
 ##
-## @seealso{mcp.serve}
+## @seealso{devtools.mcp}
 ## @end deftypefn
 
 function [OK, REPORT] = selftest (CMD)
 
   ## Input validation
   if (nargin > 1)
-    error ("mcp.selftest: invalid number of input arguments.");
+    error ("devtools.selftest: invalid number of input arguments.");
   endif
   if (nargin == 1 && ! (ischar (CMD) && isrow (CMD)))
-    error ("mcp.selftest: CMD must be a character vector.");
+    error ("devtools.selftest: CMD must be a character vector.");
   endif
 
   REPORT = {};
@@ -96,7 +96,7 @@ function [OK, REPORT] = selftest (CMD)
 
       fid = fopen (infile, "w");
       if (fid < 0)
-        error ("mcp.selftest: cannot write a temporary file in %s.", tempdir ());
+        error ("devtools.selftest: cannot write a temporary file in %s.", tempdir ());
       endif
       fprintf (fid, "%s\n", session{:});
       fclose (fid);
@@ -215,19 +215,19 @@ function [OK, REPORT] = selftest (CMD)
     ## The evaluating server, and the claim only it can break: a child process
     ## inherits descriptor 1, so code that spawns one writes into the stream
     ## that carries the protocol unless something holds that descriptor.  Run
-    ## against mcp.serveEval rather than mcp.serve, and only with the default
+    ## against devtools.mcpEval rather than devtools.mcp, and only with the default
     ## commands, since a caller-supplied one may not be an evaluating server.
     if (nargin < 1)
 
       [ECMD, capdir, contained] = defaultEvalCommand ();
       esession = {sprintf(['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
                   '"params":{"name":"octave_eval","arguments":' ...
-                  '{"code":"system (\\"echo mcpzzchild\\");",' ...
+                  '{"code":"system (\\"echo devtoolszzchild\\");",' ...
                   '"workspace":"new"},%s}}'], meta)};
 
       fid = fopen (infile, "w");
       if (fid < 0)
-        error ("mcp.selftest: cannot write a temporary file in %s.", tempdir ());
+        error ("devtools.selftest: cannot write a temporary file in %s.", tempdir ());
       endif
       fprintf (fid, "%s\n", esession{:});
       fclose (fid);
@@ -278,7 +278,7 @@ function [OK, REPORT] = selftest (CMD)
       ## wait.  setenv rather than a shell prefix, which cmd.exe would not
       ## understand.
       ##
-      ## Only where there is a deadline to reach.  Without __mcp_guard__ code
+      ## Only where there is a deadline to reach.  Without __devtools_guard__ code
       ## that does not return never does, so sending it would hang this
       ## function rather than fail it, for as long as the machine runs.  The
       ## skip is reported rather than dropped: a selftest that quietly stops
@@ -286,21 +286,21 @@ function [OK, REPORT] = selftest (CMD)
       if (! contained)
         REPORT = skipped (REPORT, ...
           "eval: code that does not return is stopped", ...
-          "no __mcp_guard__ here, so there is no deadline to reach");
+          "no __devtools_guard__ here, so there is no deadline to reach");
       else
-        had = getenv ("MCP_EVAL_SECONDS");
+        had = getenv ("DEVTOOLS_EVAL_SECONDS");
         unwind_protect
-          setenv ("MCP_EVAL_SECONDS", "2");
+          setenv ("DEVTOOLS_EVAL_SECONDS", "2");
           loopy = {sprintf(['{"jsonrpc":"2.0","id":1,"method":"tools/call",' ...
                    '"params":{"name":"octave_eval","arguments":' ...
-                   '{"code":"while (true), mcpzzspin = 1; endwhile",' ...
+                   '{"code":"while (true), devtoolszzspin = 1; endwhile",' ...
                    '"workspace":"new"},%s}}'], meta), ...
                    sprintf(['{"jsonrpc":"2.0","id":2,"method":"tools/call",' ...
                    '"params":{"name":"octave_eval","arguments":' ...
-                 '{"code":"mcpzzalive = 42;","workspace":"new"},%s}}'], meta)};
+                 '{"code":"devtoolszzalive = 42;","workspace":"new"},%s}}'], meta)};
           fid = fopen (infile, "w");
           if (fid < 0)
-            error ("mcp.selftest: cannot write a temporary file in %s.", ...
+            error ("devtools.selftest: cannot write a temporary file in %s.", ...
                    tempdir ());
           endif
           fprintf (fid, "%s\n", loopy{:});
@@ -309,9 +309,9 @@ function [OK, REPORT] = selftest (CMD)
           [status, out] = system (ecmd);
         unwind_protect_cleanup
           if (isempty (had))
-            unsetenv ("MCP_EVAL_SECONDS");
+            unsetenv ("DEVTOOLS_EVAL_SECONDS");
           else
-            setenv ("MCP_EVAL_SECONDS", had);
+            setenv ("DEVTOOLS_EVAL_SECONDS", had);
           endif
         end_unwind_protect
 
@@ -329,14 +329,14 @@ function [OK, REPORT] = selftest (CMD)
       if (contained)
         [REPORT, OK] = check (REPORT, ...
           "eval: what the subprocess printed came back in the result", ...
-          ! isempty (strfind (txt, "mcpzzchild")), trunc (txt), OK);
+          ! isempty (strfind (txt, "devtoolszzchild")), trunc (txt), OK);
       else
         ## No capture here, so the shadow took the output back and printed it
         ## through the interpreter.  It still reaches the reply, by the other
         ## route and without the label the capture adds.
         [REPORT, OK] = check (REPORT, ...
           "eval: without the capture, the subprocess output came back", ...
-          ! isempty (strfind (txt, "mcpzzchild")), trunc (txt), OK);
+          ! isempty (strfind (txt, "devtoolszzchild")), trunc (txt), OK);
       endif
 
     endif
@@ -364,14 +364,14 @@ function CMD = defaultCommand ()
     exe = "octave-cli";
   endif
   instdir = fileparts (fileparts (mfilename ("fullpath")));
-  CMD = sprintf ('"%s" -q --no-init-file --eval "addpath (''%s''); mcp.serve ()"', ...
+  CMD = sprintf ('"%s" -q --no-init-file --eval "addpath (''%s''); devtools.mcp ()"', ...
                  exe, instdir);
 endfunction
 
 function [CMD, capdir, contained] = defaultEvalCommand ()
 
   ## The same command the README gives for the evaluating server, plus
-  ## whatever directory holds __mcp_capture__ in this process, so that a
+  ## whatever directory holds __devtools_capture__ in this process, so that a
   ## source tree is exercised the way an installed package is.
   exe = fullfile (OCTAVE_HOME (), "bin", "octave-cli");
   if (exist (exe, "file") != 2)
@@ -380,20 +380,20 @@ function [CMD, capdir, contained] = defaultEvalCommand ()
   instdir = fileparts (fileparts (mfilename ("fullpath")));
 
   capdir = "";
-  cap = which ("__mcp_capture__");
+  cap = which ("__devtools_capture__");
   if (! isempty (cap))
     capdir = fileparts (cap);
   endif
 
   ## The condition dispatch itself routes on, both oct-files or neither, so
   ## that a check asks for the arm the spawned server will actually take.
-  contained = (! isempty (cap)) && (! isempty (which ("__mcp_guard__")));
+  contained = (! isempty (cap)) && (! isempty (which ("__devtools_guard__")));
 
   add = sprintf ("addpath ('%s');", instdir);
   if (! isempty (capdir))
     add = [add sprintf(" addpath ('%s');", capdir)];
   endif
-  CMD = sprintf ('"%s" -q --no-init-file --eval "%s mcp.serveEval ()"', ...
+  CMD = sprintf ('"%s" -q --no-init-file --eval "%s devtools.mcpEval ()"', ...
                  exe, add);
 
 endfunction
@@ -444,7 +444,7 @@ function s = trunc (s)
 endfunction
 
 %!test
-%! [ok, rep] = mcp.selftest ();
+%! [ok, rep] = devtools.selftest ();
 %! assert_equal (ok, true);
 %! assert_equal (iscellstr (rep), true);
 %! done = strncmp (rep, "PASS", 4) | strncmp (rep, "SKIP", 4);
@@ -453,8 +453,8 @@ endfunction
 %!test
 %! ## A command that writes something other than a message must be caught.
 %! cmd = 'printf ''hello\n''';
-%! [ok, rep] = mcp.selftest (cmd);
+%! [ok, rep] = devtools.selftest (cmd);
 %! assert_equal (ok, false);
 %! assert_equal (any (! cellfun (@isempty, strfind (rep, "every stdout line"))), true);
 
-%!error <mcp\.selftest: CMD must be a character vector\.> mcp.selftest (5)
+%!error <devtools\.selftest: CMD must be a character vector\.> devtools.selftest (5)

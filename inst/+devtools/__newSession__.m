@@ -1,6 +1,6 @@
 ## Copyright (C) 2026 Andreas Bertsatos <abertsatos@biol.uoa.gr>
 ##
-## This file is part of the mcp package for GNU Octave.
+## This file is part of the devtools package for GNU Octave.
 ##
 ## This program is free software; you can redistribute it and/or modify it under
 ## the terms of the GNU General Public License as published by the Free Software
@@ -16,17 +16,17 @@
 ## this program; if not, see <http://www.gnu.org/licenses/>.
 
 ## -*- texinfo -*-
-## @deftypefn {mcp} {@var{S} =} mcp.__newSession__ (@var{surface})
+## @deftypefn {devtools} {@var{S} =} devtools.__newSession__ (@var{surface})
 ##
 ## Build a fresh session structure.  Internal; not a supported entry point.
 ##
-## @var{surface} is @qcode{"read-only"} for the tool set @code{mcp.serve}
-## offers or @qcode{"eval"} for the one @code{mcp.serveEval} adds to it.
+## @var{surface} is @qcode{"read-only"} for the tool set @code{devtools.mcp}
+## offers or @qcode{"eval"} for the one @code{devtools.mcpEval} adds to it.
 ##
 ## The double underscore is core Octave's convention for a function that is
 ## reachable but unsupported, and it is used here because @emph{a namespace has
-## no private directory}: measured on 11.2.0, neither @file{+mcp/private/} nor a
-## @file{private/} directory beside @file{+mcp/} is visible to a function in
+## no private directory}: measured on 11.2.0, neither @file{+devtools/private/} nor a
+## @file{private/} directory beside @file{+devtools/} is visible to a function in
 ## the namespace, so a helper shared by two entry points has nowhere to live
 ## except the namespace itself.
 ##
@@ -35,11 +35,11 @@
 function S = __newSession__ (surface)
 
   if (nargin != 1)
-    error ("mcp.__newSession__: invalid number of input arguments.");
+    error ("devtools.__newSession__: invalid number of input arguments.");
   endif
   if (! (ischar (surface) && isrow (surface) ...
          && any (strcmp (surface, {'read-only', 'eval'}))))
-    error ("mcp.__newSession__: SURFACE must be 'read-only' or 'eval'.");
+    error ("devtools.__newSession__: SURFACE must be 'read-only' or 'eval'.");
   endif
 
   ## era is 'unknown' until the client opens, then 'legacy' or 'modern'.

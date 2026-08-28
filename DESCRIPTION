@@ -1,19 +1,19 @@
-Name: mcp
+Name: devtools
 Version: 0.1.0
 Date: 2026-08-26
 Author: Andreas Bertsatos
 Maintainer: Andreas Bertsatos <abertsatos@biol.uoa.gr>
-Title: Model Context Protocol Server for GNU Octave
+Title: Developer tooling for GNU Octave
 Description: A Model Context Protocol (MCP) server that exposes GNU Octave to
  any MCP-capable assistant.  The server process is an Octave interpreter, so
  the interpreter answering a question is the interpreter being asked about,
  with the same load path, the same installed packages and the same version.
  Two entry points, so that the safe one can be given blanket permission and
- the other cannot be reached by a host configured for it: mcp.serve provides
+ the other cannot be reached by a host configured for it: devtools.mcp provides
  read-only introspection of functions, classes, namespaces and installed
- packages, evaluating no code and writing nothing, and mcp.serveEval adds
+ packages, evaluating no code and writing nothing, and devtools.mcpEval adds
  evaluation in named workspaces and running a function's built-in tests.
 Categories: Miscellaneous
 Depends: octave (>= 11.1.0)
-Url: https://github.com/pr0m1th3as/octave-mcp
-Tracker: https://github.com/pr0m1th3as/octave-mcp/issues
+Url: https://github.com/pr0m1th3as/octave-devtools
+Tracker: https://github.com/pr0m1th3as/octave-devtools/issues

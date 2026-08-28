@@ -1,6 +1,6 @@
-## Part of the mcp package: a shadow that stands in front of a core function
-## while mcp.serveEval evaluates code, and only where this installation has no
-## __mcp_capture__ to hold descriptor 1.  See mcp.serveEval for why.
+## Part of the devtools package: a shadow that stands in front of a core function
+## while devtools.mcpEval evaluates code, and only where this installation has no
+## __devtools_capture__ to hold descriptor 1.  See devtools.mcpEval for why.
 ##
 ## Core lets the child inherit descriptor 1 only when the output is not being
 ## returned, so asking for it back is the whole containment.  What the caller

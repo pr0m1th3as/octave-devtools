@@ -1,11 +1,11 @@
-mcp >> Model Context Protocol Server for GNU Octave
+devtools >> Developer tooling for GNU Octave
 Servers
- mcp.serve
- mcp.serveEval
+ devtools.mcp
+ devtools.mcpEval
 Diagnostics
- mcp.selftest
+ devtools.selftest
 Protocol core
- mcp.decodeRequest
- mcp.dispatch
- mcp.encodeResponse
- mcp.jsonrpcError
+ devtools.decodeRequest
+ devtools.dispatch
+ devtools.encodeResponse
+ devtools.jsonrpcError
