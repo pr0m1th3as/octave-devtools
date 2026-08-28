@@ -10,7 +10,7 @@ MKOCTFILE ?= mkoctfile
 all: capture guard
 
 capture:
-	@if $(MKOCTFILE) __devtools_capture__.cc > devtools_build.log 2>&1; then \
+	@if $(MKOCTFILE) __devtools_capture__.cc > devtools_capture.log 2>&1; then \
 	  echo "devtools: built __devtools_capture__.oct"; \
 	else \
 	  echo "devtools: no working compiler for __devtools_capture__.cc."; \
@@ -19,20 +19,20 @@ capture:
 	  echo "devtools: the interpreter instead of capturing it at the descriptor,"; \
 	  echo "devtools: refusing only the two forms that cannot be taken back."; \
 	  echo "devtools: Build log follows."; \
-	  cat devtools_build.log; \
+	  cat devtools_capture.log; \
 	fi
 
 guard:
-	@if $(MKOCTFILE) __devtools_guard__.cc > devtools_build.log 2>&1; then \
+	@if $(MKOCTFILE) __devtools_guard__.cc > devtools_guard.log 2>&1; then \
 	  echo "devtools: built __devtools_guard__.oct"; \
 	else \
 	  echo "devtools: no working compiler for __devtools_guard__.cc."; \
 	  echo "devtools: the evaluating server will run without a deadline, so code"; \
 	  echo "devtools: that does not return holds it until the host restarts it."; \
-	  cat devtools_build.log; \
+	  cat devtools_guard.log; \
 	fi
 
 clean:
-	-rm -f *.o *.oct devtools_build.log
+	-rm -f *.o *.oct devtools_capture.log devtools_guard.log
 
 .PHONY: all capture guard clean
