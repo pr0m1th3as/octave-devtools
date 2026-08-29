@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Developer tooling for GNU Octave: devtools.mcp</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ==" crossorigin="anonymous" referrerpolicy="no-referrer">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/css/bootstrap.min.css" integrity="sha384-KyZXEAg3QhqLMpG8r+8fhAXLRk2vvoC2f3B09zVXn8CA5QIVfZOJ3BCsw2P0p/We" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/js/bootstrap.bundle.min.js" integrity="sha384-U1DAWAznBHeqEIlVSCgzq+c9gqGAJn5c/t99JyeKa9xxaYpSvHU5awsuZVVFIhvj" crossorigin="anonymous"></script>
+    <script type="text/javascript" async
+      src="https://cdn.jsdelivr.net/npm/mathjax@2/MathJax.js?config=TeX-AMS_CHTML">
+    </script>
+    <script type="text/javascript">
+      window.addEventListener("load", () => {
+        for (let i of document.querySelectorAll(".collapse ul")) {
+          let tog = document.createElement("div");
+          tog.innerHTML = i.previousSibling.textContent;
+          tog.className = "toggle";
+          tog.onclick = () => tog.classList.toggle("show");
+          i.parentElement.removeChild(i.previousSibling);
+          i.parentElement.insertBefore(tog, i);
+        }
+      });
+      // Open the collapsible demo an "#example" link points to, then scroll to
+      // it.  getElementById (not querySelector) matches ids that contain a dot,
+      // e.g. "Class.method-example1".
+      function openHashTarget () {
+        if (! window.location.hash) { return; }
+        let el = document.getElementById (
+          decodeURIComponent (window.location.hash.slice (1)));
+        if (! el) { return; }
+        if (el.classList.contains ("collapse") &&
+            ! el.classList.contains ("show")) {
+          bootstrap.Collapse.getOrCreateInstance (el).show ();
+        }
+        el.scrollIntoView ();
+      }
+      window.addEventListener ("DOMContentLoaded", openHashTarget);
+      window.addEventListener ("hashchange", openHashTarget);
+      // When the collapsible named by the current URL fragment is collapsed,
+      // drop the fragment (replaceState: no scroll, no history entry).  Otherwise
+      // the fragment would still equal this id, so clicking the same #example
+      // link again fires no "hashchange" and the example would not re-expand.
+      document.addEventListener ("hide.bs.collapse", (e) => {
+        if (e.target.id && window.location.hash === "#" + e.target.id) {
+          history.replaceState (null, "",
+            window.location.pathname + window.location.search);
+        }
+      });
+    </script>
+    <style>
+    h5.fs {
+    margin-top: -0.15em;
+    margin-bottom: -0.15em;
+    }
+    h6:hover {
+      color: gray;
+    }
+    code {
+    font-family: Consolas, "Courier New", monospace;
+    border-radius: 0.3em;
+    white-space: nowrap;
+    color: gray;
+    }
+    code.description {
+    font-family: Consolas, "Courier New", monospace;
+    border-radius: 0.3em;
+    white-space: normal;
+    font-size:1.2em;
+    color: gray;
+    }
+    var {
+    font-family: Consolas, "Courier New", monospace;
+    border-radius: 0.3em;
+    font-style: normal;
+    font-weight: bold;
+    color: gray;
+    }
+    td {
+      vertical-align: top;
+    }
+    [id^="togList"],                        /* HIDE CHECKBOX */
+    [id^="togList"] ~ .list,                /* HIDE LIST */
+    [id^="togList"] + label  span + span,   /* HIDE "Collapse" */
+    [id^="togList"]:checked + label span{   /* HIDE "Expand" (IF CHECKED) */
+      display:none;
+    }
+    [id^="togList"]:checked + label span + span{
+      display:inline-block;                 /* SHOW "Collapse" (IF CHECKED) */
+    }
+    [id^="togList"]:checked ~ .list{
+      display:block;                        /* SHOW LIST (IF CHECKED) */
+    }
+    </style>
+  </head>
+  <body>
+    <div class="bg-dark">
+      <div class="container-xl">
+        <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+          <div class="container-fluid">
+            <a class="navbar-brand" href=index.html>
+              <img src="assets/devtools.png" alt="devtools" class="d-inline-block align-top" width="25" height="25">
+              Developer tooling for GNU Octave
+            </a>
+            <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+              <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+              <ul class="navbar-nav">
+                <li class="nav-item">
+                  <a class="nav-link" href="index.html#Servers">
+                    <i class="fas fa-list-alt"></i>
+                    Servers
+                  </a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="https://gnu-octave.github.io/packages/">
+                  <img src="assets/octave-logo.svg" alt="GNU Octave logo" class="d-inline-block align-top" width="25" height="25">
+                    Octave Packages
+                  </a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="https://www.octave.org">
+                    <i class="fas fa-home"></i>
+                    GNU Octave website
+                  </a>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </nav>
+      </div>
+    </div>
+    <div class="container-xl my-4">
+      <div class="row flex-nowrap" style="min-height:0">
+        <div class="col-md-2 bg-light" style="overflow-y: scroll; width: 250px;">
+          <div class="p-2" style="text-align: center;">
+            <h3>Categories &</h3>
+            <h4 style="color: blue">Functions List</h4>
+          </div>
+			<div class="row">
+				<input id="togList1" type="checkbox" checked>
+				<label for="togList1">
+					<span><h6>Servers</h6></span>
+					<span><h6>Servers</h6></span>
+				</label>
+				<div class="list">
+				<ul style="list-style-type: none; padding-left: 20px;">
+					<li><a href="devtools.mcp.html" class="text-decoration-none font-monospace fw-bolder"><small>devtools.mcp</small></a></li>
+					<li><a href="devtools.mcpEval.html" class="text-decoration-none font-monospace"><small>devtools.mcpEval</small></a></li>
+				</ul>
+				</div>
+			</div>
+			<div class="row">
+				<input id="togList2" type="checkbox">
+				<label for="togList2">
+					<span><h6>Diagnostics</h6></span>
+					<span><h6>Diagnostics</h6></span>
+				</label>
+				<div class="list">
+				<ul style="list-style-type: none; padding-left: 20px;">
+					<li><a href="devtools.selftest.html" class="text-decoration-none font-monospace"><small>devtools.selftest</small></a></li>
+				</ul>
+				</div>
+			</div>
+
+			  </div>
+			  <div class="col-md-10">
+          <div class="card rounded">
+            <div class="card-header card-header-mod">
+              <div class="row d-flex flex-wrap align-items-center">
+                <h3 class="d-inline-block mr-2">
+                Function&nbsp;Reference: <b><code>devtools.mcp</code></b>
+                </h3>
+              </div>
+            </div>
+            <div class="card-body">
+<dl>
+<dt><code><h5 class="fs">devtools: <b>devtools.mcp</b> ()</code></h5></dt>
+</dl>
+<p> Serve the Model Context Protocol on standard input and output.
+</p>
+<div class="ms-5">
+<p> <code>devtools.mcp ()</code> reads newline-delimited JSON-RPC messages from
+ standard input, answers each one, writes the answer to standard output, and
+ returns only when standard input reaches end of file.  It is the entry point
+ a host launches; it is not meant to be called at an interactive prompt, where
+ it would take the terminal.
+</p>
+<p> Both protocol eras are served.  A client that opens with per-request metadata
+ is answered under revision 2026-07-28 and statelessly; a client that opens
+ with an <code>initialize</code> handshake is answered under revision 2025-11-25 for
+ the life of the process.  The choice is made by the first request and the
+ tools are the same in either case.
+</p>
+<p> The read-only tool set is served here.  This server evaluates no code, runs
+ no user function, and writes nothing, which is the property that lets a user
+ grant it blanket permission.  Evaluation lives behind a separate entry point
+ and a separate configuration entry, so that it cannot be reached by a host
+ configured for this one.
+</p>
+<p> Configure a host to launch it with:
+</p>
+<table><tr><td>&nbsp;</td><td><pre class="example"> octave-cli -q --no-init-file --eval &quot;pkg load devtools; devtools.mcp ()&quot;
+</pre></td></tr></table>
+
+<p> <strong>Do not shorten that command.</strong>  <code>--no-init-file</code> is the
+ load-bearing flag: it skips <code>~/.octaverc</code>, whose output would arrive
+ before this function exists, and a single byte written there corrupts the
+ stream for the whole session.  Measured on 11.2.0, <code>--eval</code> already
+ makes the run non-interactive so that no banner is written either way and
+ <code>-q</code> changes nothing today; it is kept because nothing else guards that
+ output if a future release prints one.  Use <code>devtools.selftest</code> to
+ check a configuration before suspecting the host.
+</p>
+<p> <strong>On Windows, name <code>octave-cli.exe</code> in full.</strong>  A host spawns the
+ command with no shell, so a bare <code>octave-cli</code> resolves only where the
+ interpreter is already on <code>PATH</code>, which a Windows installation does not
+ guarantee and a configuration file cannot arrange.  Where it is not, the
+ process never starts and writes nothing at all, which reads exactly like the
+ corrupted stream above and is nothing to do with it.
+</p>
+<p> <strong>This server sees the packages its own launch command loads, and no
+ others.</strong>  The command above loads only <code>devtools</code>, so
+ <code>octave_which</code> will not find a function from <code>statistics</code> unless
+ it is named:
+</p>
+<table><tr><td>&nbsp;</td><td><pre class="example"> --eval &quot;pkg load devtools statistics datatypes; devtools.mcp ()&quot;
+</pre></td></tr></table>
+
+<p> Loading every installed package instead would run each one&rsquo;s <code>PKG_ADD</code>,
+ which is other people&rsquo;s code executing at startup, and this server&rsquo;s whole
+ claim is that it runs none.
+</p>
+<p>  Tools
+</p>
+<p> Five tools are served, all of them read-only:
+</p>
+<dl compact="compact">
+<dt> <code>octave_which</code></dt>
+<dd> where a name resolves, its kind, its owning package, what it shadows, and
+ whether it is installed rather than loaded.</dd>
+<dt> <code>octave_help</code></dt>
+<dd> the help text for a function, class, method or operator, answered from the
+ documentation caches where one holds the entry, so that a function in an
+ installed package this server has not loaded is answered too.</dd>
+<dt> <code>octave_search</code></dt>
+<dd> which functions match a description, when the name is not known.</dd>
+<dt> <code>octave_pkg</code></dt>
+<dd> which packages are installed, at which versions, and which are loaded.</dd>
+<dt> <code>octave_registry</code></dt>
+<dd> which packages anywhere in the Octave Packages index provide a name, from a
+ dated snapshot carried in this package.</dd>
+</dl>
+
+<p> One resource is offered, <code>octave://environment</code>: version, platform,
+ load path size and the packages this server loaded.  The version and the
+ platform are also stated in the server&rsquo;s <code>instructions</code>, sent once when
+ a client connects, so that no request pays for them.
+</p>
+<p> Everything diagnostic goes to standard error, which the protocol reserves for
+ exactly that purpose and which a client may capture, forward or ignore.
+</p>
+<p> One deviation is worth stating.  This loop reads, answers and writes in one
+ thread, so a <code>notifications/cancelled</code> arriving for a request already
+ being answered cannot be seen until that answer has been written.  The
+ protocol asks that no further message be sent for a cancelled request and
+ this implementation cannot honour it.  The tools served here return in
+ milliseconds, so the window is small, but it is real.
+</p>
+<p> <strong>See also: </strong>
+  <a href="devtools.mcpEval.html">devtools.mcpEval</a>, 
+  <a href="devtools.selftest.html">devtools.selftest</a>
+</p>
+<p><strong>Source Code: </strong>
+  <a href="https://github.com/pr0m1th3as/octave-devtools/tree/main/inst/+devtools/mcp.m">devtools.mcp</a>
+</div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </body>
+</html>
