@@ -1,4 +1,4 @@
-# devtools
+<img src="doc/devtools-wordmark.png" width="430" alt="devtools">
 
 Developer tooling for GNU Octave: tools for questions only the interpreter can
 answer about itself, packaged so that a program outside Octave can ask.
