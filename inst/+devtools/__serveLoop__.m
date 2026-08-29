@@ -40,7 +40,6 @@ function __serveLoop__ (surface, name)
   endif
 
   logmsg (name, "listening, MCP 2026-07-28 and 2025-11-25, pid %d", getpid ());
-  seenfirst = false;
   ## The tool surface belongs to the session, not to a flag on a call
   S = devtools.__newSession__ (surface);
 
@@ -49,13 +48,6 @@ function __serveLoop__ (surface, name)
     line = readLine ();
     if (! ischar (line))
       break;                          # end of file: the shutdown signal
-    endif
-
-    ## The opening message of a real host is the evidence that decides whether
-    ## a legacy era needs supporting at all, so it is logged verbatim once
-    if (! seenfirst && ! isempty (strtrim (line)))
-      seenfirst = true;
-      logmsg (name, "first message verbatim: %s", line);
     endif
 
     R = [];
