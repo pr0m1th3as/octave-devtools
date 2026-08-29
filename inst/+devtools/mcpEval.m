@@ -36,6 +36,33 @@
 ## under its own name, conventionally @qcode{"octave-eval"}, so that the
 ## permission rules for the two can differ.
 ##
+## @subsubheading Configuration
+##
+## Configure a host to launch it under its own name with:
+##
+## @example
+## octave-cli -q --no-init-file --eval "pkg load devtools; devtools.mcpEval ()"
+## @end example
+##
+## The rules are those of @code{devtools.mcp} and they matter as much here: do
+## not shorten the command, name @file{octave-cli.exe} in full on Windows, and
+## load whatever packages this server is meant to see, since it sees the ones
+## its own launch command loads and no others.
+##
+## @subsubheading Tools
+##
+## The five read-only tools of @code{devtools.mcp} are served here as well,
+## plus two that run code:
+##
+## @table @code
+## @item octave_eval
+## what running some Octave code produces, in a workspace that persists between
+## calls.
+##
+## @item octave_test
+## how many of a function's built-in tests pass, and what failed.
+## @end table
+##
 ## @subsubheading Testing
 ##
 ## @code{octave_test} runs the built-in tests of one function or file and
@@ -69,16 +96,16 @@
 ##
 ## Output is captured twice over, and the two halves catch different things.
 ## @code{evalc} takes every route to standard output that stays inside the
-## interpreter, and @code{__devtools_capture__} holds descriptor 1 over a file for
-## the length of the call, which is the only thing that catches a
+## interpreter, and @code{__devtools_capture__} holds descriptor 1 over a file
+## for the length of the call, which is the only thing that catches a
 ## @strong{subprocess}: a child inherits the descriptor and writes past
 ## @code{evalc} entirely, into the stream that carries the protocol.  What a
 ## child printed comes back labelled in the reply.
 ##
 ## Because that containment is at the descriptor and not at a name,
 ## @code{builtin ("system", @dots{})} does not get around it.  Where the
-## package was installed without a compiler and @code{__devtools_capture__} could
-## not be built, the containment moves to the two forms that let a child
+## package was installed without a compiler and @code{__devtools_capture__}
+## could not be built, the containment moves to the two forms that let a child
 ## inherit descriptor 1: @code{system} is shadowed by one that asks for the
 ## output back and prints it through the interpreter, where @code{evalc} takes
 ## it, and @code{popen} by one that refuses its write mode, whose output
@@ -97,15 +124,15 @@
 ## between this and letting the host restart the process.
 ##
 ## The stopping is the interpreter's own interrupt, the mechanism Ctrl-C uses,
-## raised from a thread and caught in @code{__devtools_guard__}.  It cannot be done
-## in Octave: measured on 11.2.0, an interrupt raised this way unwinds straight
-## through @code{try} and takes the process with it, honouring
+## raised from a thread and caught in @code{__devtools_guard__}.  It cannot be
+## done in Octave: measured on 11.2.0, an interrupt raised this way unwinds
+## straight through @code{try} and takes the process with it, honouring
 ## @code{unwind_protect} on the way but never being caught.
 ##
-## Set @env{DEVTOOLS_EVAL_SECONDS} in the launch command for an installation whose
-## work honestly takes longer, up to six hundred.  It is not a tool argument,
-## since that would cost tokens in every request and is a decision for whoever
-## configures the server rather than for the model.
+## Set @env{DEVTOOLS_EVAL_SECONDS} in the launch command for an installation
+## whose work honestly takes longer, up to six hundred.  It is not a tool
+## argument, since that would cost tokens in every request and is a decision for
+## whoever configures the server rather than for the model.
 ##
 ## The deadline does not recover everything.  A call wedged inside one long
 ## native call, or blocked on a read, reaches no checkpoint at which the
