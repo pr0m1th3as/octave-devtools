@@ -4,8 +4,3 @@ Servers
  devtools.mcpEval
 Diagnostics
  devtools.selftest
-Protocol core
- devtools.decodeRequest
- devtools.dispatch
- devtools.encodeResponse
- devtools.jsonrpcError

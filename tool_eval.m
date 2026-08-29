@@ -31,7 +31,7 @@
 ## built-in self tests; this measures the prose the tools advertise, which
 ## nothing else can reach.  It runs against a local model, and it needs one:
 ## @var{server} is an Ollama endpoint such as
-## @qcode{"http://192.168.5.18:11434"} and @var{model} a tool-capable model on
+## @qcode{"http://localhost:11434"} and @var{model} a tool-capable model on
 ## it.
 ##
 ## The tools handed to the model are the real ones, taken from this package's

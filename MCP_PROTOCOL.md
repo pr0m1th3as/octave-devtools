@@ -1,4 +1,4 @@
-# Protocol conformance
+# MCP protocol conformance
 
 Deliverable of Phase 0, completed 2026-08-24. This records exactly what this
 package implements and against which revision, so that none of it is ever

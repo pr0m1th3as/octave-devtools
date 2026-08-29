@@ -1,12 +1,53 @@
 # devtools
 
-A [Model Context Protocol](https://modelcontextprotocol.io) server that exposes
-GNU Octave to any MCP-capable assistant.
+Developer tooling for GNU Octave: tools for questions only the interpreter can
+answer about itself, packaged so that a program outside Octave can ask.
 
-**Status: pre-release.** Everything described here is implemented and tested,
-but the package is not yet in the Octave Packages index.
+Everything described here is implemented and tested, on GNU/Linux and on
+Windows.
 
-## What it is
+## What belongs here
+
+Something belongs in this package if answering it requires the interpreter's
+own knowledge of itself, packaged so that a program outside Octave can ask. The
+test admits protocol servers, documentation and packaging checks, and an index
+of what the ecosystem provides. It excludes anything needing none of that
+knowledge, a source formatter being the clearest example.
+
+## What is here
+
+| Surface | What it is | How you reach it |
+|---|---|---|
+| `devtools.mcp` | Model Context Protocol server, read-only | configure it in an MCP host |
+| `devtools.mcpEval` | the same, plus evaluation | configure it in an MCP host |
+| `devtools.selftest` | a check that both servers start and stay clean | call it from Octave |
+
+A surface reached over a protocol is documented here, because the program using
+it never sees an Octave prompt and cannot ask `help`. Anything you call
+yourself is documented in its own help text instead, so `help devtools.selftest`
+is the whole of that one.
+
+## Requirements
+
+GNU Octave 11.1.0 or later.
+
+A C++ compiler is **optional**. The package installs without one and the
+read-only server is unaffected; what the evaluating server loses is described
+under [What contains it](#what-contains-it-and-what-does-not).
+
+## Installation
+
+```
+pkg install devtools
+```
+
+## Model Context Protocol
+
+Two [Model Context Protocol](https://modelcontextprotocol.io) servers, exposing
+GNU Octave to any MCP-capable assistant. Both protocol eras are served by
+either.
+
+### The server is an Octave interpreter
 
 The server process *is* an Octave interpreter. There is no wrapper process and
 no second copy of the truth: the interpreter answering "what does `kmeans` do"
@@ -24,7 +65,7 @@ That is a deliberate choice rather than an oversight: loading every installed
 package would execute each one's `PKG_ADD`, which is other people's code running
 at startup, and the read-only server's whole claim is that it runs none.
 
-## Two servers, and why they are separate
+### Two servers, and why they are separate
 
 | Entry point | What it does | Configure it as |
 |---|---|---|
@@ -40,21 +81,11 @@ mean nothing if a flag could turn evaluation on.
 Configure whichever you want. Configuring both is fine, and gives your host a
 tool set it can be trusted with by default and one it must ask about.
 
-## Requirements
+The evaluating server runs code in your interpreter, which is contained but not
+sandboxed. Read [What contains it, and what does
+not](#what-contains-it-and-what-does-not) before configuring it.
 
-GNU Octave 11.1.0 or later.
-
-A C++ compiler is **optional**. The package installs without one and the
-read-only server is unaffected; what the evaluating server loses is described
-under [What contains it](#what-contains-it-and-what-does-not).
-
-## Installation
-
-```
-pkg install devtools
-```
-
-## Configuration
+### Configuration
 
 The read-only server:
 
@@ -124,7 +155,7 @@ did not.  It reads standard error as well, where the server's own
 diagnostics belong but a diagnostic the interpreter raised about the server
 does not.
 
-## Tools
+### Tools
 
 Read-only, served by both entry points:
 
@@ -150,9 +181,9 @@ has them and no request pays for them.
 One resource is offered, `octave://environment`: version, platform, load path
 size and the packages this server loaded, as a single readable snapshot.
 
-## Evaluation
+### Evaluation
 
-### Workspaces
+#### Workspaces
 
 Code runs in a workspace named by an opaque handle. Every call names one:
 `new` opens a workspace and the reply gives its handle, and passing that handle
@@ -168,7 +199,7 @@ handle that has expired is a tool error that says so.
 Eight workspaces live at once and the oldest is dropped, which bounds how far
 back a handle can be reused rather than limiting what one may hold.
 
-### The deadline
+#### The deadline
 
 An evaluation still running after twenty seconds is stopped and the reply says
 so. What the code assigned before it was stopped is still in the workspace, and
@@ -185,7 +216,7 @@ honestly takes longer:
 It is not a tool argument, because that would cost tokens in every request and
 is a decision for whoever configures the server rather than for the model.
 
-### What contains it, and what does not
+#### What contains it, and what does not
 
 Output is captured at the file descriptors, so what evaluated code prints comes
 back in the reply rather than into the stream that carries the protocol. That
@@ -208,6 +239,13 @@ through the interpreter, so ordinary code and core's own `copyfile`, `ls` and
 `unpack` are unaffected. What is refused is `popen` opened for writing and an
 asynchronous `system`, whose output cannot be taken back at all. The read-only
 server is unaffected either way.
+
+### Conformance
+
+`MCP_PROTOCOL.md` records what this package implements and against which
+revision, quoting the specification and naming the source page for every
+answer. Revision `2026-07-28`, with the one deviation registered beside the
+sentence it departs from.
 
 ## License
 
