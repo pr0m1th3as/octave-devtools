@@ -41,6 +41,18 @@ under [What contains it](#what-contains-it-and-what-does-not).
 pkg install devtools
 ```
 
+Install the latest dev version from the Octave command prompt by typing
+
+```
+pkg install "https://github.com/pr0m1th3as/octave-devtools/archive/refs/heads/main.zip"
+```
+
+Load the package by typing
+
+```
+pkg load devtools
+```
+
 ## Model Context Protocol
 
 Two [Model Context Protocol](https://modelcontextprotocol.io) servers, exposing
