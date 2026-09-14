@@ -557,6 +557,44 @@ function T = toolTable (surface, sandboxed)
   t.inputSchema = isc;
   T{end+1} = t;
 
+  ## A sandboxed server's call runs no code text: a name and typed values in,
+  ## typed cells out, which is what a spreadsheet needs and all it may send
+  if (! sandboxed)
+    return;
+  endif
+  t = struct ();
+  t.name = "octave_call";
+  t.title = "Call an Octave Function";
+  t.description = strcat ("Call one Octave function by name on typed", ...
+    " arguments and return its outputs as typed cells, row by row. It runs", ...
+    " no code text. A range carries each cell's kind and value; dates and", ...
+    " times need the datatypes package.");
+  props = struct ();
+  props.function = struct ("type", "string", "description", ...
+    "Function name, such as mean or geom.area");
+  props.args = struct ("type", "array", "items", struct ("type", "object"), ...
+    "description", "Arguments in call order: number, string, logical or range");
+  props.nargout = struct ("type", "integer", "minimum", 1, "description", ...
+    "Outputs to return, 1 when omitted");
+  props.nullDate = struct ("type", "string", "description", ...
+    "Date that serial 0 stands for, YYYY-MM-DD, 1899-12-30 when omitted");
+  isc = struct ();
+  isc.type = "object";
+  isc.properties = props;
+  isc.required = {'function'};
+  isc.additionalProperties = false;
+  t.inputSchema = isc;
+  oprops = struct ();
+  oprops.outputs = struct ("type", "array", "items", struct ("type", "object"));
+  oprops.error = struct ("type", "string");
+  oprops.identifier = struct ("type", "string");
+  osc = struct ();
+  osc.type = "object";
+  osc.properties = oprops;
+  osc.required = {'outputs', 'error', 'identifier'};
+  t.outputSchema = osc;
+  T{end+1} = t;
+
 endfunction
 
 function t = instructionsText (surface, sandboxed)
@@ -668,6 +706,8 @@ function [res, code, msg, S] = toolsCall (params, era, S)
       [res, S] = callOctaveEval (args, era, S);
     case 'octave_test'
       res = callOctaveTest (args, era, S.sandboxed);
+    case 'octave_call'
+      res = callOctaveCall (args, era, S.sandboxed);
   endswitch
 
 endfunction
@@ -2094,6 +2134,128 @@ function q = quoteFor (str)
   q = strrep (str, "'", "''");
 endfunction
 
+function res = callOctaveCall (args, era, sandboxed)
+
+  ## The name and the values travel as variables into a fixed text, so that
+  ## nothing a request carries is ever evaluated as code.  Names refused here
+  ## are refused for a clear message only: the sandbox is the protection.
+  res = struct ();
+  if (strcmp (era, "modern"))
+    res.resultType = "complete";
+  endif
+
+  ## function is an Octave keyword, so jsondecode delivers that key as
+  ## xFunction; the name on the wire and in every message stays function
+  c_bad = unknownArgs (args, {'xFunction', 'args', 'nargout', 'nullDate'});
+  if (! isempty (c_bad))
+    c_bad = strrep (strrep (c_bad, "this tool", "octave_call"), ...
+                    "xFunction", "function");
+    res = callError (res, c_bad, "devtools:octave_call:arguments");
+    return;
+  endif
+
+  if (! (isfield (args, "xFunction") && ischar (args.xFunction) ...
+         && ! isempty (regexp (args.xFunction, ...
+                 '^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)*$', "once"))))
+    c_msg = strcat ("octave_call needs a function name, such as mean or", ...
+      " geom.area: letters, digits and underscores, dotted for a", ...
+      " namespace, and never code.");
+    res = callError (res, c_msg, "devtools:octave_call:arguments");
+    return;
+  endif
+  c_fn = args.xFunction;
+  c_blocked = {'system', 'unix', 'dos', 'popen', 'popen2', 'fork', 'exec', ...
+               'javaMethod', 'javaObject', 'mkoctfile', 'mex'};
+  if (any (strcmp (c_fn, c_blocked)))
+    c_msg = sprintf ("%s is not available in a sandbox.", c_fn);
+    res = callError (res, c_msg, "devtools:octave_call:arguments");
+    return;
+  endif
+
+  ## A call run only for its side effects has no use in a sandbox that
+  ## discards every trace of it
+  c_n = 1;
+  if (isfield (args, "nargout"))
+    if (! (isnumeric (args.nargout) && isscalar (args.nargout) ...
+           && args.nargout >= 1 && args.nargout == fix (args.nargout)))
+      res = callError (res, strcat ("nargout must be a whole number of at", ...
+        " least 1; a call that returns nothing is refused."), ...
+        "devtools:octave_call:arguments");
+      return;
+    endif
+    c_n = args.nargout;
+  endif
+
+  c_null = "1899-12-30";
+  if (isfield (args, "nullDate"))
+    c_null = args.nullDate;
+  endif
+  c_args = [];
+  if (isfield (args, "args"))
+    c_args = args.args;
+  endif
+  [c_values, c_msg] = devtools.__callDecode__ (c_args, c_null, ...
+                                               ! isempty (which ("datetime")));
+  if (! isempty (c_msg))
+    res = callError (res, c_msg, "devtools:octave_call:arguments");
+    return;
+  endif
+
+  W = struct ();
+  W.octave_call_fn = c_fn;
+  W.octave_call_args = c_values;
+  W.octave_call_nargout = c_n;
+  W.octave_call_nulldate = c_null;
+  c_code = sprintf ("%s\n", ...
+    "try", ...
+    "  octave_call_out = cell (1, octave_call_nargout);", ...
+    "  [octave_call_out{:}] = feval (octave_call_fn, octave_call_args{:});", ...
+    ["  [octave_call_result, octave_call_msg] = devtools.__callEncode__", ...
+     " (octave_call_out, octave_call_nulldate);"], ...
+    "  if (! isempty (octave_call_msg))", ...
+    ["    octave_call_error = struct ('message', octave_call_msg,", ...
+     " 'identifier', 'devtools:octave_call:output');"], ...
+    "  endif", ...
+    "catch octave_call_e", ...
+    ["  octave_call_error = struct ('message', octave_call_e.message,", ...
+     " 'identifier', octave_call_e.identifier);"], ...
+    "end_try_catch");
+
+  [W, ~, c_err, c_stopped, ~, c_info] = runContained (W, c_code, sandboxed);
+
+  if (c_stopped)
+    res = callError (res, sprintf (strcat ("the call to %s was stopped at", ...
+      " the deadline of %g seconds."), c_fn, c_info.deadline), ...
+      "devtools:octave_call:deadline");
+  elseif (! isempty (c_err))
+    res = callError (res, c_err, "devtools:octave_call:failed");
+  elseif (isfield (W, "octave_call_error"))
+    res = callError (res, W.octave_call_error.message, ...
+                     W.octave_call_error.identifier);
+  elseif (isfield (W, "octave_call_result"))
+    R = W.octave_call_result;
+    parts = cellfun (@(d) sprintf ("%d-by-%d %s", d.rows, d.cols, d.kind), ...
+                     R, "UniformOutput", false);
+    res.content = {textBlock(sprintf ("[call] %s returned %s", c_fn, ...
+                                      strjoin (parts, ", ")))};
+    res.isError = false;
+    res.structuredContent = struct ("outputs", {R}, "error", "", ...
+                                    "identifier", "");
+  else
+    res = callError (res, sprintf ("the call to %s returned no result.", ...
+                                   c_fn), "devtools:octave_call:failed");
+  endif
+
+endfunction
+
+function res = callError (res, msg, id)
+  ## The declared outputSchema holds for an error too
+  res.content = {textBlock(msg)};
+  res.isError = true;
+  res.structuredContent = struct ("outputs", {{}}, "error", msg, ...
+                                  "identifier", id);
+endfunction
+
 function [W, out, err, stopped, sub, cinfo] = runContained (W, code, sandboxed)
 
   ## A sandboxed server never evaluates in its own process
@@ -2307,12 +2469,12 @@ function forkedChild (W, code, d)
     warning ("off", "Octave:shadowed-function");
     addpath (shadowDir (), "-begin");
     [out, vars, err] = devtools.__evalIn__ (W, code, 0);
-    ## Plain values only: loading an object would run its class's code in the
-    ## server
+    ## Plain values only: numbers, logical values, text, and cell arrays and
+    ## structures of them.  Loading an object would run its class's code in
+    ## the server.
     names = fieldnames (vars);
     for i = 1:numel (names)
-      v = vars.(names{i});
-      if (! (isnumeric (v) || islogical (v) || ischar (v)))
+      if (! isPlain (vars.(names{i})))
         vars = rmfield (vars, names{i});
       endif
     endfor
@@ -2323,6 +2485,19 @@ function forkedChild (W, code, d)
   fflush (stderr);
   kill (getpid (), 9);
 
+endfunction
+
+function tf = isPlain (v)
+  if (isnumeric (v) || islogical (v) || ischar (v))
+    tf = true;
+  elseif (iscell (v))
+    tf = all (cellfun (@isPlain, v(:)));
+  elseif (isstruct (v))
+    c = struct2cell (v);
+    tf = all (cellfun (@isPlain, c(:)));
+  else
+    tf = false;
+  endif
 endfunction
 
 function wipeTmp ()
@@ -2636,6 +2811,93 @@ endfunction
 %! RESP = devtools.dispatch (mkreq ("server/discover", ""), S);
 %! s = RESP.result.instructions;
 %! assert_equal (isempty (strfind (s, "workspace")), true);
+
+%!function RESP = callCall (arguments)
+%!  S = devtools.__newSession__ ("eval");
+%!  S.sandboxed = true;
+%!  RESP = devtools.dispatch (mkreq ("tools/call", ...
+%!    ['"name":"octave_call","arguments":' arguments]), S);
+%!endfunction
+
+%!test
+%! ## Only a sandboxed server offers octave_call.
+%! S = devtools.__newSession__ ("eval");
+%! S.sandboxed = true;
+%! RESP = devtools.dispatch (mkreq ("tools/list", ""), S);
+%! nms = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
+%! assert_equal (any (strcmp (nms, "octave_call")), true);
+
+%!test
+%! RESP = devtools.dispatch (mkreq ("tools/list", ""), ...
+%!                           devtools.__newSession__ ("eval"));
+%! nms = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
+%! assert_equal (any (strcmp (nms, "octave_call")), false);
+
+%!test
+%! S = devtools.__newSession__ ("eval");
+%! RESP = devtools.dispatch (mkreq ("tools/call", ...
+%!   '"name":"octave_call","arguments":{"function":"mean"}'), S);
+%! assert_equal (RESP.error.message, "Unknown tool: octave_call");
+
+%!test
+%! S = devtools.__newSession__ ("eval");
+%! S.sandboxed = true;
+%! RESP = devtools.dispatch (mkreq ("tools/list", ""), S);
+%! T = RESP.result.tools{end};
+%! assert_equal (T.name, "octave_call");
+%! assert_equal (numel (T.description) <= 300, true);
+%! assert_equal (T.inputSchema.additionalProperties, false);
+
+%!test
+%! ## An error carries a report conforming to the declared outputSchema.
+%! RESP = callCall ('{}');
+%! sc = RESP.result.structuredContent;
+%! assert_equal (RESP.result.isError, true);
+%! assert_equal (sc.outputs, {});
+%! assert_equal (sc.identifier, "devtools:octave_call:arguments");
+%! assert_equal (sc.error, ["octave_call needs a function name, such as", ...
+%!                          " mean or geom.area: letters, digits and", ...
+%!                          " underscores, dotted for a namespace, and", ...
+%!                          " never code."]);
+
+%!test
+%! ## A name is never code.
+%! RESP = callCall ('{"function":"disp(1)"}');
+%! assert_equal (RESP.result.isError, true);
+%! assert_equal (strncmp (RESP.result.structuredContent.error, ...
+%!                        "octave_call needs a function name", 33), true);
+
+%!test
+%! RESP = callCall ('{"function":"system"}');
+%! assert_equal (RESP.result.structuredContent.error, ...
+%!               "system is not available in a sandbox.");
+
+%!test
+%! RESP = callCall ('{"function":"mean","nargout":0}');
+%! assert_equal (RESP.result.structuredContent.error, ...
+%!               ["nargout must be a whole number of at least 1; a call", ...
+%!                " that returns nothing is refused."]);
+
+%!test
+%! RESP = callCall ('{"function":"mean","nargout":1.5}');
+%! assert_equal (RESP.result.isError, true);
+
+%!test
+%! RESP = callCall ('{"function":"mean","code":"1"}');
+%! assert_equal (RESP.result.structuredContent.error, ...
+%!               ["octave_call takes only function, args, nargout,", ...
+%!                " nullDate, but received: code."]);
+
+%!test
+%! ## An error cell refuses the call before anything runs.
+%! A = ['{"function":"mean","args":[{"type":"range","rows":1,"cols":2,', ...
+%!      '"cells":[{"kind":"number","value":1},', ...
+%!      '{"kind":"error","value":"#DIV/0!"}]}]}'];
+%! RESP = callCall (A);
+%! sc = RESP.result.structuredContent;
+%! assert_equal (sc.identifier, "devtools:octave_call:arguments");
+%! assert_equal (sc.error, ["argument 1: the cell in row 1, column 2 holds", ...
+%!                          " the error #DIV/0!."]);
 
 %!test
 %! ## The advertised set is frozen API: renaming a tool silently breaks every

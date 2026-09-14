@@ -179,9 +179,13 @@
 ##
 ## The folders are on the load path, ahead of the packages.
 ##
-## A sandboxed server offers @code{octave_test} beside the read-only tools, and
-## not @code{octave_eval}: every call starts from the same state, so a
-## workspace would carry nothing.  Each call runs in a process forked for it,
+## A sandboxed server offers @code{octave_call} and @code{octave_test} beside
+## the read-only tools, and not @code{octave_eval}: every call starts from the
+## same state, so a workspace would carry nothing.  @code{octave_call} runs no
+## code text: it calls one function by name on typed arguments, a range
+## carrying each cell's kind and value, and returns each output as typed cells
+## row by row, dates as serial numbers from the document's null date.  Each
+## call runs in a process forked for it,
 ## which is killed when it returns or when the deadline passes, together with
 ## every process it started, and @file{/tmp} is emptied before the next call,
 ## so that nothing one call does reaches another.  A call that crashes the
@@ -381,6 +385,67 @@ endfunction
 %!   p = '\[tests\] (\d+) of \1 passed';
 %!   assert_equal ([isempty(strfind (out, "[stopped]")), ...
 %!                  isempty(regexp (out, p, "once"))], [false, false]);
+%! endif
+%!test
+%! ## octave_call over a range: an empty cell is NaN, a NaN result is null.
+%! if (canRun)
+%!   C = ['{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{', meta, ...
+%!        ',"name":"octave_call","arguments":{"function":"mean","args":[', ...
+%!        '{"type":"range","rows":2,"cols":3,"cells":[', ...
+%!        '{"kind":"number","value":1},{"kind":"number","value":2},', ...
+%!        '{"kind":"number","value":3},{"kind":"number","value":4},', ...
+%!        '{"kind":"empty"},{"kind":"number","value":6}]}]}}}'];
+%!   out = sandboxRun (exe, instdir, "", {C});
+%!   assert_equal (isempty (strfind (out, '"cells":[2.5,null,4.5]')), false);
+%! endif
+%!test
+%! ## Every output asked for comes back, in order.
+%! if (canRun)
+%!   C = ['{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{', meta, ...
+%!        ',"name":"octave_call","arguments":{"function":"max",', ...
+%!        '"nargout":2,', ...
+%!        '"args":[{"type":"range","rows":1,"cols":3,"cells":[', ...
+%!        '{"kind":"number","value":3},{"kind":"number","value":7},', ...
+%!        '{"kind":"number","value":5}]}]}}}'];
+%!   out = sandboxRun (exe, instdir, "", {C});
+%!   assert_equal (isempty (regexp (out, '"cells":\[7\].*"cells":\[2\]', ...
+%!                                  "once")), false);
+%! endif
+%!test
+%! ## An Octave error comes back with its message and identifier.
+%! if (canRun)
+%!   C = ['{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{', meta, ...
+%!        ',"name":"octave_call","arguments":{"function":"error","args":[', ...
+%!        '{"type":"string","value":"devtools:probe"},', ...
+%!        '{"type":"string","value":"boom"}]}}}'];
+%!   out = sandboxRun (exe, instdir, "", {C});
+%!   k = '"error":"boom","identifier":"devtools:probe"';
+%!   assert_equal ([isempty(strfind (out, '"isError":true')), ...
+%!                  isempty(strfind (out, k))], [false, false]);
+%! endif
+%!test
+%! ## Dates go in as datetime and come back as serial numbers.
+%! L = pkg ("list");
+%! if (canRun && any (cellfun (@(s) strcmp (s.name, "datatypes"), L)))
+%!   C = ['{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{', meta, ...
+%!        ',"name":"octave_call","arguments":{"function":"max","args":[', ...
+%!        '{"type":"range","rows":1,"cols":2,"cells":[', ...
+%!        '{"kind":"date","value":46279},{"kind":"date","value":46300}]}]}}}'];
+%!   env = "DEVTOOLS_SANDBOX_PACKAGES=datatypes";
+%!   out = sandboxRun (exe, instdir, env, {C});
+%!   assert_equal ([isempty(strfind (out, '"kind":"datetime"')), ...
+%!                  isempty(strfind (out, '"cells":[46300]'))], [false, false]);
+%! endif
+%!test
+%! ## Without datatypes, a range of dates is refused.
+%! if (canRun)
+%!   C = ['{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{', meta, ...
+%!        ',"name":"octave_call","arguments":{"function":"max","args":[', ...
+%!        '{"type":"range","rows":1,"cols":1,"cells":[', ...
+%!        '{"kind":"date","value":46279}]}]}}}'];
+%!   out = sandboxRun (exe, instdir, "", {C});
+%!   p = "need the datatypes package";
+%!   assert_equal (isempty (strfind (out, p)), false);
 %! endif
 
 %!error <devtools\.mcpEval: invalid number of input arguments\.> ...
