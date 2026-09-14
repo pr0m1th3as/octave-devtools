@@ -169,7 +169,9 @@
 ## directory that was not mounted, and it refuses to serve if any check fails.
 ## The limit is this process's size plus 2 GB, or plus the number of gigabytes
 ## in @env{DEVTOOLS_SANDBOX_MEMORY}, and an allocation beyond it fails with
-## Octave's own out-of-memory error.  It lists only the packages that are
+## Octave's own out-of-memory error.  @file{/tmp}, whose files are memory too,
+## holds at most 2 GB, or the number of gigabytes in
+## @env{DEVTOOLS_SANDBOX_TMP}.  It lists only the packages that are
 ## mounted, so loading any other says it is not installed.  Every result then
 ## carries @code{_meta["io.github.pr0m1th3as.devtools/sandbox"]} set to true,
 ## which is absent from a server that is not sandboxed, and the

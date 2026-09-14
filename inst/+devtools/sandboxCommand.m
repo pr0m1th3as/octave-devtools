@@ -52,6 +52,11 @@
 ## algebra library reserved for this machine's threads, which is why the limit
 ## is relative rather than fixed.
 ##
+## @file{/tmp} holds at most 2 GB, since the files in it are memory that the
+## address-space limit does not count.  Set @env{DEVTOOLS_SANDBOX_TMP} to a
+## number of gigabytes above 0 and up to 1024 to change the size; any other
+## value is ignored.
+##
 ## @var{FOLDERS} may not be the home directory itself, nor any folder that
 ## contains Octave's history file, which holds everything typed at a prompt.
 ## Nor may a folder lie inside @file{/tmp}, @file{/proc} or @file{/dev}, which
@@ -154,6 +159,7 @@ function [PROG, ARGS] = sandboxCommand (FOLDERS, PACKAGES)
   H.lang = getenv ("LANG");
   H.evalSeconds = getenv ("DEVTOOLS_EVAL_SECONDS");
   H.memoryBudget = getenv ("DEVTOOLS_SANDBOX_MEMORY");
+  H.tmpBudget = getenv ("DEVTOOLS_SANDBOX_TMP");
   tok = regexp (fileread ("/proc/self/status"), 'VmSize:\s*(\d+)', ...
                 "tokens", "once");
   H.vmSize = str2double (tok{1}) * 1024;

@@ -2270,10 +2270,16 @@ function [W, out, err, stopped, sub, cinfo] = runForked (W, code)
   f = fullfile (d, "result");
   W = struct ();
   if (exist (f, "file") == 2)
-    R = load (f);
-    out = R.out;
-    err = R.err;
-    W = R.vars;
+    ## A result is cut short when the call has filled /tmp
+    try
+      R = load (f);
+      out = R.out;
+      err = R.err;
+      W = R.vars;
+    catch e
+      err = sprintf ("the result of the call could not be read: %s", ...
+                     e.message);
+    end_try_catch
   elseif (killed)
     stopped = true;
   elseif (WIFSIGNALED (status))

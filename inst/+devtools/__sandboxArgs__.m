@@ -146,12 +146,7 @@ function [ARGS, ERRMSG] = __sandboxArgs__ (HOST, FOLDERS, PACKAGES)
   ## The limit is set once, on the whole sandbox, and every forked call
   ## inherits it.  The caller's size already holds what OpenBLAS reserved for
   ## this machine's threads, so the budget is added to it, in gigabytes.
-  budget = 2;
-  v = str2double (HOST.memoryBudget);
-  if (isscalar (v) && ! isnan (v) && v > 0 && v <= 1024)
-    budget = v;
-  endif
-  limit = HOST.vmSize + round (budget * 1024^3);
+  limit = HOST.vmSize + gigabytes (HOST.memoryBudget);
 
   A = {sprintf("--as=%d", limit), HOST.bwrap, ...
        '--unshare-all', '--die-with-parent', '--new-session', '--clearenv', ...
@@ -218,11 +213,24 @@ function [ARGS, ERRMSG] = __sandboxArgs__ (HOST, FOLDERS, PACKAGES)
   ## the in-memory /tmp is the only place a call can write.  The working
   ## directory is that read-only root: Octave searches the working directory
   ## before the load path, so a writable one would let a file a call leaves
-  ## shadow a function the server itself calls.
-  ARGS = [A, {'--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', ...
+  ## shadow a function the server itself calls.  /tmp is sized, since what it
+  ## holds is memory the address-space limit does not count.
+  ARGS = [A, {'--proc', '/proc', '--dev', '/dev', ...
+              '--size', sprintf("%d", gigabytes (HOST.tmpBudget)), ...
+              '--tmpfs', '/tmp', ...
               '--chdir', '/', '--remount-ro', '/', ...
               HOST.octaveCli, '--no-history', '--no-init-file', '-q'}];
 
+endfunction
+
+## Bytes in TEXT gigabytes, or in 2 GB where TEXT is not a number above 0 and
+## up to 1024.
+function b = gigabytes (TEXT)
+  v = str2double (TEXT);
+  if (! (isscalar (v) && ! isnan (v) && v > 0 && v <= 1024))
+    v = 2;
+  endif
+  b = round (v * 1024^3);
 endfunction
 
 ## True if path P is folder D or lies inside it.
@@ -238,6 +246,7 @@ endfunction
 %! H.bwrap = "/usr/bin/bwrap";
 %! H.vmSize = 3 * 1024^3;
 %! H.memoryBudget = "";
+%! H.tmpBudget = "";
 %! H.octaveCli = "/usr/local/bin/octave-cli-11.3.0";
 %! H.roDirs = {'/usr/lib', '/usr/share', '/usr/local/lib', '/usr/lib/octave'};
 %! H.roFiles = {'/usr/local/bin/octave-cli-11.3.0', ...
@@ -310,6 +319,26 @@ endfunction
 %! A = devtools.__sandboxArgs__ (H1, {}, {});
 %! assert_equal (A{1}, sprintf ("--as=%d", 5 * 1024^3));
 %!test
+%! ## /tmp holds 2 GB, sized just before it is mounted.
+%! A = devtools.__sandboxArgs__ (H, {}, {});
+%! assert_equal (hasSeq (A, {'--size', '2147483648', '--tmpfs', '/tmp'}), true);
+%!test
+%! H1 = H;
+%! H1.tmpBudget = "0.5";
+%! A = devtools.__sandboxArgs__ (H1, {}, {});
+%! assert_equal (hasSeq (A, {'--size', '536870912', '--tmpfs', '/tmp'}), true);
+%!test
+%! H1 = H;
+%! H1.tmpBudget = "lots";
+%! A = devtools.__sandboxArgs__ (H1, {}, {});
+%! assert_equal (hasSeq (A, {'--size', '2147483648', '--tmpfs', '/tmp'}), true);
+%!test
+%! ## The two budgets are independent.
+%! H1 = H;
+%! H1.tmpBudget = "4";
+%! A = devtools.__sandboxArgs__ (H1, {}, {});
+%! assert_equal (A{1}, sprintf ("--as=%d", 5 * 1024^3));
+%!test
 %! A = devtools.__sandboxArgs__ (H, {}, {});
 %! assert_equal (A(3:6), {'--unshare-all', '--die-with-parent', ...
 %!                        '--new-session', '--clearenv'});
@@ -320,9 +349,9 @@ endfunction
 %!test
 %! ## The root is remounted read-only after everything written into it.
 %! A = devtools.__sandboxArgs__ (H, {}, {});
-%! S = {'--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', ...
-%!      '--chdir', '/', '--remount-ro', '/'};
-%! assert_equal (A(end-13:end-4), S);
+%! S = {'--proc', '/proc', '--dev', '/dev', '--size', '2147483648', ...
+%!      '--tmpfs', '/tmp', '--chdir', '/', '--remount-ro', '/'};
+%! assert_equal (A(end-15:end-4), S);
 %!test
 %! A = devtools.__sandboxArgs__ (H, {}, {});
 %! assert_equal (envOf (A, "HOME"), "/home/u");
