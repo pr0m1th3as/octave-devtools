@@ -47,6 +47,49 @@
             window.location.pathname + window.location.search);
         }
       });
+      // Let the browser's find-in-page reach the text inside a collapsed
+      // panel.  The attribute "hidden=until-found" is what makes content
+      // searchable and revealable; the style block below clears the
+      // "display: none" that would otherwise stop the attribute meaning
+      // anything, a box that is not generated having nothing to reveal.  Set
+      // it only where it is understood, which "content-visibility" is no test
+      // for, Firefox having shipped the two apart.  Where it is not, the panel
+      // keeps the user agent's plain [hidden] and the page behaves as before.
+      window.addEventListener ("DOMContentLoaded", () => {
+        if (! ("onbeforematch" in document.body)) { return; }
+        document.documentElement.classList.add ("until-found");
+        let panels = document.querySelectorAll (
+          ".collapse:not(.show):not(.navbar-collapse)");
+        for (let el of panels) {
+          el.setAttribute ("hidden", "until-found");
+          // Fired on a find-in-page hit, before the browser drops the
+          // attribute and scrolls to it.  Bootstrap keeps a panel's state in
+          // its class list, so adding the class here opens the panel in the
+          // same frame and leaves the button shutting it correctly afterwards.
+          // Bootstrap's own show () would animate against that scroll, and the
+          // attribute once dropped, "display: none" would take the panel back
+          // part way through.
+          el.addEventListener ("beforematch", () => {
+            el.classList.add ("show");
+            for (let b of document.querySelectorAll ("[data-bs-target]")) {
+              if (b.getAttribute ("data-bs-target") === "#" + el.id) {
+                b.setAttribute ("aria-expanded", "true");
+              }
+            }
+          });
+        }
+        // Drop the attribute before Bootstrap measures the panel it is opening,
+        // which it does after firing this; a revealable one measures nothing.
+        document.addEventListener ("show.bs.collapse", (e) => {
+          e.target.removeAttribute ("hidden");
+        });
+        // Restore it once the panel is shut, rather than while it is shutting.
+        document.addEventListener ("hidden.bs.collapse", (e) => {
+          if (! e.target.classList.contains ("navbar-collapse")) {
+            e.target.setAttribute ("hidden", "until-found");
+          }
+        });
+      });
     </script>
     <style>
     h5.fs {
@@ -90,6 +133,19 @@
     }
     [id^="togList"]:checked ~ .list{
       display:block;                        /* SHOW LIST (IF CHECKED) */
+    }
+    /* Bootstrap hides a collapsed panel with "display: none", which generates
+       no box, so the "content-visibility: hidden" the user agent gives
+       "hidden=until-found" could never apply and the text would stay beyond
+       find-in-page.  Clear that one declaration, and only where the script
+       above has found the attribute to be understood: an attribute selector
+       matches a value the browser does not understand, so an ungated rule
+       would leave every panel of an older browser standing open.  The
+       "!important" is required rather than decoration: the reboot carries
+       "[hidden] {display: none !important}", which the attribute itself brings
+       into play, and only another "!important" can outrank it. */
+    html.until-found .collapse[hidden="until-found"]:not(.show) {
+      display: block !important;
     }
     </style>
   </head>
@@ -177,6 +233,7 @@
             <div class="card-body">
 <dl>
 <dt><code><h5 class="fs">devtools: <b>devtools.mcpEval</b> ()</code></h5></dt>
+<dt><code><h5 class="fs">devtools: <b>devtools.mcpEval</b> (<code>&quot;Sandbox&quot;</code>, <var>TF</var>)</code></h5></dt>
 </dl>
 <p> Serve the Model Context Protocol on standard input and output, with
  evaluation.
@@ -299,18 +356,75 @@
  remains.  Where the oct-files could not be built there is no deadline at
  all.
 </p>
+<p>  Sandbox
+</p>
+<p> <code>devtools.mcpEval (&quot;Sandbox&quot;, true)</code> serves the same protocol from
+ inside a sandbox, on Linux only and with <code>bwrap</code> from the
+ <code>bubblewrap</code> package installed.  Before serving, the server replaces its
+ own process with a sandboxed <code>octave-cli</code> built by
+ <code>devtools.sandboxCommand</code>.  The process, its standard streams and its
+ exit code carry through unchanged, so a host launches it like the plain
+ server:
+</p>
+<table><tr><td>&nbsp;</td><td><pre class="example"> octave-cli -q --no-init-file \
+   --eval &quot;pkg load devtools; devtools.mcpEval ('Sandbox', true)&quot;
+</pre></td></tr></table>
+
+<p> The folders it may read and the packages it loads are set in the launch
+ environment, never in the command.  <code>DEVTOOLS_SANDBOX_FOLDERS</code> holds
+ absolute folder paths separated by <code>pathsep</code>, and
+ <code>DEVTOOLS_SANDBOX_PACKAGES</code> holds package names separated by commas,
+ loaded in that order.  Nothing checks whether two of them conflict.  See
+ <code>devtools.sandboxCommand</code> for what is mounted and what is refused.
+</p>
+<p> Before it answers anything, the sandboxed server checks from inside that
+ there is no <code>/usr/bin</code>, no network interface besides the loopback, an
+ address-space limit in force, and nothing under <code>/home</code> or the home
+ directory that was not mounted, and it refuses to serve if any check fails.
+ The limit is this process&rsquo;s size plus 2 GB, or plus the number of gigabytes
+ in <code>DEVTOOLS_SANDBOX_MEMORY</code>, and an allocation beyond it fails with
+ Octave&rsquo;s own out-of-memory error.  <code>/tmp</code>, whose files are memory too,
+ holds at most 2 GB, or the number of gigabytes in
+ <code>DEVTOOLS_SANDBOX_TMP</code>.  It lists only the packages that are
+ mounted, so loading any other says it is not installed.  Every result then
+ carries <code>_meta[&quot;io.github.pr0m1th3as.devtools/sandbox&quot;]</code> set to true,
+ which is absent from a server that is not sandboxed, and the
+ <code>instructions</code> say so.
+</p>
+<p> The folders are on the load path, ahead of the packages.
+</p>
+<p> A sandboxed server offers <code>octave_call</code> and <code>octave_test</code> beside
+ the read-only tools, and not <code>octave_eval</code>: every call starts from the
+ same state, so a workspace would carry nothing.  <code>octave_call</code> is for
+ programs, which read its structured result, its text being a summary without
+ the values.  It runs no code text: it calls one function by name on typed
+ arguments, a range carrying each cell&rsquo;s kind and value, and returns each
+ output as typed cells
+ row by row, dates as serial numbers from the document&rsquo;s null date, with
+ anything the function printed beside them.  Each call runs in a process
+ forked for it,
+ which is killed when it returns or when the deadline passes, together with
+ every process it started, and <code>/tmp</code> is emptied before the next call,
+ so that nothing one call does reaches another.  A call that crashes the
+ interpreter comes back as an error, and the server keeps serving.
+</p>
+<p> <code>devtools.mcpEval (&quot;Sandbox&quot;, false)</code> serves exactly as
+ <code>devtools.mcpEval ()</code>.
+</p>
 <p>  What this is not
 </p>
-<p> None of this is a sandbox.  Evaluated code can read and write files, use the
- network and consume memory exactly as any code in this interpreter can.
- Configure this server only where that is acceptable.
+<p> Unless started with <code>&quot;Sandbox&quot;</code>, none of this is a sandbox.  Evaluated
+ code can read and write files, use the network and consume memory exactly as
+ any code in this interpreter can.  Configure this server only where that is
+ acceptable.
 </p>
 <p> <strong>See also: </strong>
   <a href="devtools.mcp.html">devtools.mcp</a>, 
-  <a href="devtools.selftest.html">devtools.selftest</a>
+  <a href="devtools.selftest.html">devtools.selftest</a>, 
+devtools.sandboxCommand
 </p>
 <p><strong>Source Code: </strong>
-  <a href="https://github.com/pr0m1th3as/octave-devtools/tree/main/inst/+devtools/mcpEval.m">devtools.mcpEval</a>
+  <a href="https://github.com/pr0m1th3as/octave-devtools/blob/5602cba/inst/+devtools/mcpEval.m">devtools.mcpEval</a>
 </div>
 
             </div>
