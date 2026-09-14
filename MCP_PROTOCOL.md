@@ -73,7 +73,7 @@ This is a better design than the one it replaces and it composes with the
 worker-process containment of Phase 5 rather than fighting it, since a handle
 was always going to be the honest name for "which interpreter".
 
-**One deviation, recorded here beside the sentence it deviates from.** The
+**The first deviation, recorded here beside the sentence it deviates from.** The
 quoted text is a **SHOULD**, and what is implemented is not a separate creation
 tool: `octave_eval` takes a **required** `workspace` argument that is either a
 handle or the literal `new`, and the reply to a `new` gives the handle back.
@@ -328,6 +328,29 @@ tabular data, and the specification's guidance is to return both:
 
 This was not in the plan and should be. It costs an `outputSchema` per tool and
 makes the results machine-checkable at the client.
+
+**The second deviation: the text block is a summary, not the serialized JSON.**
+Every tool here that returns `structuredContent` (`octave_which`,
+`octave_search`, `octave_pkg`, `octave_registry` and `octave_call`) puts a
+short summary in its text block instead of the JSON the sentence quoted above
+asks for. The sentence reads word for word the same under "Structured Content"
+in `2025-11-25`, the legacy revision this server also speaks, and it gives its
+own reason: a client that does not know `structuredContent` sees only
+`content`. It is a **SHOULD**, and it is not followed, for a reason that
+depends on who reads the result:
+
+- **The four introspection tools are read by a model.** Their summary carries
+  everything a model uses, so a client that ignores `structuredContent` loses
+  nothing, and it is shorter than the JSON on most calls, which matters because
+  a tool result stays in the model's context for the rest of the session.
+  Measured 2026-09-14, summary against JSON: `octave_which` for `mean` 96
+  against 254 bytes, the `octave_pkg` listing 327 against 992, `octave_search`
+  for `regression` 446 against 496, `octave_registry` for `kmeans` 249 against
+  152.
+- **`octave_call` is read by a program**, such as `octave-calc`, which reads
+  `structuredContent`. It is for programs only: its summary says what came back
+  and carries no values, and its description says so, so that a model offered
+  it is not misled.
 
 **An output schema binds error results too.** From `server/tools`, under
 "Output Schema":

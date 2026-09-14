@@ -216,7 +216,7 @@ two above:
 
 | Tool | Answers |
 |------|---------|
-| `octave_call` | what one function returns for typed arguments, as typed cells, with what it printed |
+| `octave_call` | for programs: what one function returns for typed arguments, as typed cells in `structuredContent`, with what it printed |
 | `octave_test` | how many of a function's built-in tests pass, and what failed |
 
 The Octave version and platform are not a tool: they are stated in the
@@ -324,7 +324,9 @@ process's size plus 2 GB, and `/tmp` holds at most 2 GB; set
 gigabytes to change them.
 
 A sandboxed server offers `octave_call` and `octave_test`, and not
-`octave_eval`. `octave_call` takes a function name, never code:
+`octave_eval`. `octave_call` is for programs, such as `octave-calc`, not for
+an assistant: its results are in `structuredContent`, and its text is a
+one-line summary without the values. It takes a function name, never code:
 
 | Argument | What it holds |
 |---|---|
@@ -352,7 +354,7 @@ and `feval`, are refused by name.
 
 `MCP_PROTOCOL.md` records what this package implements and against which
 revision, quoting the specification and naming the source page for every
-answer. Revision `2026-07-28`, with the one deviation registered beside the
+answer. Revision `2026-07-28`, with two deviations, each registered beside the
 sentence it departs from.
 
 ## License

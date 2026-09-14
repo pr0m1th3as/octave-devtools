@@ -181,9 +181,11 @@
 ##
 ## A sandboxed server offers @code{octave_call} and @code{octave_test} beside
 ## the read-only tools, and not @code{octave_eval}: every call starts from the
-## same state, so a workspace would carry nothing.  @code{octave_call} runs no
-## code text: it calls one function by name on typed arguments, a range
-## carrying each cell's kind and value, and returns each output as typed cells
+## same state, so a workspace would carry nothing.  @code{octave_call} is for
+## programs, which read its structured result, its text being a summary without
+## the values.  It runs no code text: it calls one function by name on typed
+## arguments, a range carrying each cell's kind and value, and returns each
+## output as typed cells
 ## row by row, dates as serial numbers from the document's null date, with
 ## anything the function printed beside them.  Each call runs in a process
 ## forked for it,
