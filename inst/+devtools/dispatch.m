@@ -3640,13 +3640,24 @@ endfunction
 %! ## The third state: a name that is not on the load path but does sit in an
 %! ## installed package. Answering "not found" there is what makes a model
 %! ## conclude a function does not exist when it merely is not loaded.
+%! ## A name the load path already resolves, such as datatypes' @cell/disp,
+%! ## is not in that state, and a file in a class, namespace or private folder
+%! ## is not reached by its bare name, so each of those is passed over.
 %! L = pkg ("list");
 %! target = "";
+%! skip = '[/\\]([@+]|private([/\\]|$))';
 %! for i = 1:numel (L)
 %!   if (! L{i}.loaded)
 %!     d = dir (fullfile (L{i}.dir, "**", "*.m"));
-%!     if (! isempty (d))
-%!       [~, target] = fileparts (d(1).name);
+%!     for j = 1:numel (d)
+%!       [~, name] = fileparts (d(j).name);
+%!       if (isempty (regexp (d(j).folder, skip, "once")) ...
+%!           && isempty (which (name)))
+%!         target = name;
+%!         break;
+%!       endif
+%!     endfor
+%!     if (! isempty (target))
 %!       break;
 %!     endif
 %!   endif
