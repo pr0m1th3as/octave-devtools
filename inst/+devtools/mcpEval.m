@@ -164,9 +164,12 @@
 ## @code{devtools.sandboxCommand} for what is mounted and what is refused.
 ##
 ## Before it answers anything, the sandboxed server checks from inside that
-## there is no @file{/usr/bin}, no network interface besides the loopback, and
-## nothing under @file{/home} or the home directory that was not mounted, and
-## it refuses to serve if any check fails.  It lists only the packages that are
+## there is no @file{/usr/bin}, no network interface besides the loopback, an
+## address-space limit in force, and nothing under @file{/home} or the home
+## directory that was not mounted, and it refuses to serve if any check fails.
+## The limit is this process's size plus 2 GB, or plus the number of gigabytes
+## in @env{DEVTOOLS_SANDBOX_MEMORY}, and an allocation beyond it fails with
+## Octave's own out-of-memory error.  It lists only the packages that are
 ## mounted, so loading any other says it is not installed.  Every result then
 ## carries @code{_meta["io.github.pr0m1th3as.devtools/sandbox"]} set to true,
 ## which is absent from a server that is not sandboxed, and the
@@ -180,7 +183,7 @@
 ## Unless started with @qcode{"Sandbox"}, none of this is a sandbox.  Evaluated
 ## code can read and write files, use the network and consume memory exactly as
 ## any code in this interpreter can.  Configure this server only where that is
-## acceptable.  A sandboxed server does not cap memory either.
+## acceptable.
 ##
 ## @seealso{devtools.mcp, devtools.selftest, devtools.sandboxCommand}
 ## @end deftypefn

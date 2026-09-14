@@ -25,9 +25,10 @@
 ## gathers, @var{FOLDERS} a cell array of canonical folder paths and
 ## @var{PACKAGES} a cell array of package names.  Nothing here touches the
 ## filesystem, which is what lets the assembly be tested with made-up facts on
-## any machine.  @var{ARGS} is a row cell array ending with the
-## @file{octave-cli} command, to which the caller appends its @option{--eval}
-## text.
+## any machine.  @var{ARGS} is the row cell array of @command{prlimit}
+## arguments: the address-space limit, then the path of @command{bwrap} and its
+## arguments, ending with the @file{octave-cli} command, to which the caller
+## appends its @option{--eval} text.
 ##
 ## A refusal is returned as @var{ERRMSG}, the body of an error message, with
 ## @var{ARGS} empty, so that the caller raises it under its own name.
@@ -142,7 +143,18 @@ function [ARGS, ERRMSG] = __sandboxArgs__ (HOST, FOLDERS, PACKAGES)
   endfor
   masks = masks(! nested);
 
-  A = {'--unshare-all', '--die-with-parent', '--new-session', '--clearenv', ...
+  ## The limit is set once, on the whole sandbox, and every forked call
+  ## inherits it.  The caller's size already holds what OpenBLAS reserved for
+  ## this machine's threads, so the budget is added to it, in gigabytes.
+  budget = 2;
+  v = str2double (HOST.memoryBudget);
+  if (isscalar (v) && ! isnan (v) && v > 0 && v <= 1024)
+    budget = v;
+  endif
+  limit = HOST.vmSize + round (budget * 1024^3);
+
+  A = {sprintf("--as=%d", limit), HOST.bwrap, ...
+       '--unshare-all', '--die-with-parent', '--new-session', '--clearenv', ...
        '--setenv', 'HOME', HOST.home};
   if (! isempty (HOST.lang))
     A = [A, {'--setenv', 'LANG', HOST.lang}];
@@ -222,6 +234,8 @@ endfunction
 
 %!shared H
 %! H.bwrap = "/usr/bin/bwrap";
+%! H.vmSize = 3 * 1024^3;
+%! H.memoryBudget = "";
 %! H.octaveCli = "/usr/local/bin/octave-cli-11.3.0";
 %! H.roDirs = {'/usr/lib', '/usr/share', '/usr/local/lib', '/usr/lib/octave'};
 %! H.roFiles = {'/usr/local/bin/octave-cli-11.3.0', ...
@@ -264,8 +278,38 @@ endfunction
 %!endfunction
 
 %!test
+%! ## The limit is the caller's size plus 2 GB, ahead of bwrap.
 %! A = devtools.__sandboxArgs__ (H, {}, {});
-%! assert_equal (A(1:4), {'--unshare-all', '--die-with-parent', ...
+%! assert_equal (A(1:2), {sprintf("--as=%d", 5 * 1024^3), '/usr/bin/bwrap'});
+%!test
+%! H1 = H;
+%! H1.memoryBudget = "4";
+%! A = devtools.__sandboxArgs__ (H1, {}, {});
+%! assert_equal (A{1}, sprintf ("--as=%d", 7 * 1024^3));
+%!test
+%! H1 = H;
+%! H1.memoryBudget = "0.5";
+%! A = devtools.__sandboxArgs__ (H1, {}, {});
+%! assert_equal (A{1}, sprintf ("--as=%d", 3.5 * 1024^3));
+%!test
+%! ## A budget that is not a number is ignored.
+%! H1 = H;
+%! H1.memoryBudget = "lots";
+%! A = devtools.__sandboxArgs__ (H1, {}, {});
+%! assert_equal (A{1}, sprintf ("--as=%d", 5 * 1024^3));
+%!test
+%! H1 = H;
+%! H1.memoryBudget = "0";
+%! A = devtools.__sandboxArgs__ (H1, {}, {});
+%! assert_equal (A{1}, sprintf ("--as=%d", 5 * 1024^3));
+%!test
+%! H1 = H;
+%! H1.memoryBudget = "2048";
+%! A = devtools.__sandboxArgs__ (H1, {}, {});
+%! assert_equal (A{1}, sprintf ("--as=%d", 5 * 1024^3));
+%!test
+%! A = devtools.__sandboxArgs__ (H, {}, {});
+%! assert_equal (A(3:6), {'--unshare-all', '--die-with-parent', ...
 %!                        '--new-session', '--clearenv'});
 %!test
 %! A = devtools.__sandboxArgs__ (H, {}, {});

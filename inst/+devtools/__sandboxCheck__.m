@@ -23,7 +23,8 @@
 ##
 ## Returns a cell array naming every check that failed, empty when all pass.
 ## There must be no @file{/usr/bin} or @file{/bin}, no network interface
-## besides the loopback in @file{/proc/net/dev}, and nothing under each folder
+## besides the loopback in @file{/proc/net/dev}, an address-space limit in
+## @file{/proc/self/limits}, and nothing under each folder
 ## of @var{ROOTS} except @var{ALLOWED}, the paths that were mounted, and the
 ## folders leading to them.  A folder that cannot be read counts as visible.
 ##
@@ -59,6 +60,16 @@ function FAILED = __sandboxCheck__ (ALLOWED, ROOTS)
     if (! all (strcmp (names, "lo")))
       FAILED{end+1} = "a network interface other than lo is present";
     endif
+  endif
+
+  try
+    lim = fileread ("/proc/self/limits");
+  catch
+    lim = "";
+  end_try_catch
+  tok = regexp (lim, 'Max address space\s+(\S+)', "tokens", "once");
+  if (isempty (tok) || strcmp (tok{1}, "unlimited"))
+    FAILED{end+1} = "no address-space limit is set";
   endif
 
   for i = 1:numel (ROOTS)
@@ -115,6 +126,15 @@ endfunction
 %! if (isunix () && ! ismac ())
 %!   F = devtools.__sandboxCheck__ ({}, {});
 %!   assert_equal (any (strcmp (F, "/usr/bin is present")), true);
+%! endif
+%!test
+%! ## Reported exactly when this process runs without an address-space limit.
+%! if (isunix () && ! ismac ())
+%!   tok = regexp (fileread ("/proc/self/limits"), ...
+%!                 'Max address space\s+(\S+)', "tokens", "once");
+%!   F = devtools.__sandboxCheck__ ({}, {});
+%!   assert_equal (any (strcmp (F, "no address-space limit is set")), ...
+%!                 strcmp (tok{1}, "unlimited"));
 %! endif
 %!test
 %! ## A mounted folder and the folders leading to it are expected.

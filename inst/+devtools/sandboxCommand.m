@@ -21,8 +21,9 @@
 ## Build the command that runs @file{octave-cli} inside a sandbox.
 ##
 ## @code{[@var{PROG}, @var{ARGS}] = devtools.sandboxCommand (@var{FOLDERS},
-## @var{PACKAGES})} returns the path of @command{bwrap} as @var{PROG} and its
-## arguments as the row cell array @var{ARGS}, ending with the @file{octave-cli}
+## @var{PACKAGES})} returns the path of @command{prlimit} as @var{PROG} and its
+## arguments as the row cell array @var{ARGS}: an address-space limit, then the
+## path of @command{bwrap} and its arguments, ending with the @file{octave-cli}
 ## command.  Append @option{--eval} and its text to @var{ARGS} and pass both to
 ## @code{exec}, which supplies the program name itself.
 ##
@@ -42,6 +43,14 @@
 ## whose @file{/tmp/work} is the working directory, so nothing on the host disk
 ## can be written.  The sandboxed process dies with its parent.
 ##
+## The address space of the sandbox, and of every process forked inside it, is
+## limited to the size of the calling process plus a budget of 2 GB.  Set
+## @env{DEVTOOLS_SANDBOX_MEMORY} in the calling environment to a number of
+## gigabytes above 0 and up to 1024 to change the budget; any other value is
+## ignored.  The size of the calling process already holds what the linear
+## algebra library reserved for this machine's threads, which is why the limit
+## is relative rather than fixed.
+##
 ## @var{FOLDERS} may not be the home directory itself, nor any folder that
 ## contains Octave's history file, which holds everything typed at a prompt.
 ## Nor may a folder lie inside @file{/tmp}, @file{/proc} or @file{/dev}, which
@@ -54,7 +63,8 @@
 ## mounted as well and named in @env{DEVTOOLS_SANDBOX_SELF}.
 ##
 ## A sandbox is available on Linux only, and needs @command{bwrap} from the
-## @code{bubblewrap} package on the @env{PATH}.
+## @code{bubblewrap} package and @command{prlimit} from @code{util-linux} on the
+## @env{PATH}.
 ##
 ## @seealso{devtools.mcpEval}
 ## @end deftypefn
@@ -90,14 +100,18 @@ function [PROG, ARGS] = sandboxCommand (FOLDERS, PACKAGES)
   if (! strcmp (u.sysname, "Linux"))
     error ("devtools.sandboxCommand: a sandbox is available on Linux only.");
   endif
-  PROG = file_in_path (getenv ("PATH"), "bwrap");
-  if (isempty (PROG))
+  H.bwrap = file_in_path (getenv ("PATH"), "bwrap");
+  if (isempty (H.bwrap))
     error (strcat ("devtools.sandboxCommand: 'bwrap' is not on the PATH;", ...
                    " install bubblewrap."));
   endif
+  PROG = file_in_path (getenv ("PATH"), "prlimit");
+  if (isempty (PROG))
+    error (strcat ("devtools.sandboxCommand: 'prlimit' is not on the PATH;", ...
+                   " install util-linux."));
+  endif
 
   c = __octave_config_info__ ();
-  H.bwrap = PROG;
   H.octaveCli = canonicalize_file_name (fullfile (c.bindir, "octave-cli"));
   if (isempty (H.octaveCli))
     error ("devtools.sandboxCommand: 'octave-cli' is not in '%s'.", c.bindir);
@@ -138,6 +152,10 @@ function [PROG, ARGS] = sandboxCommand (FOLDERS, PACKAGES)
   H.history = history_file ();
   H.lang = getenv ("LANG");
   H.evalSeconds = getenv ("DEVTOOLS_EVAL_SECONDS");
+  H.memoryBudget = getenv ("DEVTOOLS_SANDBOX_MEMORY");
+  tok = regexp (fileread ("/proc/self/status"), 'VmSize:\s*(\d+)', ...
+                "tokens", "once");
+  H.vmSize = str2double (tok{1}) * 1024;
 
   ## Local packages come first, which is the one pkg load takes.
   [localPkgs, globalPkgs] = pkg ("list");
@@ -161,12 +179,18 @@ endfunction
 ## A real command needs Linux and bwrap.
 %!shared canRun
 %! canRun = isunix () && ! ismac () ...
-%!          && ! isempty (file_in_path (getenv ("PATH"), "bwrap"));
+%!          && ! isempty (file_in_path (getenv ("PATH"), "bwrap")) ...
+%!          && ! isempty (file_in_path (getenv ("PATH"), "prlimit"));
 
 %!test
 %! if (canRun)
 %!   [P, A] = devtools.sandboxCommand ({}, {});
-%!   assert_equal (P, file_in_path (getenv ("PATH"), "bwrap"));
+%!   assert_equal (P, file_in_path (getenv ("PATH"), "prlimit"));
+%! endif
+%!test
+%! if (canRun)
+%!   [P, A] = devtools.sandboxCommand ({}, {});
+%!   assert_equal (A{2}, file_in_path (getenv ("PATH"), "bwrap"));
 %! endif
 %!test
 %! if (canRun)
