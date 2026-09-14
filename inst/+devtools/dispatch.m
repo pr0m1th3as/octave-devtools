@@ -274,7 +274,7 @@ function [N, V] = serverIdentity ()
   ## Bumped with DESCRIPTION at every release; there is no path from an
   ## installed package back to its DESCRIPTION that is reliable enough to read
   N = "devtools";
-  V = "0.1.0";
+  V = "0.2.0";
 endfunction
 
 function M = serverMeta (sandboxed)

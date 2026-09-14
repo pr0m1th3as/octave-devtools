@@ -1,41 +1,31 @@
-Summary of important user-visible changes for devtools 0.1.0:
+Summary of important user-visible changes for devtools 0.2.0:
 -------------------------------------------------------------
 
- ** Initial release.  Two Model Context Protocol servers, seven tools, one
-    resource and 173 built-in self-tests.  The server process is an Octave
-    interpreter, with the same load path, the same installed packages and the
-    same version as the interpreter it answers about.  Both protocol eras are
-    served by either entry point.
+ ** `devtools.mcpEval ("Sandbox", true)` runs the evaluating server inside a
+    sandbox, on Linux with `bwrap` and `prlimit`.  Read-only inside are the
+    system libraries, Octave, the packages named in
+    `DEVTOOLS_SANDBOX_PACKAGES` with their dependencies, and the folders named
+    in `DEVTOOLS_SANDBOX_FOLDERS`.  There is no shell, no network and none of
+    the rest of the home directory, and only an in-memory `/tmp` is writable.
+    The server checks the sandbox before answering, refuses to serve if it
+    does not hold, and marks every result with
+    `_meta["io.github.pr0m1th3as.devtools/sandbox"]`.
 
- ** `devtools.mcp` -- a read-only server, evaluating no code, running no user
-    function and writing nothing.  `octave_which` reports where a name
-    resolves, its kind, its owning package, what it shadows, and whether it is
-    installed but not loaded.  `octave_help` returns the help text for a
-    function, class, method or operator.  `octave_search` finds functions by
-    description when the name is not known.  `octave_pkg` reports which
-    packages are installed, at which versions, and which are loaded.
-    `octave_registry` reports which packages in the Octave Packages index
-    provide a name, from a dated snapshot carried in the package.  One
-    resource is offered, `octave://environment`.
+ ** In sandbox mode each call runs in a process of its own, killed at the
+    deadline together with anything it started, and `/tmp` is emptied before
+    the next call.  A call that crashes the interpreter returns an error, and
+    the server keeps serving.
 
- ** `devtools.mcpEval` -- the same five tools, plus `octave_eval`, which runs
-    code in a workspace that persists between calls, and `octave_test`, which
-    runs a function's built-in tests and reports what failed.  It is a separate
-    function with its own launch command and its own configuration entry, so a
-    host configured for one server cannot reach the other.
+ ** A sandbox's memory is limited to the size of the process starting it plus
+    2 GB, and its `/tmp` to 2 GB.  `DEVTOOLS_SANDBOX_MEMORY` and
+    `DEVTOOLS_SANDBOX_TMP` set other sizes in gigabytes.
 
- ** `octave_help` answers from the documentation caches where one holds the
-    entry, so it also answers for a function in an installed package the server
-    has not loaded.  Anything uncached falls through to `help`.
+ ** `octave_call`, offered in sandbox mode in place of `octave_eval`, calls one
+    function by name on typed arguments, spreadsheet ranges included, and
+    returns its outputs as typed cells in `structuredContent`.  It is for
+    programs such as `octave-calc`.  Ranges of dates and times need the
+    datatypes package.
 
- ** Evaluated code is contained, but not sandboxed.  Output is captured at the
-    file descriptors, so what evaluated code prints, a subprocess included,
-    returns in the reply instead of into the protocol stream.  An evaluation
-    still running after twenty seconds is stopped, keeping what it assigned and
-    printed; `DEVTOOLS_EVAL_SECONDS` in the launch command sets the deadline,
-    up to six hundred.
+ ** `devtools.selftest` also checks a sandboxed server, where one can run.
 
- ** Both containments are oct-files and neither is required.  A machine with no
-    compiler installs the package and keeps the read-only server whole; the
-    evaluating server then runs with no deadline and contains a subprocess by
-    name rather than at the descriptor.
+ ** The instructions sent to a client no longer run two sentences together.
