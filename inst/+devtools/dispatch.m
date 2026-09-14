@@ -184,8 +184,8 @@ function [RESP, S] = dispatch (R, S)
       endif
 
     case 'tools/list'
-      RESP = mkResponse (R.id, toolsListResult (era, S.surface), era, ...
-                         S.sandboxed);
+      res = toolsListResult (era, S.surface, S.sandboxed);
+      RESP = mkResponse (R.id, res, era, S.sandboxed);
 
     case 'resources/list'
       RESP = mkResponse (R.id, resourcesListResult (era), era, S.sandboxed);
@@ -330,7 +330,7 @@ function [code, msg, data] = checkMeta (params)
 
 endfunction
 
-function T = toolTable (surface)
+function T = toolTable (surface, sandboxed)
 
   T = {};
 
@@ -533,8 +533,11 @@ function T = toolTable (surface)
   t.inputSchema = isc;
   ## No outputSchema: the payload is the output of the code, which is prose to
   ## everyone but the interpreter.  The handle leads the text instead, where
-  ## truncation cannot take it.
-  T{end+1} = t;
+  ## truncation cannot take it.  A sandboxed server starts every call fresh,
+  ## so a workspace handle would carry nothing and the tool is not offered.
+  if (! sandboxed)
+    T{end+1} = t;
+  endif
 
   t = struct ();
   t.name = "octave_test";
@@ -577,15 +580,18 @@ function t = instructionsText (surface, sandboxed)
     t = [t, strcat("Introspects and evaluates code in the GNU Octave", ...
       " interpreter this server runs inside. It sees only the packages its", ...
       " own launch command loaded, which may be fewer than an interactive", ...
-      " session has; say so rather than concluding a name does not exist.", ...
-      " Code runs in a workspace named by a handle: pass new to open one and", ...
-      " the handle it returns to keep the variables.")];
+      " session has; say so rather than concluding a name does not exist.")];
+    if (! sandboxed)
+      t = [t, strcat(" Code runs in a workspace named by a handle: pass", ...
+        " new to open one and the handle it returns to keep the variables.")];
+    endif
   endif
   if (sandboxed)
     t = [t, strcat(" It runs in a sandbox: there is no network and no", ...
       " shell or other program to start, only the folders and packages it", ...
       " was configured with are visible, and nothing outside /tmp can be", ...
-      " written.")];
+      " written. Every call starts from the same state, and nothing one", ...
+      " call does reaches the next.")];
   endif
 endfunction
 
@@ -605,13 +611,13 @@ function res = discoverResult (surface, sandboxed)
 
 endfunction
 
-function res = toolsListResult (era, surface)
+function res = toolsListResult (era, surface, sandboxed)
 
   res = struct ();
   if (strcmp (era, "modern"))
     res.resultType = "complete";
   endif
-  res.tools = toolTable (surface);
+  res.tools = toolTable (surface, sandboxed);
   if (strcmp (era, "modern"))
     ## Cache hints are a 2026-07-28 addition and have no legacy counterpart
     res.ttlMs = 3600000;
@@ -633,7 +639,7 @@ function [res, code, msg, S] = toolsCall (params, era, S)
     return;
   endif
 
-  T = toolTable (S.surface);
+  T = toolTable (S.surface, S.sandboxed);
   names = cellfun (@(t) t.name, T, "UniformOutput", false);
   if (! any (strcmp (params.name, names)))
     code = -32602;
@@ -661,7 +667,7 @@ function [res, code, msg, S] = toolsCall (params, era, S)
     case 'octave_eval'
       [res, S] = callOctaveEval (args, era, S);
     case 'octave_test'
-      res = callOctaveTest (args, era);
+      res = callOctaveTest (args, era, S.sandboxed);
   endswitch
 
 endfunction
@@ -1908,7 +1914,7 @@ function [res, S] = callOctaveEval (args, era, S)
   e_W = S.ws.(e_h);
 
   [e_W, e_out, e_err, e_stopped, e_sub, e_cinfo] = ...
-    runContained (e_W, args.code);
+    runContained (e_W, args.code, false);
 
   S.ws.(e_h) = e_W;
   S = touchWorkspace (S, e_h);
@@ -1958,7 +1964,7 @@ function [res, S] = callOctaveEval (args, era, S)
 
 endfunction
 
-function res = callOctaveTest (args, era)
+function res = callOctaveTest (args, era, sandboxed)
 
   ## Locals prefixed, as everywhere that shares an interpreter with the code
   ## it runs.
@@ -2028,7 +2034,7 @@ function res = callOctaveTest (args, era)
     " fclose (devtoolsTestLid);"), quoteFor (t_log), quoteFor (t_path));
 
   [t_W, t_out, t_err, t_stopped, t_sub, t_cinfo] = ...
-    runContained (struct (), t_code);
+    runContained (struct (), t_code, sandboxed);
 
   t_text = "";
   if (exist (t_log, "file") == 2)
@@ -2088,7 +2094,13 @@ function q = quoteFor (str)
   q = strrep (str, "'", "''");
 endfunction
 
-function [W, out, err, stopped, sub, cinfo] = runContained (W, code)
+function [W, out, err, stopped, sub, cinfo] = runContained (W, code, sandboxed)
+
+  ## A sandboxed server never evaluates in its own process
+  if (sandboxed)
+    [W, out, err, stopped, sub, cinfo] = runForked (W, code);
+    return;
+  endif
 
   ## Everything that runs code goes through here, the evaluating tool and the
   ## testing one alike, so that a deadline, a capture and a shadow cannot be
@@ -2168,6 +2180,177 @@ function [W, out, err, stopped, sub, cinfo] = runContained (W, code)
     delete (c_file);
   endif
 
+endfunction
+
+function [W, out, err, stopped, sub, cinfo] = runForked (W, code)
+
+  ## The call runs in a process forked for it, which is killed when it returns
+  ## or at the deadline.  Measured on 11.3.0 inside bwrap: dup2 takes every
+  ## route to the descriptors, compiled code included; waitpid and kill stop a
+  ## native call as promptly as an m-file loop; a process the call forks
+  ## outlives a killed child unless it is swept.
+  out = "";
+  err = "";
+  stopped = false;
+  sub = "";
+  cinfo = struct ("deadline", evalSeconds (), "captured", true, "elapsed", 0);
+
+  ## Sweeping every process and emptying /tmp are what a sandbox needs and
+  ## what would wreck a desktop session, so neither runs unless PID 1 is bwrap.
+  try
+    pid1 = strtrim (fileread ("/proc/1/comm"));
+  catch
+    pid1 = "";
+  end_try_catch
+  if (! strcmp (pid1, "bwrap"))
+    err = strcat ("this server is marked sandboxed but does not run inside", ...
+                  " bwrap, so the call was refused");
+    W = struct ();
+    return;
+  endif
+
+  ## Emptied and the package lists rebuilt before the call rather than after
+  ## it, so that what a call leaves, a test log among it, can be read by the
+  ## caller in between.  New names each call, so that a folder a call made
+  ## unremovable cannot stop the next one.
+  persistent n = 0;
+  n++;
+  wipeTmp ();
+  d = sprintf ("/tmp/call-%d", n);
+  try
+    devtools.__sandboxLists__ (getenv ("DEVTOOLS_SANDBOX_LOCAL_LIST"), ...
+                               getenv ("DEVTOOLS_SANDBOX_GLOBAL_LIST"), ...
+                               sprintf ("/tmp/devtools-%d", n));
+    [ok, msg] = mkdir (d);
+    if (! ok)
+      error ("%s", msg);
+    endif
+  catch e
+    err = sprintf ("the sandbox could not be reset before the call: %s", ...
+                   e.message);
+    W = struct ();
+    return;
+  end_try_catch
+
+  ## Flushed first, or what is buffered here would be written again by the
+  ## child
+  fflush (stdout);
+  fflush (stderr);
+  t0 = tic ();
+  pid = fork ();
+  if (pid == 0)
+    forkedChild (W, code, d);
+  endif
+  if (pid < 0)
+    err = "the call could not be started";
+    W = struct ();
+    return;
+  endif
+
+  killed = false;
+  status = 0;
+  while (true)
+    [r, status] = waitpid (pid, WNOHANG ());
+    if (r == pid)
+      break;
+    endif
+    if (! killed && toc (t0) > cinfo.deadline)
+      kill (pid, 9);
+      killed = true;
+    endif
+    pause (0.01);
+  endwhile
+  cinfo.elapsed = toc (t0);
+  sweepProcesses ();
+
+  f = fullfile (d, "output");
+  if (exist (f, "file") == 2)
+    sub = fileread (f);
+  endif
+  f = fullfile (d, "result");
+  W = struct ();
+  if (exist (f, "file") == 2)
+    R = load (f);
+    out = R.out;
+    err = R.err;
+    W = R.vars;
+  elseif (killed)
+    stopped = true;
+  elseif (WIFSIGNALED (status))
+    err = sprintf ("the call ended without a result, killed by signal %d", ...
+                   WTERMSIG (status));
+  else
+    err = sprintf ("the call ended without a result, exit status %d", ...
+                   WEXITSTATUS (status));
+  endif
+
+endfunction
+
+function forkedChild (W, code, d)
+
+  ## Never returns.  It ends with kill rather than exit, which would run the
+  ## server's clean-up and delete the server's temporary files.  Standard
+  ## input is the protocol stream, so it is replaced before anything can read
+  ## it.
+  try
+    dup2 (fopen ("/dev/null", "r"), stdin);
+    o = fopen (fullfile (d, "output"), "w");
+    dup2 (o, stdout);
+    dup2 (o, stderr);
+    cd (d);
+    warning ("off", "Octave:shadowed-function");
+    addpath (shadowDir (), "-begin");
+    [out, vars, err] = devtools.__evalIn__ (W, code, 0);
+    ## Plain values only: loading an object would run its class's code in the
+    ## server
+    names = fieldnames (vars);
+    for i = 1:numel (names)
+      v = vars.(names{i});
+      if (! (isnumeric (v) || islogical (v) || ischar (v)))
+        vars = rmfield (vars, names{i});
+      endif
+    endfor
+    save ("-binary", fullfile (d, "result"), "out", "err", "vars");
+  catch
+  end_try_catch
+  fflush (stdout);
+  fflush (stderr);
+  kill (getpid (), 9);
+
+endfunction
+
+function wipeTmp ()
+  ## Everything in /tmp goes: it is the only writable place in a sandbox
+  confirm_recursive_rmdir (false, "local");
+  names = readdir ("/tmp");
+  for i = 1:numel (names)
+    if (any (strcmp (names{i}, {'.', '..'})))
+      continue;
+    endif
+    p = fullfile ("/tmp", names{i});
+    try
+      [info, e] = lstat (p);
+      if (e == 0 && S_ISDIR (info.mode))
+        rmdir (p, "s");
+      else
+        unlink (p);
+      endif
+    catch
+    end_try_catch
+  endfor
+endfunction
+
+function sweepProcesses ()
+  ## The process namespace holds only the sandbox: PID 1 is bwrap, and every
+  ## other process is this server or something a call started
+  names = readdir ("/proc");
+  me = getpid ();
+  for i = 1:numel (names)
+    p = str2double (names{i});
+    if (! isnan (p) && p != 1 && p != me)
+      kill (p, 9);
+    endif
+  endfor
 endfunction
 
 function B = evalCap ()
@@ -2424,6 +2607,29 @@ endfunction
 %!                           devtools.__newSession__ ("eval"));
 %! s = RESP.result.instructions;
 %! assert_equal (isempty (strfind (s, "sandbox")), true);
+
+%!test
+%! ## A sandboxed server starts every call fresh and offers no workspaces.
+%! S = devtools.__newSession__ ("eval");
+%! S.sandboxed = true;
+%! RESP = devtools.dispatch (mkreq ("tools/list", ""), S);
+%! nms = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
+%! assert_equal (any (strcmp (nms, "octave_eval")), false);
+%! assert_equal (any (strcmp (nms, "octave_test")), true);
+
+%!test
+%! S = devtools.__newSession__ ("eval");
+%! S.sandboxed = true;
+%! RESP = devtools.dispatch (mkreq ("tools/call", ...
+%!   '"name":"octave_eval","arguments":{"code":"1","workspace":"new"}'), S);
+%! assert_equal (RESP.error.message, "Unknown tool: octave_eval");
+
+%!test
+%! S = devtools.__newSession__ ("eval");
+%! S.sandboxed = true;
+%! RESP = devtools.dispatch (mkreq ("server/discover", ""), S);
+%! s = RESP.result.instructions;
+%! assert_equal (isempty (strfind (s, "workspace")), true);
 
 %!test
 %! ## The advertised set is frozen API: renaming a tool silently breaks every

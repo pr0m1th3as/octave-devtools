@@ -215,10 +215,12 @@ function [ARGS, ERRMSG] = __sandboxArgs__ (HOST, FOLDERS, PACKAGES)
   endif
 
   ## The root is built in memory and writable until remounted, last, so that
-  ## the in-memory /tmp is the only place a call can write.
+  ## the in-memory /tmp is the only place a call can write.  The working
+  ## directory is that read-only root: Octave searches the working directory
+  ## before the load path, so a writable one would let a file a call leaves
+  ## shadow a function the server itself calls.
   ARGS = [A, {'--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', ...
-              '--dir', '/tmp/work', '--chdir', '/tmp/work', ...
-              '--remount-ro', '/', ...
+              '--chdir', '/', '--remount-ro', '/', ...
               HOST.octaveCli, '--no-history', '--no-init-file', '-q'}];
 
 endfunction
@@ -319,8 +321,8 @@ endfunction
 %! ## The root is remounted read-only after everything written into it.
 %! A = devtools.__sandboxArgs__ (H, {}, {});
 %! S = {'--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', ...
-%!      '--dir', '/tmp/work', '--chdir', '/tmp/work', '--remount-ro', '/'};
-%! assert_equal (A(end-15:end-4), S);
+%!      '--chdir', '/', '--remount-ro', '/'};
+%! assert_equal (A(end-13:end-4), S);
 %!test
 %! A = devtools.__sandboxArgs__ (H, {}, {});
 %! assert_equal (envOf (A, "HOME"), "/home/u");

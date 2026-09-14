@@ -39,9 +39,10 @@
 ## Octave's own installation, the @file{octave-cli} binary, the package lists,
 ## the packages and the folders; not mounted are @file{/usr/bin}, so there is
 ## no shell or other program to start, and the rest of the home directory.
-## There is no network.  The only writable place is an in-memory @file{/tmp},
-## whose @file{/tmp/work} is the working directory, so nothing on the host disk
-## can be written.  The sandboxed process dies with its parent.
+## There is no network.  The only writable place is an in-memory @file{/tmp}, so
+## nothing on the host disk can be written, and the working directory is the
+## read-only root, so that no file a process writes can shadow a function.  The
+## sandboxed process dies with its parent.
 ##
 ## The address space of the sandbox, and of every process forked inside it, is
 ## limited to the size of the calling process plus a budget of 2 GB.  Set

@@ -175,6 +175,16 @@
 ## which is absent from a server that is not sandboxed, and the
 ## @code{instructions} say so.
 ##
+## The folders are on the load path, ahead of the packages.
+##
+## A sandboxed server offers @code{octave_test} beside the read-only tools, and
+## not @code{octave_eval}: every call starts from the same state, so a
+## workspace would carry nothing.  Each call runs in a process forked for it,
+## which is killed when it returns or when the deadline passes, together with
+## every process it started, and @file{/tmp} is emptied before the next call,
+## so that nothing one call does reaches another.  A call that crashes the
+## interpreter comes back as an error, and the server keeps serving.
+##
 ## @code{devtools.mcpEval ("Sandbox", false)} serves exactly as
 ## @code{devtools.mcpEval ()}.
 ##
@@ -247,24 +257,24 @@ function mcpEval (varargin)
                    " not in force: %s."), strjoin (failed, "; "));
   endif
 
-  ## pkg reads the mounted lists, which name every installed package; the
-  ## ones it is given instead name only what is mounted.  The global entries
-  ## come from pkg ("list"), so their relative paths are already expanded.
-  listdir = "/tmp/devtools";
-  [ok, msg] = mkdir (listdir);
-  if (! ok)
-    error ("devtools.mcpEval: cannot write the package lists: %s.", msg);
-  endif
-  local_packages = localPkgs(cellfun (@(s) isfolder (s.dir), localPkgs));
-  global_packages = globalPkgs(cellfun (@(s) isfolder (s.dir), globalPkgs));
-  save ("-text", fullfile (listdir, "local_packages"), "local_packages");
-  save ("-text", fullfile (listdir, "global_packages"), "global_packages");
-  pkg ("local_list", fullfile (listdir, "local_packages"));
-  pkg ("global_list", fullfile (listdir, "global_packages"));
+  ## The mounted lists name every installed package.  The server reads lists
+  ## naming only what is mounted, rebuilt from these read-only originals
+  ## before every call, since /tmp is writable and a call could change them.
+  setenv ("DEVTOOLS_SANDBOX_LOCAL_LIST", pkg ("local_list"));
+  setenv ("DEVTOOLS_SANDBOX_GLOBAL_LIST", pkg ("global_list"));
+  devtools.__sandboxLists__ (getenv ("DEVTOOLS_SANDBOX_LOCAL_LIST"), ...
+                             getenv ("DEVTOOLS_SANDBOX_GLOBAL_LIST"), ...
+                             "/tmp/devtools-0");
 
   packages = splitEnv ("DEVTOOLS_SANDBOX_PACKAGES", ",");
   for i = 1:numel (packages)
     pkg ("load", packages{i});
+  endfor
+  ## Added after the packages, so that a function in a folder is found ahead
+  ## of a package function of the same name.
+  folders = splitEnv ("DEVTOOLS_SANDBOX_FOLDERS", pathsep ());
+  for i = 1:numel (folders)
+    addpath (folders{i});
   endfor
 
   devtools.__serveLoop__ ("eval", "mcpEval", true);
@@ -278,9 +288,12 @@ function C = splitEnv (name, sep)
 endfunction
 
 ## A real sandbox needs Linux and bwrap.
-%!shared canRun, exe, instdir, req
+%!shared canRun, exe, instdir, req, meta
 %! canRun = isunix () && ! ismac () ...
-%!          && ! isempty (file_in_path (getenv ("PATH"), "bwrap"));
+%!          && ! isempty (file_in_path (getenv ("PATH"), "bwrap")) ...
+%!          && ! isempty (file_in_path (getenv ("PATH"), "prlimit"));
+%! meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":', ...
+%!         '"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}'];
 %! exe = fullfile (OCTAVE_HOME (), "bin", "octave-cli");
 %! instdir = fileparts (fileparts (which ("devtools.mcpEval")));
 %! req = ['{"jsonrpc":"2.0","id":1,"method":"server/discover","params":', ...
@@ -318,6 +331,54 @@ endfunction
 %!   [status, out] = system (cmd);
 %!   delete (f);
 %!   assert_equal ([status != 0, isempty(out)], [true, true]);
+%! endif
+
+%!function out = sandboxRun (exe, instdir, envs, lines)
+%!  f = tempname ();
+%!  fid = fopen (f, "w");
+%!  fprintf (fid, "%s\n", lines{:});
+%!  fclose (fid);
+%!  cmd = sprintf (['env DEVTOOLS_SANDBOX= DEVTOOLS_SANDBOX_FOLDERS=', ...
+%!                  ' DEVTOOLS_SANDBOX_PACKAGES= %s "%s" -q --no-init-file', ...
+%!                  ' --eval "addpath (''%s''); devtools.mcpEval', ...
+%!                  ' (''Sandbox'', true)" < "%s" 2>/dev/null'], ...
+%!                 envs, exe, instdir, f);
+%!  [~, out] = system (cmd);
+%!  delete (f);
+%!endfunction
+
+%!test
+%! ## A sandboxed server offers octave_test and not octave_eval.
+%! if (canRun)
+%!   L = ['{"jsonrpc":"2.0","id":1,"method":"tools/list",', ...
+%!        '"params":{', meta, '}}'];
+%!   out = sandboxRun (exe, instdir, "", {L});
+%!   assert_equal ([isempty(strfind (out, '"name":"octave_test"')), ...
+%!                  isempty(strfind (out, '"name":"octave_eval"'))], ...
+%!                 [false, true]);
+%! endif
+%!test
+%! ## A call runs in a forked child and comes back with its count.
+%! if (canRun)
+%!   T = ['{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{', meta, ...
+%!        ',"name":"octave_test",', ...
+%!        '"arguments":{"name":"devtools.jsonrpcError"}}}'];
+%!   out = sandboxRun (exe, instdir, "", {T});
+%!   p = '\[tests\] (\d+) of \1 passed';
+%!   assert_equal (isempty (regexp (out, p, "once")), false);
+%! endif
+%!test
+%! ## A call stopped at the deadline leaves the server serving the next one.
+%! if (canRun)
+%!   D = ['{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{', meta, ...
+%!        ',"name":"octave_test","arguments":{"name":"devtools.dispatch"}}}'];
+%!   T = ['{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{', meta, ...
+%!        ',"name":"octave_test",', ...
+%!        '"arguments":{"name":"devtools.jsonrpcError"}}}'];
+%!   out = sandboxRun (exe, instdir, "DEVTOOLS_EVAL_SECONDS=1", {D, T});
+%!   p = '\[tests\] (\d+) of \1 passed';
+%!   assert_equal ([isempty(strfind (out, "[stopped]")), ...
+%!                  isempty(regexp (out, p, "once"))], [false, false]);
 %! endif
 
 %!error <devtools\.mcpEval: invalid number of input arguments\.> ...
