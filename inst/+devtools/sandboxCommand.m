@@ -44,6 +44,8 @@
 ##
 ## @var{FOLDERS} may not be the home directory itself, nor any folder that
 ## contains Octave's history file, which holds everything typed at a prompt.
+## Nor may a folder lie inside @file{/tmp}, @file{/proc} or @file{/dev}, which
+## the sandbox replaces with its own, so that such a folder would be invisible.
 ##
 ## The environment inside is cleared except for @env{HOME}, @env{LANG} and
 ## @env{DEVTOOLS_EVAL_SECONDS}, and carries @env{DEVTOOLS_SANDBOX} set to 1,
@@ -173,9 +175,9 @@ endfunction
 %! endif
 %!test
 %! if (canRun)
-%!   [P, A] = devtools.sandboxCommand ({tempdir()}, {});
+%!   [P, A] = devtools.sandboxCommand ({OCTAVE_HOME()}, {});
 %!   i = find (strcmp (A, "DEVTOOLS_SANDBOX_FOLDERS"));
-%!   assert_equal (A{i+1}, canonicalize_file_name (tempdir ()));
+%!   assert_equal (A{i+1}, canonicalize_file_name (OCTAVE_HOME ()));
 %! endif
 
 %!error <devtools\.sandboxCommand: invalid number of input arguments\.> ...

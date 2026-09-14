@@ -44,9 +44,18 @@ function [ARGS, ERRMSG] = __sandboxArgs__ (HOST, FOLDERS, PACKAGES)
   ERRMSG = "";
 
   ## The home directory is what the sandbox hides, and the history file holds
-  ## everything typed at a prompt.
+  ## everything typed at a prompt.  A folder inside /tmp, /proc or /dev would
+  ## be mounted and then covered by the sandbox's own, so it is refused rather
+  ## than left silently invisible.
+  replaced = {'/tmp', '/proc', '/dev'};
   for i = 1:numel (FOLDERS)
     f = FOLDERS{i};
+    hit = find (cellfun (@(r) isUnder (f, r), replaced), 1);
+    if (! isempty (hit))
+      fmt = "folder '%s' lies inside '%s', which the sandbox replaces.";
+      ERRMSG = sprintf (fmt, f, replaced{hit});
+      return;
+    endif
     if (strcmp (f, HOST.home))
       ERRMSG = sprintf ("folder '%s' is the home directory.", f);
       return;
@@ -396,6 +405,28 @@ endfunction
 %!                   " file '/home/u/.local/share/octave/history'."]);
 %!test
 %! [A, E] = devtools.__sandboxArgs__ (H, {'/home/u/.localx'}, {});
+%! assert_equal (E, "");
+%!test
+%! ## A folder under the sandbox's own /tmp would be covered by it.
+%! [A, E] = devtools.__sandboxArgs__ (H, {'/tmp/data'}, {});
+%! assert_equal (A, {});
+%! assert_equal (E, ["folder '/tmp/data' lies inside '/tmp',", ...
+%!                   " which the sandbox replaces."]);
+%!test
+%! [A, E] = devtools.__sandboxArgs__ (H, {'/tmp'}, {});
+%! assert_equal (E, ["folder '/tmp' lies inside '/tmp',", ...
+%!                   " which the sandbox replaces."]);
+%!test
+%! [A, E] = devtools.__sandboxArgs__ (H, {'/proc/1'}, {});
+%! assert_equal (E, ["folder '/proc/1' lies inside '/proc',", ...
+%!                   " which the sandbox replaces."]);
+%!test
+%! [A, E] = devtools.__sandboxArgs__ (H, {'/dev/shm'}, {});
+%! assert_equal (E, ["folder '/dev/shm' lies inside '/dev',", ...
+%!                   " which the sandbox replaces."]);
+%!test
+%! ## A name that only begins with /tmp is not inside it.
+%! [A, E] = devtools.__sandboxArgs__ (H, {'/tmpdata'}, {});
 %! assert_equal (E, "");
 
 %!error <devtools\.__sandboxArgs__: invalid number of input arguments\.> ...
