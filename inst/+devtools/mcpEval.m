@@ -16,7 +16,8 @@
 ## this program; if not, see <http://www.gnu.org/licenses/>.
 
 ## -*- texinfo -*-
-## @deftypefn {devtools} {} devtools.mcpEval ()
+## @deftypefn  {devtools} {} devtools.mcpEval ()
+## @deftypefnx {devtools} {} devtools.mcpEval (@qcode{"Sandbox"}, @var{TF})
 ##
 ## Serve the Model Context Protocol on standard input and output, with
 ## evaluation.
@@ -140,21 +141,191 @@
 ## remains.  Where the oct-files could not be built there is no deadline at
 ## all.
 ##
+## @subsubheading Sandbox
+##
+## @code{devtools.mcpEval ("Sandbox", true)} serves the same protocol from
+## inside a sandbox, on Linux only and with @command{bwrap} from the
+## @code{bubblewrap} package installed.  Before serving, the server replaces its
+## own process with a sandboxed @file{octave-cli} built by
+## @code{devtools.sandboxCommand}.  The process, its standard streams and its
+## exit code carry through unchanged, so a host launches it like the plain
+## server:
+##
+## @example
+## octave-cli -q --no-init-file \
+##   --eval "pkg load devtools; devtools.mcpEval ('Sandbox', true)"
+## @end example
+##
+## The folders it may read and the packages it loads are set in the launch
+## environment, never in the command.  @env{DEVTOOLS_SANDBOX_FOLDERS} holds
+## absolute folder paths separated by @code{pathsep}, and
+## @env{DEVTOOLS_SANDBOX_PACKAGES} holds package names separated by commas,
+## loaded in that order.  Nothing checks whether two of them conflict.  See
+## @code{devtools.sandboxCommand} for what is mounted and what is refused.
+##
+## Before it answers anything, the sandboxed server checks from inside that
+## there is no @file{/usr/bin}, no network interface besides the loopback, and
+## nothing under @file{/home} or the home directory that was not mounted, and
+## it refuses to serve if any check fails.  It lists only the packages that are
+## mounted, so loading any other says it is not installed.  Every result then
+## carries @code{_meta["io.github.pr0m1th3as.devtools/sandbox"]} set to true,
+## which is absent from a server that is not sandboxed, and the
+## @code{instructions} say so.
+##
+## @code{devtools.mcpEval ("Sandbox", false)} serves exactly as
+## @code{devtools.mcpEval ()}.
+##
 ## @subsubheading What this is not
 ##
-## None of this is a sandbox.  Evaluated code can read and write files, use the
-## network and consume memory exactly as any code in this interpreter can.
-## Configure this server only where that is acceptable.
+## Unless started with @qcode{"Sandbox"}, none of this is a sandbox.  Evaluated
+## code can read and write files, use the network and consume memory exactly as
+## any code in this interpreter can.  Configure this server only where that is
+## acceptable.  A sandboxed server does not cap memory either.
 ##
-## @seealso{devtools.mcp, devtools.selftest}
+## @seealso{devtools.mcp, devtools.selftest, devtools.sandboxCommand}
 ## @end deftypefn
 
-function mcpEval ()
+function mcpEval (varargin)
 
-  if (nargin != 0)
+  if (nargin == 0)
+    sandbox = false;
+  elseif (nargin == 2)
+    if (! (ischar (varargin{1}) && strcmpi (varargin{1}, "Sandbox")))
+      error ("devtools.mcpEval: the only option is 'Sandbox'.");
+    endif
+    sandbox = varargin{2};
+    if (! (islogical (sandbox) && isscalar (sandbox)))
+      error ("devtools.mcpEval: 'Sandbox' must be a logical scalar.");
+    endif
+  else
     error ("devtools.mcpEval: invalid number of input arguments.");
   endif
 
-  devtools.__serveLoop__ ("eval", "mcpEval");
+  if (! sandbox)
+    devtools.__serveLoop__ ("eval", "mcpEval");
+    return;
+  endif
+
+  ## Outside: relaunch inside and never return.  The marker only prevents a
+  ## loop; what proves the sandbox is the check the relaunched server makes.
+  if (! strcmp (getenv ("DEVTOOLS_SANDBOX"), "1"))
+    folders = splitEnv ("DEVTOOLS_SANDBOX_FOLDERS", pathsep ());
+    packages = splitEnv ("DEVTOOLS_SANDBOX_PACKAGES", ",");
+    [prog, args] = devtools.sandboxCommand (folders, packages);
+    code = strcat ("self = getenv ('DEVTOOLS_SANDBOX_SELF');", ...
+                   " if (isempty (self)) pkg ('load', 'devtools');", ...
+                   " else addpath (self); endif;", ...
+                   " devtools.mcpEval ('Sandbox', true)");
+    [~, msg] = exec (prog, [args, {"--eval", code}]);
+    error ("devtools.mcpEval: the sandbox did not start: %s.", msg);
+  endif
+
+  ## Inside.  A killed Octave writes octave-workspace into its working
+  ## directory unless told not to.
+  crash_dumps_octave_core (false);
+  sighup_dumps_octave_core (false);
+  sigquit_dumps_octave_core (false);
+  sigterm_dumps_octave_core (false);
+
+  [localPkgs, globalPkgs] = pkg ("list");
+  entries = [localPkgs(:).', globalPkgs(:).'];
+  allowed = [splitEnv("DEVTOOLS_SANDBOX_FOLDERS", pathsep ()), ...
+             {pkg("local_list"), pkg("global_list")}, ...
+             cellfun(@(s) s.dir, entries, "UniformOutput", false), ...
+             cellfun(@(s) s.archprefix, entries, "UniformOutput", false)];
+  self = getenv ("DEVTOOLS_SANDBOX_SELF");
+  if (! isempty (self))
+    allowed{end+1} = self;
+  endif
+  roots = unique ({"/home", getenv("HOME")});
+  failed = devtools.__sandboxCheck__ (allowed, roots);
+  if (! isempty (failed))
+    error (strcat ("devtools.mcpEval: refusing to serve, the sandbox is", ...
+                   " not in force: %s."), strjoin (failed, "; "));
+  endif
+
+  ## pkg reads the mounted lists, which name every installed package; the
+  ## ones it is given instead name only what is mounted.  The global entries
+  ## come from pkg ("list"), so their relative paths are already expanded.
+  listdir = "/tmp/devtools";
+  [ok, msg] = mkdir (listdir);
+  if (! ok)
+    error ("devtools.mcpEval: cannot write the package lists: %s.", msg);
+  endif
+  local_packages = localPkgs(cellfun (@(s) isfolder (s.dir), localPkgs));
+  global_packages = globalPkgs(cellfun (@(s) isfolder (s.dir), globalPkgs));
+  save ("-text", fullfile (listdir, "local_packages"), "local_packages");
+  save ("-text", fullfile (listdir, "global_packages"), "global_packages");
+  pkg ("local_list", fullfile (listdir, "local_packages"));
+  pkg ("global_list", fullfile (listdir, "global_packages"));
+
+  packages = splitEnv ("DEVTOOLS_SANDBOX_PACKAGES", ",");
+  for i = 1:numel (packages)
+    pkg ("load", packages{i});
+  endfor
+
+  devtools.__serveLoop__ ("eval", "mcpEval", true);
 
 endfunction
+
+## The non-empty parts of an environment variable split at SEP.
+function C = splitEnv (name, sep)
+  C = strsplit (getenv (name), sep);
+  C = C(! cellfun (@isempty, C));
+endfunction
+
+## A real sandbox needs Linux and bwrap.
+%!shared canRun, exe, instdir, req
+%! canRun = isunix () && ! ismac () ...
+%!          && ! isempty (file_in_path (getenv ("PATH"), "bwrap"));
+%! exe = fullfile (OCTAVE_HOME (), "bin", "octave-cli");
+%! instdir = fileparts (fileparts (which ("devtools.mcpEval")));
+%! req = ['{"jsonrpc":"2.0","id":1,"method":"server/discover","params":', ...
+%!        '{"_meta":{"io.modelcontextprotocol/protocolVersion":', ...
+%!        '"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}'];
+
+%!test
+%! ## Started outside, the server relaunches inside and reports the sandbox.
+%! if (canRun)
+%!   f = tempname ();
+%!   fid = fopen (f, "w");
+%!   fprintf (fid, "%s\n", req);
+%!   fclose (fid);
+%!   cmd = sprintf (['env DEVTOOLS_SANDBOX= DEVTOOLS_SANDBOX_FOLDERS=', ...
+%!                   ' DEVTOOLS_SANDBOX_PACKAGES= "%s" -q --no-init-file', ...
+%!                   ' --eval "addpath (''%s''); devtools.mcpEval', ...
+%!                   ' (''Sandbox'', true)" < "%s" 2>/dev/null'], ...
+%!                  exe, instdir, f);
+%!   [~, out] = system (cmd);
+%!   delete (f);
+%!   k = '"io.github.pr0m1th3as.devtools/sandbox":true';
+%!   assert_equal (isempty (strfind (out, k)), false);
+%! endif
+%!test
+%! ## The marker alone is not a sandbox: outside, the check refuses to serve.
+%! if (canRun)
+%!   f = tempname ();
+%!   fid = fopen (f, "w");
+%!   fprintf (fid, "%s\n", req);
+%!   fclose (fid);
+%!   cmd = sprintf (['env DEVTOOLS_SANDBOX=1 "%s" -q --no-init-file', ...
+%!                   ' --eval "addpath (''%s''); devtools.mcpEval', ...
+%!                   ' (''Sandbox'', true)" < "%s" 2>/dev/null'], ...
+%!                  exe, instdir, f);
+%!   [status, out] = system (cmd);
+%!   delete (f);
+%!   assert_equal ([status != 0, isempty(out)], [true, true]);
+%! endif
+
+%!error <devtools\.mcpEval: invalid number of input arguments\.> ...
+%! devtools.mcpEval ("Sandbox")
+%!error <devtools\.mcpEval: invalid number of input arguments\.> ...
+%! devtools.mcpEval ("Sandbox", true, 1)
+%!error <devtools\.mcpEval: the only option is 'Sandbox'\.> ...
+%! devtools.mcpEval ("Sandboxed", true)
+%!error <devtools\.mcpEval: the only option is 'Sandbox'\.> ...
+%! devtools.mcpEval (1, true)
+%!error <devtools\.mcpEval: 'Sandbox' must be a logical scalar\.> ...
+%! devtools.mcpEval ("Sandbox", 1)
+%!error <devtools\.mcpEval: 'Sandbox' must be a logical scalar\.> ...
+%! devtools.mcpEval ("Sandbox", [true, false])

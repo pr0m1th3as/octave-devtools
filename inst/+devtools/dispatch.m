@@ -50,6 +50,12 @@
 ##
 ## @item initialized
 ## True once a legacy client has sent its @code{notifications/initialized}.
+##
+## @item sandboxed
+## True only for a server that verified its sandbox from inside.  Every modern
+## result and the legacy @code{initialize} result then carry
+## @code{_meta["io.github.pr0m1th3as.devtools/sandbox"]} set to true, and the
+## @code{instructions} say so.  A session without the field is not sandboxed.
 ## @end table
 ##
 ## The eras differ in their envelope and in nothing else.  A modern result
@@ -99,6 +105,9 @@ function [RESP, S] = dispatch (R, S)
   ## other way round.
   if (! isfield (S, "surface"))
     S.surface = "read-only";
+  endif
+  if (! isfield (S, "sandboxed"))
+    S.sandboxed = false;
   endif
   if (! all (isfield (S, {'ws', 'wsorder', 'wsnext'})))
     S.ws = struct ();
@@ -158,33 +167,35 @@ function [RESP, S] = dispatch (R, S)
   switch (R.method)
 
     case 'initialize'
-      [res, S.version] = initializeResult (R.params, S.surface);
-      RESP = mkResponse (R.id, res, era);
+      [res, S.version] = initializeResult (R.params, S.surface, S.sandboxed);
+      RESP = mkResponse (R.id, res, era, S.sandboxed);
 
     case 'ping'
       ## Allowed before initialization completes, in either era
-      RESP = mkResponse (R.id, emptyResult (era), era);
+      RESP = mkResponse (R.id, emptyResult (era), era, S.sandboxed);
 
     case 'server/discover'
       if (strcmp (era, "legacy"))
         RESP = devtools.jsonrpcError (R.id, -32601, ...
                  "Method not found: server/discover is not part of this session's protocol revision.");
       else
-        RESP = mkResponse (R.id, discoverResult (S.surface), era);
+        RESP = mkResponse (R.id, discoverResult (S.surface, S.sandboxed), ...
+                           era, S.sandboxed);
       endif
 
     case 'tools/list'
-      RESP = mkResponse (R.id, toolsListResult (era, S.surface), era);
+      RESP = mkResponse (R.id, toolsListResult (era, S.surface), era, ...
+                         S.sandboxed);
 
     case 'resources/list'
-      RESP = mkResponse (R.id, resourcesListResult (era), era);
+      RESP = mkResponse (R.id, resourcesListResult (era), era, S.sandboxed);
 
     case 'resources/read'
       [res, code, msg, data] = resourcesRead (R.params, era);
       if (code != 0)
         RESP = devtools.jsonrpcError (R.id, code, msg, data);
       else
-        RESP = mkResponse (R.id, res, era);
+        RESP = mkResponse (R.id, res, era, S.sandboxed);
       endif
 
     case 'tools/call'
@@ -192,7 +203,7 @@ function [RESP, S] = dispatch (R, S)
       if (code != 0)
         RESP = devtools.jsonrpcError (R.id, code, msg);
       else
-        RESP = mkResponse (R.id, res, era);
+        RESP = mkResponse (R.id, res, era, S.sandboxed);
       endif
 
     otherwise
@@ -208,7 +219,7 @@ function V = legacyVersions ()
   V = {'2025-11-25'};
 endfunction
 
-function [res, ver] = initializeResult (params, surface)
+function [res, ver] = initializeResult (params, surface, sandboxed)
 
   ## The rule here is not the modern one.  A legacy server does not reject an
   ## unknown version: it answers with one it does support and lets the client
@@ -229,7 +240,12 @@ function [res, ver] = initializeResult (params, surface)
   res.protocolVersion = ver;
   res.capabilities = caps;
   res.serverInfo = struct ("name", n, "version", v);
-  res.instructions = instructionsText (surface);
+  res.instructions = instructionsText (surface, sandboxed);
+  ## serverInfo is a field of its own here, so the legacy result carries a
+  ## _meta only to report the sandbox
+  if (sandboxed)
+    res._meta = struct ("io_github_pr0m1th3as_devtools_sandbox", true);
+  endif
 
 endfunction
 
@@ -240,11 +256,11 @@ function res = emptyResult (era)
   endif
 endfunction
 
-function RESP = mkResponse (id, res, era)
+function RESP = mkResponse (id, res, era, sandboxed)
   ## Only a modern result identifies the server on every reply; a legacy one
   ## carried serverInfo once, in the initialize result
   if (strcmp (era, "modern"))
-    res._meta = serverMeta ();
+    res._meta = serverMeta (sandboxed);
   endif
   RESP = struct ("jsonrpc", "2.0", "id", id);
   RESP.result = res;
@@ -261,10 +277,14 @@ function [N, V] = serverIdentity ()
   V = "0.1.0";
 endfunction
 
-function M = serverMeta ()
+function M = serverMeta (sandboxed)
   [n, v] = serverIdentity ();
   M = struct ();
   M.io_modelcontextprotocol_serverInfo = struct ("name", n, "version", v);
+  ## Absent rather than false when not sandboxed
+  if (sandboxed)
+    M.io_github_pr0m1th3as_devtools_sandbox = true;
+  endif
 endfunction
 
 function [code, msg, data] = checkMeta (params)
@@ -536,7 +556,7 @@ function T = toolTable (surface)
 
 endfunction
 
-function t = instructionsText (surface)
+function t = instructionsText (surface, sandboxed)
   ## The version goes here, not into a tool.  This field is sent once, at
   ## connection, and stays in the model's context; a tool reporting a constant
   ## charges its description against every request for the life of the session.
@@ -561,9 +581,15 @@ function t = instructionsText (surface)
       " Code runs in a workspace named by a handle: pass new to open one and", ...
       " the handle it returns to keep the variables.")];
   endif
+  if (sandboxed)
+    t = [t, strcat(" It runs in a sandbox: there is no network and no", ...
+      " shell or other program to start, only the folders and packages it", ...
+      " was configured with are visible, and nothing outside /tmp can be", ...
+      " written.")];
+  endif
 endfunction
 
-function res = discoverResult (surface)
+function res = discoverResult (surface, sandboxed)
 
   caps = struct ();
   caps.tools = struct ();
@@ -573,7 +599,7 @@ function res = discoverResult (surface)
   res.resultType = "complete";
   res.supportedVersions = supportedVersions ();
   res.capabilities = caps;
-  res.instructions = instructionsText (surface);
+  res.instructions = instructionsText (surface, sandboxed);
   res.ttlMs = 3600000;
   res.cacheScope = "public";
 
@@ -2342,6 +2368,62 @@ endfunction
 %! RESP = devtools.dispatch (mkreq ("server/discover", ""));
 %! si = RESP.result._meta.io_modelcontextprotocol_serverInfo;
 %! assert_equal (si.name, "devtools");
+
+%!test
+%! ## A sandboxed server reports it beside serverInfo.
+%! S = devtools.__newSession__ ("eval");
+%! S.sandboxed = true;
+%! RESP = devtools.dispatch (mkreq ("server/discover", ""), S);
+%! assert_equal (RESP.result._meta.io_github_pr0m1th3as_devtools_sandbox, true);
+
+%!test
+%! ## On every modern result, not only at discovery.
+%! S = devtools.__newSession__ ("eval");
+%! S.sandboxed = true;
+%! RESP = devtools.dispatch (mkreq ("tools/list", ""), S);
+%! assert_equal (RESP.result._meta.io_github_pr0m1th3as_devtools_sandbox, true);
+
+%!test
+%! ## A server that is not sandboxed leaves the key out rather than false.
+%! RESP = devtools.dispatch (mkreq ("server/discover", ""), []);
+%! k = "io_github_pr0m1th3as_devtools_sandbox";
+%! assert_equal (isfield (RESP.result._meta, k), false);
+
+%!test
+%! ## A session made without the field is not sandboxed.
+%! S = rmfield (devtools.__newSession__ ("eval"), "sandboxed");
+%! RESP = devtools.dispatch (mkreq ("server/discover", ""), S);
+%! k = "io_github_pr0m1th3as_devtools_sandbox";
+%! assert_equal (isfield (RESP.result._meta, k), false);
+
+%!test
+%! ## A legacy client reads it from the initialize result.
+%! S = devtools.__newSession__ ("eval");
+%! S.sandboxed = true;
+%! R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,', ...
+%!      '"method":"initialize","params":{"protocolVersion":"2025-11-25"}}']);
+%! RESP = devtools.dispatch (R, S);
+%! assert_equal (RESP.result._meta.io_github_pr0m1th3as_devtools_sandbox, true);
+
+%!test
+%! R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,', ...
+%!      '"method":"initialize","params":{"protocolVersion":"2025-11-25"}}']);
+%! RESP = devtools.dispatch (R, devtools.__newSession__ ("eval"));
+%! assert_equal (isfield (RESP.result, "_meta"), false);
+
+%!test
+%! ## The model is told as well.
+%! S = devtools.__newSession__ ("eval");
+%! S.sandboxed = true;
+%! RESP = devtools.dispatch (mkreq ("server/discover", ""), S);
+%! s = RESP.result.instructions;
+%! assert_equal (isempty (strfind (s, "It runs in a sandbox")), false);
+
+%!test
+%! RESP = devtools.dispatch (mkreq ("server/discover", ""), ...
+%!                           devtools.__newSession__ ("eval"));
+%! s = RESP.result.instructions;
+%! assert_equal (isempty (strfind (s, "sandbox")), true);
 
 %!test
 %! ## The advertised set is frozen API: renaming a tool silently breaks every

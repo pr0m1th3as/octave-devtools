@@ -32,7 +32,9 @@
 ## so it cannot be the name of a structure field; @code{jsondecode} mangles the
 ## dot and the slash to underscores on the way in, and @code{jsonencode} would
 ## faithfully emit the mangled name on the way out.  Build such a field as
-## @code{io_modelcontextprotocol_serverInfo} and it is restored here.  The
+## @code{io_modelcontextprotocol_serverInfo} and it is restored here, and this
+## package's own key @code{io.github.pr0m1th3as.devtools/sandbox} is built as
+## @code{io_github_pr0m1th3as_devtools_sandbox} and restored the same way.  The
 ## substitution is anchored to key position, on the quote and colon that only a
 ## key can carry, so a @emph{value} that happens to contain the same text is
 ## left alone.
@@ -62,6 +64,8 @@ function TXT = encodeResponse (R)
   ## Restore the reserved keys, in key position only
   TXT = regexprep (TXT, '"io_modelcontextprotocol_([A-Za-z0-9]+)":', ...
                         '"io.modelcontextprotocol/$1":');
+  TXT = regexprep (TXT, '"io_github_pr0m1th3as_devtools_([A-Za-z0-9]+)":', ...
+                        '"io.github.pr0m1th3as.devtools/$1":');
 
   if (any (TXT == "\n" | TXT == "\r"))
     error (strcat ("devtools.encodeResponse: encoded message contains an", ...
@@ -89,6 +93,14 @@ endfunction
 %! T = devtools.encodeResponse (R);
 %! assert_equal (! isempty (strfind (T, '"io.modelcontextprotocol/serverInfo":')), true);
 %! assert_equal (isempty (strfind (T, "io_modelcontextprotocol")), true);
+
+%!test
+%! ## This package's own metadata key is restored the same way.
+%! M = struct ("io_github_pr0m1th3as_devtools_sandbox", true);
+%! R = struct ("jsonrpc", "2.0", "id", 1, "result", struct ("_meta", M));
+%! assert_equal (devtools.encodeResponse (R), ...
+%!   ['{"jsonrpc":"2.0","id":1,"result":{"_meta":', ...
+%!    '{"io.github.pr0m1th3as.devtools/sandbox":true}}}']);
 
 %!test
 %! ## A value carrying the same text is not a key and must survive untouched.

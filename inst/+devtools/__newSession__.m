@@ -45,12 +45,14 @@ function S = __newSession__ (surface)
   ## era is 'unknown' until the client opens, then 'legacy' or 'modern'.
   ## ws holds the evaluation workspaces by handle and is empty on a read-only
   ## session, which is what makes the surface a property of the session rather
-  ## than a flag on a call.
+  ## than a flag on a call.  sandboxed is set only by a server that verified
+  ## its sandbox from inside.
   S = struct ();
   S.era = "unknown";
   S.version = "";
   S.initialized = false;
   S.surface = surface;
+  S.sandboxed = false;
   S.ws = struct ();
   S.wsorder = {};
   S.wsnext = 1;
