@@ -588,10 +588,11 @@ function T = toolTable (surface, sandboxed)
   oprops.outputs = struct ("type", "array", "items", struct ("type", "object"));
   oprops.error = struct ("type", "string");
   oprops.identifier = struct ("type", "string");
+  oprops.printed = struct ("type", "string");
   osc = struct ();
   osc.type = "object";
   osc.properties = oprops;
-  osc.required = {'outputs', 'error', 'identifier'};
+  osc.required = {'outputs', 'error', 'identifier', 'printed'};
   t.outputSchema = osc;
   T{end+1} = t;
 
@@ -2164,8 +2165,12 @@ function res = callOctaveCall (args, era, sandboxed)
     return;
   endif
   c_fn = args.xFunction;
+  ## Programs, compilers and Java, and the functions that call another one by
+  ## name, which would otherwise reach the rest with a less helpful error
   c_blocked = {'system', 'unix', 'dos', 'popen', 'popen2', 'fork', 'exec', ...
-               'javaMethod', 'javaObject', 'mkoctfile', 'mex'};
+               'javaMethod', 'javaObject', 'mkoctfile', 'mex', 'feval', ...
+               'eval', 'evalin', 'evalc', 'builtin', 'cellfun', 'arrayfun', ...
+               'str2func'};
   if (any (strcmp (c_fn, c_blocked)))
     c_msg = sprintf ("%s is not available in a sandbox.", c_fn);
     res = callError (res, c_msg, "devtools:octave_call:arguments");
@@ -2177,9 +2182,10 @@ function res = callOctaveCall (args, era, sandboxed)
   c_n = 1;
   if (isfield (args, "nargout"))
     if (! (isnumeric (args.nargout) && isscalar (args.nargout) ...
-           && args.nargout >= 1 && args.nargout == fix (args.nargout)))
-      res = callError (res, strcat ("nargout must be a whole number of at", ...
-        " least 1; a call that returns nothing is refused."), ...
+           && args.nargout >= 1 && args.nargout <= 16 ...
+           && args.nargout == fix (args.nargout)))
+      res = callError (res, strcat ("nargout must be a whole number from 1", ...
+        " to 16; a call that returns nothing is refused."), ...
         "devtools:octave_call:arguments");
       return;
     endif
@@ -2221,39 +2227,50 @@ function res = callOctaveCall (args, era, sandboxed)
      " 'identifier', octave_call_e.identifier);"], ...
     "end_try_catch");
 
-  [W, ~, c_err, c_stopped, ~, c_info] = runContained (W, c_code, sandboxed);
+  [W, c_out, c_err, c_stopped, c_sub, c_info] = ...
+    runContained (W, c_code, sandboxed);
+  ## What the function printed, which no cell can show, travels beside the
+  ## outputs for the caller to use or drop
+  c_printed = capText ([c_out, c_sub], evalCap ());
 
   if (c_stopped)
     res = callError (res, sprintf (strcat ("the call to %s was stopped at", ...
       " the deadline of %g seconds."), c_fn, c_info.deadline), ...
-      "devtools:octave_call:deadline");
+      "devtools:octave_call:deadline", c_printed);
   elseif (! isempty (c_err))
-    res = callError (res, c_err, "devtools:octave_call:failed");
+    res = callError (res, c_err, "devtools:octave_call:failed", c_printed);
   elseif (isfield (W, "octave_call_error"))
     res = callError (res, W.octave_call_error.message, ...
-                     W.octave_call_error.identifier);
+                     W.octave_call_error.identifier, c_printed);
   elseif (isfield (W, "octave_call_result"))
     R = W.octave_call_result;
     parts = cellfun (@(d) sprintf ("%d-by-%d %s", d.rows, d.cols, d.kind), ...
                      R, "UniformOutput", false);
-    res.content = {textBlock(sprintf ("[call] %s returned %s", c_fn, ...
-                                      strjoin (parts, ", ")))};
+    c_text = sprintf ("[call] %s returned %s", c_fn, strjoin (parts, ", "));
+    if (! isempty (c_printed))
+      c_text = sprintf ("%s\n[printed]\n%s", c_text, c_printed);
+    endif
+    res.content = {textBlock(c_text)};
     res.isError = false;
     res.structuredContent = struct ("outputs", {R}, "error", "", ...
-                                    "identifier", "");
+                                    "identifier", "", "printed", c_printed);
   else
     res = callError (res, sprintf ("the call to %s returned no result.", ...
-                                   c_fn), "devtools:octave_call:failed");
+                                   c_fn), "devtools:octave_call:failed", ...
+                     c_printed);
   endif
 
 endfunction
 
-function res = callError (res, msg, id)
+function res = callError (res, msg, id, printed)
   ## The declared outputSchema holds for an error too
+  if (nargin < 4)
+    printed = "";
+  endif
   res.content = {textBlock(msg)};
   res.isError = true;
   res.structuredContent = struct ("outputs", {{}}, "error", msg, ...
-                                  "identifier", id);
+                                  "identifier", id, "printed", printed);
 endfunction
 
 function [W, out, err, stopped, sub, cinfo] = runContained (W, code, sandboxed)
@@ -2855,6 +2872,7 @@ endfunction
 %! assert_equal (RESP.result.isError, true);
 %! assert_equal (sc.outputs, {});
 %! assert_equal (sc.identifier, "devtools:octave_call:arguments");
+%! assert_equal (sc.printed, "");
 %! assert_equal (sc.error, ["octave_call needs a function name, such as", ...
 %!                          " mean or geom.area: letters, digits and", ...
 %!                          " underscores, dotted for a namespace, and", ...
@@ -2873,10 +2891,20 @@ endfunction
 %!               "system is not available in a sandbox.");
 
 %!test
+%! ## A function that calls another by name is refused as well.
+%! RESP = callCall ('{"function":"feval"}');
+%! assert_equal (RESP.result.structuredContent.error, ...
+%!               "feval is not available in a sandbox.");
+
+%!test
 %! RESP = callCall ('{"function":"mean","nargout":0}');
 %! assert_equal (RESP.result.structuredContent.error, ...
-%!               ["nargout must be a whole number of at least 1; a call", ...
+%!               ["nargout must be a whole number from 1 to 16; a call", ...
 %!                " that returns nothing is refused."]);
+
+%!test
+%! RESP = callCall ('{"function":"mean","nargout":17}');
+%! assert_equal (RESP.result.isError, true);
 
 %!test
 %! RESP = callCall ('{"function":"mean","nargout":1.5}');

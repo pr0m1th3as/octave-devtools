@@ -184,8 +184,9 @@
 ## same state, so a workspace would carry nothing.  @code{octave_call} runs no
 ## code text: it calls one function by name on typed arguments, a range
 ## carrying each cell's kind and value, and returns each output as typed cells
-## row by row, dates as serial numbers from the document's null date.  Each
-## call runs in a process forked for it,
+## row by row, dates as serial numbers from the document's null date, with
+## anything the function printed beside them.  Each call runs in a process
+## forked for it,
 ## which is killed when it returns or when the deadline passes, together with
 ## every process it started, and @file{/tmp} is emptied before the next call,
 ## so that nothing one call does reaches another.  A call that crashes the
@@ -410,6 +411,17 @@ endfunction
 %!   out = sandboxRun (exe, instdir, "", {C});
 %!   assert_equal (isempty (regexp (out, '"cells":\[7\].*"cells":\[2\]', ...
 %!                                  "once")), false);
+%! endif
+%!test
+%! ## What the function printed comes back beside its outputs.
+%! if (canRun)
+%!   C = ['{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{', meta, ...
+%!        ',"name":"octave_call","arguments":{"function":"fprintf",', ...
+%!        '"args":[{"type":"string","value":"hello\n"}]}}}'];
+%!   out = sandboxRun (exe, instdir, "", {C});
+%!   assert_equal ([isempty(strfind (out, '"cells":[6]')), ...
+%!                  isempty(strfind (out, '"printed":"hello\n"'))], ...
+%!                 [false, false]);
 %! endif
 %!test
 %! ## An Octave error comes back with its message and identifier.
