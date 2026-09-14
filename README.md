@@ -3,8 +3,8 @@
 Developer tooling for GNU Octave: tools for questions only the interpreter can
 answer about itself, packaged so that a program outside Octave can ask.
 
-Everything described here is implemented and tested, on GNU/Linux and on
-Windows.
+Everything described here is implemented and tested on GNU/Linux. Release 0.1.0
+was also tested on Windows; sandbox mode, new in 0.2.0, runs on Linux only.
 
 ## What belongs here
 
@@ -19,8 +19,8 @@ knowledge, a source formatter being the clearest example.
 | Surface | What it is | How you reach it |
 |---|---|---|
 | `devtools.mcp` | Model Context Protocol server, read-only | configure it in an MCP host |
-| `devtools.mcpEval` | the same, plus evaluation | configure it in an MCP host |
-| `devtools.selftest` | a check that both servers start and stay clean | call it from Octave |
+| `devtools.mcpEval` | the same, plus evaluation, optionally inside a sandbox | configure it in an MCP host |
+| `devtools.selftest` | a check that the servers start and stay clean, a sandboxed one included | call it from Octave |
 
 A surface reached over a protocol is documented here, because the program using
 it never sees an Octave prompt and cannot ask `help`. Anything you call
@@ -34,6 +34,9 @@ GNU Octave 11.1.0 or later.
 A C++ compiler is **optional**. The package installs without one and the
 read-only server is unaffected; what the evaluating server loses is described
 under [What contains it](#what-contains-it-and-what-does-not).
+
+[Sandbox mode](#sandbox-mode) needs Linux, `bwrap` from the `bubblewrap`
+package, and `prlimit` from `util-linux`. It needs no compiler.
 
 ## Installation
 
@@ -93,9 +96,10 @@ mean nothing if a flag could turn evaluation on.
 Configure whichever you want. Configuring both is fine, and gives your host a
 tool set it can be trusted with by default and one it must ask about.
 
-The evaluating server runs code in your interpreter, which is contained but not
-sandboxed. Read [What contains it, and what does
-not](#what-contains-it-and-what-does-not) before configuring it.
+The evaluating server runs code in your interpreter, contained but not
+sandboxed, unless it is started in [sandbox mode](#sandbox-mode). Read [What
+contains it, and what does not](#what-contains-it-and-what-does-not) before
+configuring it.
 
 ### Configuration
 
@@ -125,7 +129,25 @@ The evaluating server, under its own name:
 }
 ```
 
-**Do not shorten either command line.** The server communicates over standard
+The evaluating server in [sandbox mode](#sandbox-mode), on Linux, under a name of
+its own. What it may read and load is set in `env`, never in the command:
+
+```json
+{
+  "mcpServers": {
+    "octave-sandbox": {
+      "command": "octave-cli",
+      "args": ["-q", "--no-init-file", "--eval", "pkg load devtools; devtools.mcpEval ('Sandbox', true)"],
+      "env": {
+        "DEVTOOLS_SANDBOX_FOLDERS": "/home/me/analysis",
+        "DEVTOOLS_SANDBOX_PACKAGES": "statistics,datatypes"
+      }
+    }
+  }
+}
+```
+
+**Do not shorten any of these command lines.** The server communicates over standard
 output, so anything written there that is not a message corrupts the stream,
 and a corrupted stream usually appears in the host as an unexplained connection
 failure.
@@ -165,7 +187,10 @@ call that spawns a subprocess and one that never returns, and reports whether
 standard output stayed clean throughout, naming the offending first line if it
 did not.  It reads standard error as well, where the server's own
 diagnostics belong but a diagnostic the interpreter raised about the server
-does not.
+does not. Where Linux, `bwrap` and `prlimit` are present it also starts a
+sandboxed server, checks that it reports itself sandboxed and offers the
+sandbox's tools, and runs a call in it; elsewhere those checks are reported as
+skipped, with the reason.
 
 ### Tools
 
@@ -184,6 +209,14 @@ Served by `devtools.mcpEval` only:
 | Tool | Answers |
 |------|---------|
 | `octave_eval` | what running some Octave code produces, in a workspace that persists between calls |
+| `octave_test` | how many of a function's built-in tests pass, and what failed |
+
+Served by `devtools.mcpEval` in [sandbox mode](#sandbox-mode), in place of the
+two above:
+
+| Tool | Answers |
+|------|---------|
+| `octave_call` | what one function returns for typed arguments, as typed cells, with what it printed |
 | `octave_test` | how many of a function's built-in tests pass, and what failed |
 
 The Octave version and platform are not a tool: they are stated in the
@@ -210,6 +243,8 @@ handle that has expired is a tool error that says so.
 
 Eight workspaces live at once and the oldest is dropped, which bounds how far
 back a handle can be reused rather than limiting what one may hold.
+
+A sandboxed server has no workspaces: every call starts from the same state.
 
 #### The deadline
 
@@ -238,7 +273,8 @@ catch, and what a warning writes, and it arrives in the order it was written.
 `input` and `keyboard` are shadowed while a call runs, since there is no
 terminal for either to read from.
 
-**None of this is a sandbox.** Evaluated code can read and write files, use the
+**None of this is a sandbox**, unless the server was started in [sandbox
+mode](#sandbox-mode). Evaluated code can read and write files, use the
 network, and consume memory exactly as any code in your interpreter can. The
 containment is about keeping the protocol stream intact and getting the server
 back when code does not return, not about defending against code that means
@@ -251,6 +287,66 @@ through the interpreter, so ordinary code and core's own `copyfile`, `ls` and
 `unpack` are unaffected. What is refused is `popen` opened for writing and an
 asynchronous `system`, whose output cannot be taken back at all. The read-only
 server is unaffected either way.
+
+#### Sandbox mode
+
+`devtools.mcpEval ('Sandbox', true)` runs the evaluating server inside a
+sandbox built with `bwrap`, on Linux only. It was made for programs that pass
+data to Octave from somewhere untrusted, a spreadsheet for one, and need a
+server that can call a function and do nothing else.
+
+Before it answers anything, the server checks from inside that the sandbox
+holds, and refuses to serve if it does not. Every result then carries
+`_meta["io.github.pr0m1th3as.devtools/sandbox"]` set to `true`, a key absent
+from a server that is not sandboxed, and the server's `instructions` say so.
+
+Visible inside, read-only:
+
+- the system libraries, Octave's own installation and the `octave-cli` binary;
+- the packages named in `DEVTOOLS_SANDBOX_PACKAGES`, separated by commas and
+  loaded in that order, with every package they depend on, and no other
+  package;
+- the folders named in `DEVTOOLS_SANDBOX_FOLDERS`, separated by `:`, which are
+  on the load path ahead of the packages.
+
+Not visible: `/usr/bin`, so there is no shell and no program to start; the rest
+of your home directory, Octave's history included; and the network. The only
+writable place is an in-memory `/tmp`. A folder that is your home directory,
+contains Octave's history, or lies inside `/tmp`, `/proc` or `/dev` is refused.
+
+Each call runs in a process forked for it, which starts from the same state
+every time and is killed when it returns or when the deadline passes, together
+with any process it started, and `/tmp` is emptied before the next call. A call
+that crashes the interpreter comes back as an error and the server keeps
+serving. The address space of the sandbox is limited to the launching
+process's size plus 2 GB, and `/tmp` holds at most 2 GB; set
+`DEVTOOLS_SANDBOX_MEMORY` and `DEVTOOLS_SANDBOX_TMP` to other numbers of
+gigabytes to change them.
+
+A sandboxed server offers `octave_call` and `octave_test`, and not
+`octave_eval`. `octave_call` takes a function name, never code:
+
+| Argument | What it holds |
+|---|---|
+| `function` | a function name, such as `mean` or `geom.area` |
+| `args` | the arguments in call order, each `number`, `string`, `logical` or `range` |
+| `nargout` | how many outputs to return, from 1 to 16, 1 when omitted |
+| `nullDate` | the date that serial number 0 stands for, `1899-12-30` when omitted |
+
+A range carries its rows, its columns and its cells row by row, each cell with
+a kind (`empty`, `number`, `logical`, `text`, `error`, `date`, `datetime`,
+`time` or `duration`) and a value. A numeric range becomes a matrix with `NaN`
+for an empty cell, a text range a cell array of text, a range of dates a
+`datetime` and a range of times a `duration`, and a range mixing kinds a cell
+array. A range holding an error cell is refused. Dates and times need
+`datatypes` among the sandbox's packages.
+
+Each output comes back as its kind, class, rows, columns and cells row by row,
+with `NaN` as `null`, `Inf` and `-Inf` as the strings `"Inf"` and `"-Inf"`, and
+dates as serial numbers from `nullDate`. What the function printed comes back
+beside the outputs, and an Octave error as its message and identifier.
+Functions that run programs or call another function by name, such as `system`
+and `feval`, are refused by name.
 
 ### Conformance
 

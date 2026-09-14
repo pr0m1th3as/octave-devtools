@@ -1,6 +1,7 @@
 # MCP protocol conformance
 
-Deliverable of Phase 0, completed 2026-08-24. This records exactly what this
+Deliverable of Phase 0, completed 2026-08-24, and extended on 2026-09-14 for the
+sandbox mode of 0.2.0 from the same revision's text. This records exactly what this
 package implements and against which revision, so that none of it is ever
 re-derived from memory. Every answer below is taken from the specification
 text, with the source page named. Quoted sentences are verbatim.
@@ -162,6 +163,47 @@ Every client request carries, in `params._meta`:
 Every result **SHOULD** carry `_meta["io.modelcontextprotocol/serverInfo"]`
 with our name and version.
 
+### A key of our own: `io.github.pr0m1th3as.devtools/sandbox`
+
+A sandboxed `devtools.mcpEval` sets this key to `true` beside `serverInfo`, on
+every modern result and in the legacy `initialize` result; a server that is not
+sandboxed leaves it out. From `basic/index`, under "General fields":
+
+> **Key name format:** valid `_meta` key names have two segments: an optional
+> **prefix**, and a **name**.
+
+> * If specified, MUST be a series of labels separated by dots (`.`), followed by a slash (`/`).
+>   * Labels MUST start with a letter and end with a letter or digit; interior characters can be letters, digits, or hyphens (`-`).
+>   * Implementations SHOULD use reverse DNS notation (e.g., `com.example/` rather than `example.com/`).
+> * Any prefix where the second label is `modelcontextprotocol` or `mcp` is **reserved** for MCP use.
+
+> * Unless empty, MUST begin and end with an alphanumeric character (`[a-z0-9A-Z]`).
+
+and
+
+> third-party extensions use their own vendor prefix.
+
+The prefix `io.github.pr0m1th3as.devtools/` is the reverse of the project's
+`pr0m1th3as.github.io`, every label starts with a letter and ends with a letter
+or digit, and its second label is `github`, so it is not reserved. The name
+`sandbox` is alphanumeric.
+
+**What the key is worth.** It is self-reported, and the same page says of the
+two self-reported identity keys:
+
+> They are intended for display, logging, and debugging. Implementations
+> **SHOULD NOT** use them to change the behavior of the client or server, and
+> **SHOULD NOT** rely on them for security decisions.
+
+That sentence is about `clientInfo` and `serverInfo`, but its reason applies
+here too: a server can write anything into `_meta`. The key is sound only
+where the client started the server itself, with the `Sandbox` option and a
+command line it controls. The claim and the launch then come from one party,
+and the server refuses to serve at all, writing nothing to standard output,
+when its own check of the sandbox fails. `octave-calc` uses it exactly that
+way. For a server some other party started, the key is a claim and nothing
+more. The server itself never changes behaviour on it.
+
 ### `server/discover`
 
 From `server/discover`:
@@ -260,6 +302,16 @@ user on every request.
 
 We emit a fixed order.
 
+**The sandbox's tool set differs, and that is allowed.** From `server/tools`:
+
+> This set **MAY** be empty and **MAY** change over time [...], but **MUST NOT**
+> vary per-connection or as a side effect of other requests on the connection.
+
+A sandboxed `devtools.mcpEval` offers `octave_call` and `octave_test` where the
+plain one offers `octave_eval` and `octave_test`. The set is chosen by the
+launch command, before the first request, and holds for the life of the
+process, so it varies neither per connection nor with any request.
+
 Tool definition fields: `name`, optional `title`, `description`, optional
 `icons`, `inputSchema` (**MUST** be a valid JSON Schema object, not null),
 optional `outputSchema`, optional `annotations`. For a tool with no parameters
@@ -276,6 +328,22 @@ tabular data, and the specification's guidance is to return both:
 
 This was not in the plan and should be. It costs an `outputSchema` per tool and
 makes the results machine-checkable at the client.
+
+**An output schema binds error results too.** From `server/tools`, under
+"Output Schema":
+
+> If an output schema is provided:
+>
+> * Servers **MUST** provide structured results that conform to this schema.
+> * Clients **SHOULD** validate structured results against this schema.
+
+The text makes no exception for a result whose `isError` is true, so every tool
+here that declares an `outputSchema` returns a conforming `structuredContent` on
+an error as well. `octave_call`, the sandbox's tool, declares `outputs`,
+`error`, `identifier` and `printed` as required: a success carries the outputs
+with an empty `error` and `identifier`, and an error carries an empty `outputs`
+with the message and Octave's identifier, which is empty where Octave gives
+none.
 
 ### Tool names, and decision D3c
 
