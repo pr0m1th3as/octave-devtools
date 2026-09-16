@@ -2378,15 +2378,11 @@ function [W, out, err, stopped, sub, cinfo] = runForked (W, code)
   cinfo = struct ("deadline", evalSeconds (), "captured", true, "elapsed", 0);
 
   ## Sweeping every process and emptying /tmp are what a sandbox needs and
-  ## what would wreck a desktop session, so neither runs unless PID 1 is bwrap.
-  try
-    pid1 = strtrim (fileread ("/proc/1/comm"));
-  catch
-    pid1 = "";
-  end_try_catch
-  if (! strcmp (pid1, "bwrap"))
-    err = strcat ("this server is marked sandboxed but does not run inside", ...
-                  " bwrap, so the call was refused");
+  ## what would wreck a desktop session, so neither runs unless the process
+  ## containment that makes them safe is in force.
+  why = devtools.__sweepCheck__ ();
+  if (! isempty (why))
+    err = strcat (why, ", so the call was refused");
     W = struct ();
     return;
   endif
@@ -2443,7 +2439,7 @@ function [W, out, err, stopped, sub, cinfo] = runForked (W, code)
     pause (0.01);
   endwhile
   cinfo.elapsed = toc (t0);
-  sweepProcesses ();
+  devtools.__sweepCall__ ();
 
   f = fullfile (d, "output");
   if (exist (f, "file") == 2)
@@ -2538,19 +2534,6 @@ function wipeTmp ()
       endif
     catch
     end_try_catch
-  endfor
-endfunction
-
-function sweepProcesses ()
-  ## The process namespace holds only the sandbox: PID 1 is bwrap, and every
-  ## other process is this server or something a call started
-  names = readdir ("/proc");
-  me = getpid ();
-  for i = 1:numel (names)
-    p = str2double (names{i});
-    if (! isnan (p) && p != 1 && p != me)
-      kill (p, 9);
-    endif
   endfor
 endfunction
 
