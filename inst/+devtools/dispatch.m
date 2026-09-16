@@ -965,9 +965,12 @@ function O = pathOwner (p, L)
     endif
   endfor
 
-  ## The data directory is asked for rather than built from OCTAVE_HOME, whose
-  ## relationship to it is not the same on every platform.
-  h = {fullfile(__octave_config_info__ ("datadir"), "octave"), ...
+  ## Octave names these directories outright, where OCTAVE_HOME's relationship
+  ## to them is not the same on every platform.  The built form is kept behind
+  ## them for a relocated installation, whose recorded paths may not have moved
+  ## with it.
+  c = __octave_config_info__ ();
+  h = {c.fcnfiledir, c.octfiledir, ...
        fullfile(OCTAVE_HOME (), "share", "octave")};
   if (any (cellfun (@(d) under (p, d), h)))
     O = "core";
@@ -1306,6 +1309,12 @@ function T = cacheText (T)
   ## is why this is safe to run over every entry.
   T = regexprep (T, '^ -- : +', ' -- ', "lineanchors");
   T = regexprep (T, ': XREF[A-Za-z0-9_]+', '');
+  ## What is left of a cross-reference depends on the makeinfo that built the
+  ## cache: 11.3.0's writes "see 'fgetl'", 11.1.0's writes the info form
+  ## "*note 'fgetl'".  These are the words __makeinfo__ puts there itself for
+  ## @pxref and @xref, so the two caches end up saying the same thing.
+  T = strrep (T, "*note ", "see ");
+  T = strrep (T, "*Note ", "See ");
   T = regexprep (T, '\s+$', '');
 
 endfunction

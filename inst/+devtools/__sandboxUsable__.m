@@ -71,7 +71,11 @@ function E = probe ()
   if (isempty (t))
     t = "/bin/true";
   endif
-  cmd = sprintf ('bwrap --unshare-all --ro-bind / / "%s" 2> /dev/null', t);
+  ## The mounts are part of the question: a container can permit the
+  ## namespaces and refuse a fresh procfs over the one it has masked, and a
+  ## probe that stops at the namespaces answers yes about what it never tried.
+  cmd = sprintf (strcat ('bwrap --unshare-all --ro-bind / / --proc /proc', ...
+                         ' --dev /dev "%s" 2> /dev/null'), t);
   if (system (cmd) != 0)
     E = "bwrap is installed but cannot build its namespaces here";
   endif
