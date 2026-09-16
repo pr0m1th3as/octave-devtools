@@ -1,0 +1,91 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    uses: pr0m1th3as/octave-ci/.github/workflows/package-test.yml@v1
+
+  # The shared Linux job runs in a plain container, which has no bubblewrap, so
+  # every sandbox check skips there and the sandbox is the one thing CI would
+  # not cover.  This job installs bubblewrap, gives the container the namespaces
+  # bwrap needs, and fails if the sandbox checks skip rather than run.
+  sandbox:
+    name: Linux sandbox, Octave 11.3.0
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the package archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          git archive --format=tar.gz --prefix=package/ -o package.tar.gz HEAD
+
+      - name: Write the check
+        shell: bash
+        run: |
+          cat > sandbox_check.m <<'OCTAVE'
+          pkg ("install", "-local", "/work/package.tar.gz");
+          pkg ("load", "devtools");
+
+          names = {"devtools.sandboxCommand", "devtools.__sandboxArgs__", ...
+                   "devtools.__sandboxCheck__", "devtools.__sandboxLists__", ...
+                   "devtools.__sweepCheck__", "devtools.__sweepCall__", ...
+                   "devtools.mcpEval"};
+          bad = {};
+          for i = 1:numel (names)
+            if (! test (which (names{i}), "quiet"))
+              bad{end+1} = names{i};
+            endif
+          endfor
+
+          [ok, report] = devtools.selftest ();
+          printf ("%s\n", report{:});
+
+          if (any (! cellfun (@isempty, strfind (report, "SKIP  sandbox"))))
+            printf ("\nthe sandbox checks skipped, proving nothing.\n");
+            exit (1);
+          endif
+          if (! isempty (bad))
+            printf ("\nfailed: %s\n", strjoin (bad, ", "));
+            exit (1);
+          endif
+          if (! ok)
+            printf ("\nSELFTEST FAILED\n");
+            exit (1);
+          endif
+          printf ("\nthe sandbox ran and every check passed\n");
+          OCTAVE
+
+      - name: Install bubblewrap and run the check
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --volume "$PWD:/work" --workdir /work --user root \
+            --security-opt seccomp=unconfined \
+            --security-opt apparmor=unconfined \
+            --cap-add SYS_ADMIN \
+            ghcr.io/gnu-octave/octave:11.3.0 \
+            bash -c 'set -euo pipefail
+              apt-get update -qq
+              apt-get install -y -qq bubblewrap util-linux
+              echo "--- can bwrap build its namespaces in this container? ---"
+              if bwrap --unshare-all --ro-bind / / /bin/true; then
+                echo "bwrap: yes"
+              else
+                echo "bwrap: NO, the container refuses the namespaces"
+              fi
+              octave-cli --norc --no-history \
+                --eval "source (\"/work/sandbox_check.m\")"'

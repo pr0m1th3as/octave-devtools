@@ -4,4 +4,5 @@ tool_eval.m export-ignore
 regen_index.m export-ignore
 doc/devtools-wordmark.png export-ignore
 README.md export-ignore
+.github export-ignore
 .gitattributes export-ignore
