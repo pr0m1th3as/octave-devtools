@@ -16,10 +16,10 @@ jobs:
   test:
     uses: pr0m1th3as/octave-ci/.github/workflows/package-test.yml@v1
 
-  # The shared Linux job runs in a plain container, which has no bubblewrap, so
-  # every sandbox check skips there and the sandbox is the one thing CI would
-  # not cover.  This job installs bubblewrap, gives the container the namespaces
-  # bwrap needs, and fails if the sandbox checks skip rather than run.
+  # The shared Linux job runs in a plain container, where bwrap is installed and
+  # the namespaces it needs are refused, so the sandbox checks skip there and
+  # the sandbox is the one thing CI would not cover.  This job gives the
+  # container those namespaces, and fails if the checks skip rather than run.
   sandbox:
     name: Linux sandbox, Octave 11.3.0
     runs-on: ubuntu-latest

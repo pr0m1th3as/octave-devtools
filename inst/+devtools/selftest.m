@@ -396,7 +396,7 @@ function [OK, REPORT] = selftest (CMD)
     ## the process it forks for it.  Read as text, since jsondecode renames both
     ## _meta and the dotted sandbox key.
     if (nargin < 1)
-      why = sandboxMissing ();
+      why = devtools.__sandboxUsable__ ();
       if (! isempty (why))
         REPORT = skipped (REPORT, "sandbox: a sandboxed server starts", why);
       else
@@ -559,22 +559,6 @@ function [CMD, capdir, contained] = defaultEvalCommand ()
   endif
   CMD = sprintf ('"%s" -q --no-init-file --eval "%s devtools.mcpEval ()"', ...
                  exe, add);
-
-endfunction
-
-function why = sandboxMissing ()
-
-  ## A sandbox needs Linux, bwrap and prlimit, and the skip names the first of
-  ## them that is missing
-  why = "";
-  u = uname ();
-  if (! strcmp (u.sysname, "Linux"))
-    why = "a sandbox runs on Linux only";
-  elseif (isempty (file_in_path (getenv ("PATH"), "bwrap")))
-    why = "bwrap is not on the PATH; install bubblewrap";
-  elseif (isempty (file_in_path (getenv ("PATH"), "prlimit")))
-    why = "prlimit is not on the PATH; install util-linux";
-  endif
 
 endfunction
 

@@ -298,9 +298,7 @@ endfunction
 
 ## A real sandbox needs Linux and bwrap.
 %!shared canRun, exe, instdir, req, meta
-%! canRun = isunix () && ! ismac () ...
-%!          && ! isempty (file_in_path (getenv ("PATH"), "bwrap")) ...
-%!          && ! isempty (file_in_path (getenv ("PATH"), "prlimit"));
+%! canRun = isempty (devtools.__sandboxUsable__ ());
 %! meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":', ...
 %!         '"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}'];
 %! exe = fullfile (OCTAVE_HOME (), "bin", "octave-cli");
@@ -347,13 +345,22 @@ endfunction
 %!  fid = fopen (f, "w");
 %!  fprintf (fid, "%s\n", lines{:});
 %!  fclose (fid);
+%!  e = tempname ();
 %!  cmd = sprintf (['env DEVTOOLS_SANDBOX= DEVTOOLS_SANDBOX_FOLDERS=', ...
 %!                  ' DEVTOOLS_SANDBOX_PACKAGES= %s "%s" -q --no-init-file', ...
 %!                  ' --eval "addpath (''%s''); devtools.mcpEval', ...
-%!                  ' (''Sandbox'', true)" < "%s" 2>/dev/null'], ...
-%!                 envs, exe, instdir, f);
-%!  [~, out] = system (cmd);
+%!                  ' (''Sandbox'', true)" < "%s" 2> "%s"'], ...
+%!                 envs, exe, instdir, f, e);
+%!  [status, out] = system (cmd);
+%!  ## A sandbox that refuses to serve says why here and nowhere else, so a
+%!  ## discarded standard error left every such failure without a diagnosis.
+%!  if (status != 0 && exist (e, "file") == 2)
+%!    printf ("sandboxRun: exit %d: %s\n", status, strtrim (fileread (e)));
+%!  endif
 %!  delete (f);
+%!  if (exist (e, "file") == 2)
+%!    delete (e);
+%!  endif
 %!endfunction
 
 %!test

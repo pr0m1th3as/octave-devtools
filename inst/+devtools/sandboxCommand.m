@@ -185,9 +185,7 @@ endfunction
 
 ## A real command needs Linux and bwrap.
 %!shared canRun
-%! canRun = isunix () && ! ismac () ...
-%!          && ! isempty (file_in_path (getenv ("PATH"), "bwrap")) ...
-%!          && ! isempty (file_in_path (getenv ("PATH"), "prlimit"));
+%! canRun = isempty (devtools.__sandboxUsable__ ());
 
 %!test
 %! if (canRun)
