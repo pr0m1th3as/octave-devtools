@@ -965,10 +965,21 @@ function O = pathOwner (p, L)
     endif
   endfor
 
-  ## Octave names these directories outright, where OCTAVE_HOME's relationship
-  ## to them is not the same on every platform.  The built form is kept behind
-  ## them for a relocated installation, whose recorded paths may not have moved
-  ## with it.
+  ## Where the installation begins is not answerable across platforms: the
+  ## recorded directories and OCTAVE_HOME all name something else on the
+  ## Windows w64 build, measured, whose core files sit under
+  ## ...\mingw64\share\octave\<version>\m while OCTAVE_HOME names a folder
+  ## above that.  What does hold everywhere is the tail core installs into,
+  ## carrying the running version, so the file is asked where it sits rather
+  ## than where the tree starts.
+  v = strrep (version (), ".", "\\.");
+  tails = {['[\\/]share[\\/]octave[\\/]' v '[\\/]m[\\/]'], ...
+           ['[\\/]lib[\\/]octave[\\/]' v '[\\/]oct[\\/]']};
+  if (any (cellfun (@(t) ! isempty (regexp (p, t, "once")), tails)))
+    O = "core";
+    return;
+  endif
+
   c = __octave_config_info__ ();
   h = {c.fcnfiledir, c.octfiledir, ...
        fullfile(OCTAVE_HOME (), "share", "octave")};
