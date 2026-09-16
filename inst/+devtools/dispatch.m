@@ -3183,7 +3183,10 @@ endfunction
 %! assert_equal (RESP.result.isError, false);
 %! assert_equal (W.found, true);
 %! assert_equal (W.kind, "function");
-%! assert_equal (W.package, "core");
+%! ## The path rides along so that a failure names the file it could not
+%! ## attribute, which is what a platform with another layout needs to say.
+%! assert_equal (sprintf ("%s in %s", W.package, W.path), ...
+%!               sprintf ("core in %s", W.path));
 
 %!test
 %! ## A built-in reports a source file inside the interpreter, which is not a

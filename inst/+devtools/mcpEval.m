@@ -259,7 +259,18 @@ function mcpEval (varargin)
   if (! isempty (self))
     allowed{end+1} = self;
   endif
-  roots = unique ({"/home", getenv("HOME")});
+  ## A distribution puts octave-cli in /usr/bin, and binding it there makes
+  ## the directory, so the question is not whether /usr/bin exists but whether
+  ## anything in it was not mounted.  The name it was mounted under is the one
+  ## the sandbox was told to use, which cannot be worked out again from in
+  ## here: only the canonical name exists inside.
+  cli = getenv ("DEVTOOLS_SANDBOX_CLI");
+  roots = {"/home", getenv("HOME"), "/usr/bin", "/bin"};
+  if (! isempty (cli))
+    allowed{end+1} = cli;
+    roots{end+1} = fileparts (cli);
+  endif
+  roots = unique (roots);
   failed = devtools.__sandboxCheck__ (allowed, roots);
   if (! isempty (failed))
     error (strcat ("devtools.mcpEval: refusing to serve, the sandbox is", ...

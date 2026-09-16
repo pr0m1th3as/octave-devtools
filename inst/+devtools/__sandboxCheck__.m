@@ -22,7 +22,7 @@
 ## entry point.
 ##
 ## Returns a cell array naming every check that failed, empty when all pass.
-## There must be no @file{/usr/bin} or @file{/bin}, no network interface
+## There must be no network interface
 ## besides the loopback in @file{/proc/net/dev}, an address-space limit in
 ## @file{/proc/self/limits}, and nothing under each folder
 ## of @var{ROOTS} except @var{ALLOWED}, the paths that were mounted, and the
@@ -44,10 +44,6 @@ function FAILED = __sandboxCheck__ (ALLOWED, ROOTS)
   endif
 
   FAILED = {};
-
-  if (isfolder ("/usr/bin") || isfolder ("/bin"))
-    FAILED{end+1} = "/usr/bin is present";
-  endif
 
   try
     txt = fileread ("/proc/net/dev");
@@ -151,11 +147,6 @@ endfunction
 %! fclose (fopen (fullfile (T, "a", "b", "f.m"), "w"));
 %! fclose (fopen (fullfile (T, "a", "x.txt"), "w"));
 
-%!test
-%! if (isunix () && ! ismac ())
-%!   F = devtools.__sandboxCheck__ ({}, {});
-%!   assert_equal (any (strcmp (F, "/usr/bin is present")), true);
-%! endif
 %!test
 %! ## Reported exactly when this process runs without an address-space limit.
 %! if (isunix () && ! ismac ())

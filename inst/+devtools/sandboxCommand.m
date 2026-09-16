@@ -64,7 +64,9 @@
 ##
 ## The environment inside is cleared except for @env{HOME}, @env{LANG} and
 ## @env{DEVTOOLS_EVAL_SECONDS}, and carries @env{DEVTOOLS_SANDBOX} set to 1,
-## @env{DEVTOOLS_SANDBOX_FOLDERS} and @env{DEVTOOLS_SANDBOX_PACKAGES}.  Where
+## @env{DEVTOOLS_SANDBOX_FOLDERS}, @env{DEVTOOLS_SANDBOX_PACKAGES} and
+## @env{DEVTOOLS_SANDBOX_CLI}, the path @file{octave-cli} was mounted under.
+## Where
 ## this copy of @code{devtools} is not an installed package, its folder is
 ## mounted as well and named in @env{DEVTOOLS_SANDBOX_SELF}.
 ##
