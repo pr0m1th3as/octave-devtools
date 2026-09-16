@@ -28,6 +28,10 @@
 ## of @var{ROOTS} except @var{ALLOWED}, the paths that were mounted, and the
 ## folders leading to them.  A folder that cannot be read counts as visible.
 ##
+## The root filesystem and every folder of @var{ALLOWED} must refuse a file.
+## That is the one promise the checks above do not reach, since each of them
+## reads; a probe that succeeds is removed again.
+##
 ## The environment marker that a relaunch sets is never taken as proof: this is
 ## what a server checks before it reports itself sandboxed.
 ##
@@ -72,6 +76,18 @@ function FAILED = __sandboxCheck__ (ALLOWED, ROOTS)
     FAILED{end+1} = "no address-space limit is set";
   endif
 
+  ## A read-only mount is what stops a call changing the host, and nothing
+  ## above sees it.
+  if (writable ("/"))
+    FAILED{end+1} = "the root filesystem can be written";
+  endif
+  for i = 1:numel (ALLOWED)
+    if (isfolder (ALLOWED{i}) && writable (ALLOWED{i}))
+      FAILED{end+1} = sprintf ("'%s' is mounted but can be written", ...
+                               ALLOWED{i});
+    endif
+  endfor
+
   for i = 1:numel (ROOTS)
     if (isfolder (ROOTS{i}))
       extra = walk (ROOTS{i}, ALLOWED);
@@ -82,6 +98,18 @@ function FAILED = __sandboxCheck__ (ALLOWED, ROOTS)
     endif
   endfor
 
+endfunction
+
+## True if a file can be created in folder D.  The probe carries this process
+## id and is removed again, so a folder that is writable is left as found.
+function r = writable (D)
+  p = fullfile (D, sprintf (".devtools-write-probe-%d", getpid ()));
+  fid = fopen (p, "w");
+  r = (fid >= 0);
+  if (r)
+    fclose (fid);
+    unlink (p);
+  endif
 endfunction
 
 ## Paths under D that are neither mounted nor on the way to a mounted path.
@@ -114,8 +142,9 @@ function r = isUnder (P, D)
   endif
 endfunction
 
-%!shared T, msg
+%!shared T, msg, wmsg
 %! msg = @(p) sprintf ("'%s' is visible but was not mounted", p);
+%! wmsg = @(p) sprintf ("'%s' is mounted but can be written", p);
 %! T = tempname ();
 %! mkdir (fullfile (T, "a", "b"));
 %! mkdir (fullfile (T, "c"));
@@ -152,10 +181,30 @@ endfunction
 %!test
 %! ## Everything mounted leaves nothing visible.
 %! F = devtools.__sandboxCheck__ ({fullfile(T, "a"), fullfile(T, "c")}, {T});
-%! assert_equal (any (strncmp (F, ["'" T], numel (T) + 1)), false);
+%! V = F(! cellfun (@isempty, strfind (F, "is visible but was not mounted")));
+%! assert_equal (any (strncmp (V, ["'" T], numel (T) + 1)), false);
 %!test
 %! F = devtools.__sandboxCheck__ ({}, {fullfile(T, "no-such-root")});
 %! assert_equal (any (strncmp (F, ["'" T], numel (T) + 1)), false);
+%!test
+%! ## A mounted folder that can be written is reported.
+%! F = devtools.__sandboxCheck__ ({fullfile(T, "c")}, {});
+%! assert_equal (any (strcmp (F, wmsg (fullfile (T, "c")))), true);
+%!test
+%! ## The probe that finds it leaves the folder as it was.
+%! devtools.__sandboxCheck__ ({fullfile(T, "c")}, {});
+%! assert_equal (numel (readdir (fullfile (T, "c"))), 2);
+%!test
+%! ## A mounted path that is not a folder is not probed.
+%! F = devtools.__sandboxCheck__ ({fullfile(T, "a", "x.txt")}, {});
+%! assert_equal (any (strcmp (F, wmsg (fullfile (T, "a", "x.txt")))), false);
+%!test
+%! ## The root filesystem is not writable for an ordinary user.
+%! if (isunix () && geteuid () != 0)
+%!   F = devtools.__sandboxCheck__ ({}, {});
+%!   assert_equal (any (strcmp (F, "the root filesystem can be written")), ...
+%!                 false);
+%! endif
 %!test
 %! confirm_recursive_rmdir (false, "local");
 %! rmdir (T, "s");
