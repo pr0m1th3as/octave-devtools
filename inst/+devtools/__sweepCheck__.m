@@ -58,7 +58,3 @@ endfunction
 %! ## Outside a bwrap sandbox, sweeping is refused and the reason names bwrap.
 %! E = devtools.__sweepCheck__ ();
 %! assert_equal (isempty (E), false);
-%!test
-%! ## Nothing is swept, so this process is still here to say so.
-%! devtools.__sweepCheck__ ();
-%! assert_equal (kill (getpid (), 0), 0);

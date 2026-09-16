@@ -61,6 +61,9 @@ endfunction
 %!test
 %! T = tempname ();
 %! mkdir (fullfile (T, "pkgA"));
+%! ## macOS hands out /var/folders, a link to /private/var/folders, and pkg
+%! ## reports the canonical path.
+%! T = canonicalize_file_name (T);
 %! mk = @(n, d) struct ("name", n, "version", "1.0.0", "dir", d, ...
 %!                      "archprefix", d, "depends", {{}}, "autoload", 0);
 %! local_packages = {mk("a", fullfile (T, "pkgA")), ...

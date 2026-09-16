@@ -221,7 +221,8 @@ endfunction
 %! devtools.sandboxCommand ({''}, {})
 %!error <devtools\.sandboxCommand: folder '/devtools-no-such-folder' does not exist\.> ...
 %! devtools.sandboxCommand ({'/devtools-no-such-folder'}, {})
-%!error <devtools\.sandboxCommand: 'bwrap' is not on the PATH; install bubblewrap\.> ...
+## Off GNU/Linux the platform check answers first, so both messages are named.
+%!error <devtools\.sandboxCommand: ('bwrap' is not on the PATH; install bubblewrap|a sandbox is available on Linux only)\.> ...
 %! p = getenv ("PATH");
 %! setenv ("PATH", "");
 %! unwind_protect

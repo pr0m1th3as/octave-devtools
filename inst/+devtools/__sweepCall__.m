@@ -53,6 +53,7 @@ function __sweepCall__ ()
 endfunction
 
 %!test
-%! ## Outside a sandbox it sweeps nothing, this process included.
+%! ## Outside a sandbox it sweeps nothing, so this process reaches the check
+%! ## that refused it.
 %! devtools.__sweepCall__ ();
-%! assert_equal (kill (getpid (), 0), 0);
+%! assert_equal (isempty (devtools.__sweepCheck__ ()), false);

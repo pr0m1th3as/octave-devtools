@@ -359,7 +359,8 @@ endfunction
 %! assert_equal (envOf (A, "DEVTOOLS_SANDBOX"), "1");
 %!test
 %! A = devtools.__sandboxArgs__ (H, {'/data/a', '/data/b'}, {});
-%! assert_equal (envOf (A, "DEVTOOLS_SANDBOX_FOLDERS"), "/data/a:/data/b");
+%! assert_equal (envOf (A, "DEVTOOLS_SANDBOX_FOLDERS"), ...
+%!               strjoin ({'/data/a', '/data/b'}, pathsep ()));
 %!test
 %! A = devtools.__sandboxArgs__ (H, {'/data/a'}, {});
 %! assert_equal (hasSeq (A, {'--ro-bind', '/data/a', '/data/a'}), true);

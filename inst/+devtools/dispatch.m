@@ -959,16 +959,32 @@ function O = pathOwner (p, L)
 
   O = "";
   for i = 1:numel (L)
-    if (strncmp (p, L{i}.dir, numel (L{i}.dir)))
+    if (under (p, L{i}.dir))
       O = sprintf ("%s %s", L{i}.name, L{i}.version);
       return;
     endif
   endfor
 
-  h = fullfile (OCTAVE_HOME (), "share", "octave");
-  if (strncmp (p, h, numel (h)))
+  ## The data directory is asked for rather than built from OCTAVE_HOME, whose
+  ## relationship to it is not the same on every platform.
+  h = {fullfile(__octave_config_info__ ("datadir"), "octave"), ...
+       fullfile(OCTAVE_HOME (), "share", "octave")};
+  if (any (cellfun (@(d) under (p, d), h)))
     O = "core";
   endif
+
+endfunction
+
+function R = under (p, d)
+
+  ## Windows varies the separator and the case of a path between the one a
+  ## function reports and the one fullfile builds, and either difference makes
+  ## a plain comparison miss.
+  if (ispc ())
+    p = lower (strrep (p, "/", filesep ()));
+    d = lower (strrep (d, "/", filesep ()));
+  endif
+  R = ! isempty (d) && strncmp (p, d, numel (d));
 
 endfunction
 
@@ -3215,6 +3231,8 @@ endfunction
 %! d2 = fullfile (tempdir (), "devtools_shadow_b");
 %! unwind_protect
 %!   mkdir (d1); mkdir (d2);
+%!   ## which reports the canonical path, and macOS hands out a link.
+%!   d1 = canonicalize_file_name (d1); d2 = canonicalize_file_name (d2);
 %!   for d = {d1, d2}
 %!     fid = fopen (fullfile (d{1}, "devtoolszzfixture.m"), "w");
 %!     fprintf (fid, "function y = devtoolszzfixture ()\n  y = 1;\nendfunction\n");

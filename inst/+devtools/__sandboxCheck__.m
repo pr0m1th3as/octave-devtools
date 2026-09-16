@@ -135,10 +135,10 @@ endfunction
 
 ## True if path P is folder D or lies inside it.
 function r = isUnder (P, D)
-  if (strcmp (D, "/"))
+  if (strcmp (D, filesep ()))
     r = true;
   else
-    r = strcmp (P, D) || strncmp (P, [D, "/"], numel (D) + 1);
+    r = strcmp (P, D) || strncmp (P, [D, filesep()], numel (D) + 1);
   endif
 endfunction
 
