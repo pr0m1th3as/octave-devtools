@@ -206,6 +206,51 @@ Section 'A private copy instead of an ACE on the installation' {
         C:\probe\out\oct3b.txt
 }
 
+Section 'Whether execution needs ALL APPLICATION PACKAGES' {
+  # Every arm above executed only from System32, and System32 is the one place
+  # granting ALL APPLICATION PACKAGES rather than a single package SID.  If
+  # that is what image execution requires, the lab image question gets harder
+  # rather than easier, being the broader grant of the two.
+  $aap = 'S-1-15-2-1'
+  $err = 0
+
+  # The container's own folder first, where a copied cmd.exe was refused with
+  # full control for its own package SID.
+  if (! (Test-Path C:\probe\out\cmd-copy.exe)) {
+    Copy-Item "$Sys\cmd.exe" C:\probe\out\cmd-copy.exe -Force
+  }
+  icacls C:\probe\out /grant "*${aap}:(OI)(CI)RX" | Out-Null
+  InBox 'the copied cmd.exe, now with ALL APPLICATION PACKAGES' `
+        'C:\probe\out\cmd-copy.exe /c ver' C:\probe\out\copyexe2.txt
+
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  $grant = icacls $Root /grant "*${aap}:(OI)(CI)RX" /T /C /Q 2>&1
+  $sw.Stop()
+  'the grant over the installation took {0:N1} s' -f $sw.Elapsed.TotalSeconds
+  $grant | Select-Object -Last 2
+
+  # The folder would not list after (OI)(CI)RX while files inside it read, so
+  # the folder itself is granted separately, without inheritance.
+  icacls $Root /grant "*${aap}:(RX)" | Out-Null
+  InBox 'listing the folder' "dir `"$Root`"" C:\probe\out\dir4.txt
+  InBox 'the launcher' "$Launch C:\probe\out\ver.m" C:\probe\out\oct4.txt
+  InBox 'the interpreter itself' "$Cli C:\probe\out\ver.m" `
+        C:\probe\out\oct4b.txt
+
+  # A confinement that runs Octave is worth nothing if it stopped confining,
+  # and the grant just made was read and execute over one tree only.
+  '--- what it may still read, write and reach ---'
+  $c = "$Sys\cmd.exe /c " +
+       '(type C:\probe\secret.txt & ' +
+       'echo x > C:\probe\wrote-aap.txt & ' +
+       'curl.exe -s -m 10 -o nul -w "http %{http_code}" ' +
+       'https://example.com) > C:\probe\out\reach2.txt 2>&1'
+  $rc = [Spawn]::InAppContainer($AcName, $c, 'C:\probe', [ref] $err)
+  "the reach probe: exit $rc, error $err"
+  Show 'what it reached' C:\probe\out\reach2.txt
+  'wrote outside its grant: ' + (Test-Path C:\probe\wrote-aap.txt)
+}
+
 Section 'A low integrity token, which needs no ACE' {
   $err = 0
 
