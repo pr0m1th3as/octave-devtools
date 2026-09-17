@@ -193,8 +193,11 @@ function [PROFILE, ARGS, ERRMSG] = __seatbeltProfile__ (HOST, FOLDERS, ...
   ## bwrap clears the environment and names what the inner server needs with
   ## --setenv; macOS inherits it instead, so the same names are exported here.
   ## TMPDIR is among them because Darwin puts it under /var/folders, which the
-  ## profile denies, and a library that opens a file there warns as Octave
-  ## starts.
+  ## profile denies, so tempname and tempdir would hand a call a path it
+  ## cannot write.  It does not silence OpenMP's warning, which names /tmp
+  ## outright and never consults TMPDIR: measured 2026-09-17, the warning is
+  ## unchanged with TMPDIR set or unset and gone only when the whole of
+  ## /private/tmp is writable, which is the host's and is not granted.
   E = {"TMPDIR", HOST.tmpDir; ...
        "DEVTOOLS_SANDBOX", "1"; ...
        "DEVTOOLS_SANDBOX_ROOT", HOST.tmpDir; ...

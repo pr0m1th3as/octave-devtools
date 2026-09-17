@@ -147,7 +147,20 @@
 ## inside a sandbox, on GNU/Linux with @command{bwrap} from the
 ## @code{bubblewrap} package installed, and on macOS with the system's own
 ## @command{sandbox-exec}.  The two confine by different means, so each names
-## the guarantees it holds rather than claiming the other's.  Before serving, the server replaces its
+## the guarantees it holds rather than claiming the other's.
+##
+## On macOS a sandboxed server writes one line to standard error as it starts,
+## @code{OMP: Warning #179: Function Can't set size of /tmp file failed:}, and
+## then serves normally.  OpenMP registers itself by making
+## @file{/tmp/__KMP_REGISTERED_LIB_<pid>}, naming @file{/tmp} rather
+## than reading @env{TMPDIR}, and the sandbox does not grant the host's
+## @file{/tmp}.  What that registration detects is a second OpenMP runtime in
+## the same process, which Octave does not have, so nothing is lost by it.  It
+## is left alone deliberately: granting the write would put a file of the
+## server's outside the sandbox at every launch, and suppressing the warning
+## would hide the next thing to go wrong on the same path.
+##
+## Before serving, the server replaces its
 ## own process with a sandboxed @file{octave-cli} built by
 ## @code{devtools.sandboxCommand}.  The process, its standard streams and its
 ## exit code carry through unchanged, so a host launches it like the plain
