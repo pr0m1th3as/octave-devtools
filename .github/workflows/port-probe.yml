@@ -73,8 +73,10 @@ jobs:
           chmod +x limited
           ./limited 5 /bin/sh -c 'sleep 60'
           echo "the bound works: exit $? (124 expected)"
+          exit 0
 
       - name: Does RLIMIT_AS bind a C program
+        continue-on-error: true
         run: |
           set +e
           cat > alloc.c <<'C'
@@ -121,6 +123,7 @@ jobs:
           run "RLIMIT_AS   (-v) 1 GB, ask 2048 MB" -v 1048576   2048
           run "RLIMIT_DATA (-d) 1 GB, ask 2048 MB" -d 1048576   2048
           run "RLIMIT_RSS  (-m) 1 GB, ask 2048 MB" -m 1048576   2048
+          exit 0
 
       - name: Install Octave
         env:
@@ -132,6 +135,7 @@ jobs:
           octave-cli --norc --no-history --eval "disp (version ())"
 
       - name: What Octave reserves at start
+        continue-on-error: true
         run: |
           set +e
           # The Linux budget is VmSize + 2 GB, so the port needs a base to add
@@ -151,8 +155,10 @@ jobs:
           look "default thread count" DEVTOOLS_PROBE=1
           look "one BLAS thread" OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 \
                                  VECLIB_MAXIMUM_THREADS=1
+          exit 0
 
       - name: Does Octave start under a limit, and is an allocation refused
+        continue-on-error: true
         run: |
           set +e
           # No prlimit on Darwin, so the relaunch route is a shell that sets
@@ -224,8 +230,10 @@ jobs:
           else
             echo "no virtual size could be read, so no relative cap was tried"
           fi
+          exit 0
 
       - name: Can the limit be read from inside
+        continue-on-error: true
         run: |
           set +e
           # The Linux check reads /proc/self/limits.  Darwin has none, so the
@@ -257,8 +265,10 @@ jobs:
           else
             echo "exit status $rc"
           fi
+          exit 0
 
       - name: Is Seatbelt reachable at all
+        continue-on-error: true
         run: |
           set +e
           # Not the measurement, but the port has no filesystem story without
@@ -272,6 +282,7 @@ jobs:
           sandbox-exec -p '(version 1)(allow default)(deny network*)' \
             /usr/bin/curl -s -m 10 -o /dev/null https://example.com \
             && echo "the network was NOT blocked" || echo "network blocked"
+          exit 0
 
   ## ----------------------------------------------------------------------
   ## Measurement 2.  Windows filesystem confinement without an ACE on the
@@ -304,15 +315,17 @@ jobs:
           version: '11.3.0'
 
       - name: The machine and the installation
+        continue-on-error: true
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
           $PSNativeCommandUseErrorActionPreference = $false
           [Environment]::OSVersion | Format-List
-          $id = [Security.Principal.WindowsIdentity]::GetCurrent ()
-          $pr = New-Object Security.Principal.WindowsPrincipal ($id)
+          $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $pr = New-Object -TypeName Security.Principal.WindowsPrincipal `
+                           -ArgumentList $id
           $admin = [Security.Principal.WindowsBuiltInRole]::Administrator
-          "running as admin: " + $pr.IsInRole ($admin)
+          "running as admin: " + $pr.IsInRole($admin)
           $root = "C:\octave-ci\octave-$env:OCTAVE_VERSION-w64"
           "octave root: $root"
           $f = Get-ChildItem -Recurse -File -ErrorAction SilentlyContinue $root
@@ -622,7 +635,7 @@ jobs:
           New-Item -ItemType Directory -Force C:\probe\low | Out-Null
           "secret" | Set-Content C:\probe\secret.txt
           Add-Type -Path spawn.cs
-          $sid = [Spawn]::AppContainerSid ("devtools-port-probe")
+          $sid = [Spawn]::AppContainerSid("devtools-port-probe")
           "AppContainer SID: $sid"
           $sid | Set-Content C:\probe\sid.txt
           # The container needs somewhere to write or nothing it does can be
@@ -634,6 +647,25 @@ jobs:
           icacls C:\probe\out /grant "*${sid}:(OI)(CI)F" | Out-Null
           # A low integrity process writes only where the label allows it.
           icacls C:\probe\low /setintegritylevel "(OI)(CI)L" | Out-Null
+
+          # CreateProcess has no shell, so every launch below goes through
+          # cmd.exe for its redirection, and what Octave is to run is a file
+          # rather than an --eval string, which keeps quotes out of a command
+          # line that three different parsers see.  The files sit in the one
+          # folder the container may read.
+          "disp (version ()); disp (pwd ())" |
+            Set-Content C:\probe\out\ver.m
+          @'
+          n = str2double (getenv ("PROBE_N"));
+          t = tic;
+          try
+            x = zeros (n);
+            printf ("allocated %.2f GB in %.2f s\n", numel (x) * 8 / 2^30, ...
+                    toc (t));
+          catch err
+            printf ("refused after %.2f s: %s\n", toc (t), err.message);
+          end_try_catch
+          '@ | Set-Content C:\probe\out\cap.m
           "folders ready"
 
       - name: AppContainer without an ACE on the installation
@@ -656,7 +688,7 @@ jobs:
           # folder, so the first probe touches no file at all and answers with
           # its exit code alone: 42 means the container runs.
           $c = "$sys\cmd.exe /c exit 42"
-          $rc = [Spawn]::InAppContainer ("devtools-port-probe", $c,
+          $rc = [Spawn]::InAppContainer("devtools-port-probe", $c,
                                          "C:\probe", [ref] $err)
           "a container that touches no file: exit $rc (42 expected), " +
             "win32 error $err"
@@ -665,22 +697,24 @@ jobs:
           # whether the container can write where it was granted, before
           # anything is asked of the Octave folder.
           $c = "$sys\cmd.exe /c ver > C:\probe\out\ver.txt 2>&1"
-          $rc = [Spawn]::InAppContainer ("devtools-port-probe", $c,
+          $rc = [Spawn]::InAppContainer("devtools-port-probe", $c,
                                          "C:\probe", [ref] $err)
           "cmd.exe in the container: exit $rc, win32 error $err"
           Show "what it printed" C:\probe\out\ver.txt
 
           $c = "$sys\cmd.exe /c dir `"$root`" > C:\probe\out\dir.txt 2>&1"
-          $rc = [Spawn]::InAppContainer ("devtools-port-probe", $c,
+          $rc = [Spawn]::InAppContainer("devtools-port-probe", $c,
                                          "C:\probe", [ref] $err)
           "listing the Octave folder: exit $rc, win32 error $err"
           Show "what it saw" C:\probe\out\dir.txt
 
-          $c = "$root\octave-cli.exe --norc --no-history --eval " +
-               "`"disp (version ())`" > C:\probe\out\oct.txt 2>&1"
-          $rc = [Spawn]::InAppContainer ("devtools-port-probe", $c,
+          $oct = "$root\octave-launch.exe --no-gui --norc --silent " +
+                 "--no-history"
+          $c = "$sys\cmd.exe /c $oct C:\probe\out\ver.m " +
+               "> C:\probe\out\oct.txt 2>&1"
+          $rc = [Spawn]::InAppContainer("devtools-port-probe", $c,
                                          "C:\probe", [ref] $err)
-          "octave-cli in the container: exit $rc, win32 error $err"
+          "octave in the container: exit $rc, win32 error $err"
           Show "what it printed" C:\probe\out\oct.txt
 
       - name: AppContainer with the ACE, and what the ACE costs
@@ -700,12 +734,14 @@ jobs:
           "granting read and execute over the installation took " +
             ("{0:N1} s" -f $t.TotalSeconds)
 
-          $c = "$root\octave-cli.exe --norc --no-history --eval " +
-               "`"disp (version ()); disp (pwd ())`" " +
+          $sys = "$env:SystemRoot\System32"
+          $oct = "$root\octave-launch.exe --no-gui --norc --silent " +
+                 "--no-history"
+          $c = "$sys\cmd.exe /c $oct C:\probe\out\ver.m " +
                "> C:\probe\out\oct2.txt 2>&1"
-          $rc = [Spawn]::InAppContainer ("devtools-port-probe", $c,
+          $rc = [Spawn]::InAppContainer("devtools-port-probe", $c,
                                          "C:\probe", [ref] $err)
-          "octave-cli with the ACE: exit $rc, win32 error $err"
+          "octave with the ACE: exit $rc, win32 error $err"
           if (Test-Path C:\probe\out\oct2.txt) {
             Get-Content C:\probe\out\oct2.txt
           }
@@ -716,7 +752,7 @@ jobs:
                "echo x > C:\probe\wrote-here.txt & " +
                "curl.exe -s -m 10 -o nul -w ""http %{http_code}"" " +
                "https://example.com) > C:\probe\out\reach.txt 2>&1"
-          $rc = [Spawn]::InAppContainer ("devtools-port-probe", $c,
+          $rc = [Spawn]::InAppContainer("devtools-port-probe", $c,
                                          "C:\probe", [ref] $err)
           "the reach probe: exit $rc, win32 error $err"
           if (Test-Path C:\probe\out\reach.txt) {
@@ -758,11 +794,14 @@ jobs:
           }
           "granting over the copy took {0:N1} s" -f $t.TotalSeconds
 
-          $c = "C:\probe\octave\octave-cli.exe --norc --no-history --eval " +
-               "`"disp (version ())`" > C:\probe\out\oct3.txt 2>&1"
-          $rc = [Spawn]::InAppContainer ("devtools-port-probe", $c,
+          $sys = "$env:SystemRoot\System32"
+          $oct = "C:\probe\octave\octave-launch.exe --no-gui --norc " +
+                 "--silent --no-history"
+          $c = "$sys\cmd.exe /c $oct C:\probe\out\ver.m " +
+               "> C:\probe\out\oct3.txt 2>&1"
+          $rc = [Spawn]::InAppContainer("devtools-port-probe", $c,
                                          "C:\probe", [ref] $err)
-          "octave-cli from the copy: exit $rc, win32 error $err"
+          "octave from the copy: exit $rc, win32 error $err"
           if (Test-Path C:\probe\out\oct3.txt) {
             Get-Content C:\probe\out\oct3.txt
           }
@@ -778,10 +817,12 @@ jobs:
           $sys = "$env:SystemRoot\System32"
           $err = 0
 
-          $c = "$root\octave-cli.exe --norc --no-history --eval " +
-               "`"disp (version ())`" > C:\probe\low\oct.txt 2>&1"
-          $rc = [Spawn]::AtLowIntegrity ($c, "C:\probe\low", [ref] $err)
-          "octave-cli at low integrity: exit $rc, win32 error $err"
+          $oct = "$root\octave-launch.exe --no-gui --norc --silent " +
+                 "--no-history"
+          $c = "$sys\cmd.exe /c $oct C:\probe\out\ver.m " +
+               "> C:\probe\low\oct.txt 2>&1"
+          $rc = [Spawn]::AtLowIntegrity($c, "C:\probe\low", [ref] $err)
+          "octave at low integrity: exit $rc, win32 error $err"
           if (Test-Path C:\probe\low\oct.txt) {
             Get-Content C:\probe\low\oct.txt
           }
@@ -791,7 +832,7 @@ jobs:
                "echo x > C:\probe\low-wrote.txt & " +
                "curl.exe -s -m 10 -o nul -w ""http %{http_code}"" " +
                "https://example.com) > C:\probe\low\reach.txt 2>&1"
-          $rc = [Spawn]::AtLowIntegrity ($c, "C:\probe\low", [ref] $err)
+          $rc = [Spawn]::AtLowIntegrity($c, "C:\probe\low", [ref] $err)
           "the reach probe at low integrity: exit $rc, win32 error $err"
           if (Test-Path C:\probe\low\reach.txt) {
             Get-Content C:\probe\low\reach.txt
@@ -813,15 +854,13 @@ jobs:
 
           function Cap ($mb, $n, $tag) {
             "--- cap $mb MB, zeros ($n) ---"
-            $code = "t = tic; try; x = zeros ($n); " +
-                    "printf ('allocated %.2f GB in %.2f s\n', " +
-                    "numel (x) * 8 / 2^30, toc (t)); " +
-                    "catch e; printf ('refused after %.2f s: %s\n', " +
-                    "toc (t), e.message); end_try_catch"
-            $c = "$root\octave-cli.exe --norc --no-history --eval " +
-                 "`"$code`" > C:\probe\out\$tag.txt 2>&1"
+            $env:PROBE_N = $n
+            $c = "$env:SystemRoot\System32\cmd.exe /c " +
+                 "$root\octave-launch.exe --no-gui --norc --silent " +
+                 "--no-history C:\probe\out\cap.m " +
+                 "> C:\probe\out\$tag.txt 2>&1"
             $e = 0
-            $rc = [Spawn]::InJob ($c, "C:\probe", $mb, [ref] $e)
+            $rc = [Spawn]::InJob($c, "C:\probe", $mb, [ref] $e)
             "exit $rc, win32 error $e"
             if (Test-Path C:\probe\out\$tag.txt) {
               Get-Content C:\probe\out\$tag.txt
