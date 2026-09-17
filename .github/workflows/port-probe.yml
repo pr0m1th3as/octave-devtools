@@ -440,6 +440,75 @@ jobs:
           fi
           exit 0
 
+      - name: Does per-call isolation work, and do later rules win
+        continue-on-error: true
+        run: |
+          set +e
+          # Two things the port would otherwise assume.  First, the per-call
+          # child: fork, dup2 onto a file, waitpid, and kill -9, which is how
+          # every sandboxed call runs and has only ever been measured on
+          # Linux.  Second, SBPL's rule order, since the caller's folders and
+          # the installed packages usually sit inside the home the profile
+          # denies, so an allow has to be able to win after a deny.
+          prefix=$(brew --prefix)
+          cli=$(command -v octave-cli)
+          wrap="$PWD/limited"
+          work=/private/tmp/devtools-probe
+          mkdir -p "$work" "$HOME/allowed" "$HOME/hidden"
+          echo "allowed" > "$HOME/allowed/f.txt"
+          echo "hidden"  > "$HOME/hidden/f.txt"
+
+          cat > "$work/percall.m" <<'M'
+          1;
+          function callOnce ()
+            f = "/private/tmp/devtools-probe/child.txt";
+            pid = fork ();
+            if (pid == 0)
+              fid = fopen (f, "w");
+              dup2 (fid, stdout ());
+              dup2 (fid, stderr ());
+              printf ("this line must not reach the log\n");
+              warning ("nor must this warning");
+              printf ("the child computed %d\n", 41 + 1);
+              fflush (stdout ());
+              kill (getpid (), 9);
+            endif
+            [p, status] = waitpid (pid);
+            printf ("waitpid returned pid %d, status %d\n", p, status);
+            if (exist (f, "file"))
+              printf ("the child's file holds:\n%s", fileread (f));
+            else
+              printf ("the child wrote no file\n");
+            endif
+          endfunction
+          callOnce ();
+          M
+          printf -- '--- fork, dup2, waitpid and kill in a call ---\n'
+          ( cd "$work" && "$wrap" 120 "$cli" --norc --no-history \
+              "$work/percall.m" )
+          echo "exit status $?"
+
+          cat > "$work/order.m" <<'M'
+          for p = {"allowed", "hidden"}
+            f = fullfile (getenv ("HOME"), p{1}, "f.txt");
+            fid = fopen (f, "r");
+            printf ("%s readable: %d\n", p{1}, fid >= 0);
+            if (fid >= 0), fclose (fid); endif
+          endfor
+          M
+          cat > "$work/order.sb" <<SB
+          (version 1)
+          (allow default)
+          (deny network*)
+          (deny file-read* (subpath "$HOME"))
+          (allow file-read* (subpath "$HOME/allowed"))
+          SB
+          printf -- '--- does an allow after a deny win ---\n'
+          ( cd "$work" && "$wrap" 120 sandbox-exec -f "$work/order.sb" "$cli" \
+              --norc --no-history "$work/order.m" )
+          echo "exit status $?"
+          exit 0
+
   ## ----------------------------------------------------------------------
   ## Measurement 2.  Windows filesystem confinement without an ACE on the
   ## Octave installation.
