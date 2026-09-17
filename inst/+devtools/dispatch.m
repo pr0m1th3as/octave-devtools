@@ -2429,12 +2429,16 @@ function [W, out, err, stopped, sub, cinfo] = runForked (W, code)
   ## unremovable cannot stop the next one.
   persistent n = 0;
   n++;
-  wipeTmp ();
-  d = sprintf ("/tmp/call-%d", n);
+  root = getenv ("DEVTOOLS_SANDBOX_ROOT");
+  if (isempty (root))
+    root = "/tmp";
+  endif
+  wipeTmp (root);
+  d = fullfile (root, sprintf ("call-%d", n));
   try
     devtools.__sandboxLists__ (getenv ("DEVTOOLS_SANDBOX_LOCAL_LIST"), ...
                                getenv ("DEVTOOLS_SANDBOX_GLOBAL_LIST"), ...
-                               sprintf ("/tmp/devtools-%d", n));
+                               fullfile (root, sprintf ("devtools-%d", n)));
     [ok, msg] = mkdir (d);
     if (! ok)
       error ("%s", msg);
@@ -2552,15 +2556,18 @@ function tf = isPlain (v)
   endif
 endfunction
 
-function wipeTmp ()
-  ## Everything in /tmp goes: it is the only writable place in a sandbox
+function wipeTmp (root)
+  ## Everything in the writable root goes: it is the only place a call could
+  ## have written.  Which folder that is comes from the sandbox rather than
+  ## being assumed, since it is /tmp under bwrap and a folder of the server's
+  ## own under Seatbelt, where /tmp belongs to the host.
   confirm_recursive_rmdir (false, "local");
-  names = readdir ("/tmp");
+  names = readdir (root);
   for i = 1:numel (names)
     if (any (strcmp (names{i}, {'.', '..'})))
       continue;
     endif
-    p = fullfile ("/tmp", names{i});
+    p = fullfile (root, names{i});
     try
       [info, e] = lstat (p);
       if (e == 0 && S_ISDIR (info.mode))

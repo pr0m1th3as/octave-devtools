@@ -284,9 +284,15 @@ function mcpEval (varargin)
   ## before every call, since /tmp is writable and a call could change them.
   setenv ("DEVTOOLS_SANDBOX_LOCAL_LIST", pkg ("local_list"));
   setenv ("DEVTOOLS_SANDBOX_GLOBAL_LIST", pkg ("global_list"));
+  ## The writable root is whatever the sandbox published: /tmp under bwrap,
+  ## and a folder of its own under Seatbelt, which has no tmpfs to make.
+  root = getenv ("DEVTOOLS_SANDBOX_ROOT");
+  if (isempty (root))
+    root = "/tmp";
+  endif
   devtools.__sandboxLists__ (getenv ("DEVTOOLS_SANDBOX_LOCAL_LIST"), ...
                              getenv ("DEVTOOLS_SANDBOX_GLOBAL_LIST"), ...
-                             "/tmp/devtools-0");
+                             fullfile (root, "devtools-0"));
 
   packages = splitEnv ("DEVTOOLS_SANDBOX_PACKAGES", ",");
   for i = 1:numel (packages)

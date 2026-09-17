@@ -156,6 +156,7 @@ function [ARGS, ERRMSG] = __sandboxArgs__ (HOST, FOLDERS, PACKAGES)
   endif
   A = [A, {'--setenv', 'DEVTOOLS_SANDBOX_CLI', HOST.octaveCli, ...
            '--setenv', 'DEVTOOLS_SANDBOX', '1', ...
+           '--setenv', 'DEVTOOLS_SANDBOX_ROOT', '/tmp', ...
            '--setenv', 'DEVTOOLS_SANDBOX_FOLDERS', ...
            strjoin(FOLDERS, pathsep()), ...
            '--setenv', 'DEVTOOLS_SANDBOX_PACKAGES', strjoin(PACKAGES, ',')}];
@@ -288,6 +289,12 @@ endfunction
 %!    r = A{i+2};
 %!  endif
 %!endfunction
+
+%!test
+%! ## The writable root is published rather than assumed, since it is not the
+%! ## same folder on every platform.
+%! A = devtools.__sandboxArgs__ (H, {}, {});
+%! assert_equal (envOf (A, "DEVTOOLS_SANDBOX_ROOT"), "/tmp");
 
 %!test
 %! ## The limit is the caller's size plus 2 GB, ahead of bwrap.

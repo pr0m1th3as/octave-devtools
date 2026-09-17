@@ -39,6 +39,23 @@
 
 function ERRMSG = __sweepCheck__ ()
 
+  if (ismac ())
+    ## Seatbelt has no process namespace, so there is nothing to sweep by it
+    ## and /tmp is the host's own: emptying that would take the rest of the
+    ## machine with it.  What makes the reset safe here instead is that the
+    ## profile denies process-exec, so a call cannot leave a process behind,
+    ## and that the writable root is a folder made for this server alone.
+    root = getenv ("DEVTOOLS_SANDBOX_ROOT");
+    if (isempty (root)
+        || any (strcmp (root, {"/", "/tmp", "/private/tmp", filesep()})))
+      ERRMSG = strcat ("this server is marked sandboxed but published no", ...
+                       " writable root of its own");
+    else
+      ERRMSG = "";
+    endif
+    return;
+  endif
+
   try
     pid1 = strtrim (fileread ("/proc/1/comm"));
   catch
@@ -53,6 +70,20 @@ function ERRMSG = __sweepCheck__ ()
   endif
 
 endfunction
+
+%!test
+%! ## On macOS the reason names the root instead, there being no bwrap to be
+%! ## inside of.
+%! if (ismac ())
+%!   r = getenv ("DEVTOOLS_SANDBOX_ROOT");
+%!   unwind_protect
+%!     setenv ("DEVTOOLS_SANDBOX_ROOT", "/tmp");
+%!     assert (! isempty (strfind (devtools.__sweepCheck__ (), ...
+%!                                 "published no writable root of its own")));
+%!   unwind_protect_cleanup
+%!     setenv ("DEVTOOLS_SANDBOX_ROOT", r);
+%!   end_unwind_protect
+%! endif
 
 %!test
 %! ## Outside a bwrap sandbox, sweeping is refused and the reason names bwrap.

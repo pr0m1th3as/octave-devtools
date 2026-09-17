@@ -41,6 +41,13 @@ function __sweepCall__ ()
     return;
   endif
 
+  ## Nothing to sweep on macOS: the profile denies process-exec, so a call
+  ## cannot start a process to be left behind, and there is no /proc to find
+  ## one in if it could.
+  if (ismac ())
+    return;
+  endif
+
   names = readdir ("/proc");
   me = getpid ();
   for i = 1:numel (names)

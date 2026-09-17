@@ -256,6 +256,11 @@ function [PROG, ARGS] = darwinCommand (folders, packages)
   endfor
   H.selfDir = fileparts (fileparts (mfilename ("fullpath")));
 
+  ## The lists live inside the home the profile denies, and pkg reports every
+  ## package uninstalled without them.
+  f = {pkg("local_list"), pkg("global_list")};
+  H.listFiles = f(cellfun (@isfile, f));
+
   [profile, ARGS, errmsg] = devtools.__seatbeltProfile__ (H, folders, packages);
   if (! isempty (errmsg))
     error ("devtools.sandboxCommand: %s", errmsg);

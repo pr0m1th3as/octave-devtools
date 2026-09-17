@@ -168,7 +168,7 @@ function [PROFILE, ARGS, ERRMSG] = __seatbeltProfile__ (HOST, FOLDERS, ...
   ## Everything the caller named comes last, because a later rule wins and
   ## these usually lie inside the home directory denied above.
   L = [L, {"", ";; What was asked for, last, because a later rule wins."}];
-  allowed = [grantedDirs, FOLDERS(:)'];
+  allowed = [grantedDirs, FOLDERS(:)', HOST.listFiles(:)'];
   if (! isempty (HOST.selfDir) && isempty (selfIdx))
     allowed = [allowed, {HOST.selfDir}];
   endif
@@ -190,9 +190,30 @@ function [PROFILE, ARGS, ERRMSG] = __seatbeltProfile__ (HOST, FOLDERS, ...
   ## this the server dies with "Can't open TEMP" before it speaks.  On Linux
   ## the case cannot arise, bwrap clearing the environment and /tmp being the
   ## writable mount itself.
-  cmd = sprintf (["TMPDIR=%s; export TMPDIR; ulimit -v %d;", ...
-                  " exec %s -f %s %s%s \"$@\""], ...
-                 shq (HOST.tmpDir), floor (limit / 1024), ...
+  ## bwrap clears the environment and names what the inner server needs with
+  ## --setenv; macOS inherits it instead, so the same names are exported here.
+  ## TMPDIR is among them because Darwin puts it under /var/folders, which the
+  ## profile denies, and a library that opens a file there warns as Octave
+  ## starts.
+  E = {"TMPDIR", HOST.tmpDir; ...
+       "DEVTOOLS_SANDBOX", "1"; ...
+       "DEVTOOLS_SANDBOX_ROOT", HOST.tmpDir; ...
+       "DEVTOOLS_SANDBOX_CLI", HOST.octaveCli; ...
+       "DEVTOOLS_SANDBOX_FOLDERS", strjoin(FOLDERS, pathsep ()); ...
+       "DEVTOOLS_SANDBOX_PACKAGES", strjoin(PACKAGES, ",")};
+  if (isempty (selfIdx))
+    E = [E; {"DEVTOOLS_SANDBOX_SELF", HOST.selfDir}];
+  endif
+  if (! isempty (HOST.evalSeconds))
+    E = [E; {"DEVTOOLS_EVAL_SECONDS", HOST.evalSeconds}];
+  endif
+  sets = "";
+  for i = 1:rows (E)
+    sets = [sets, sprintf("%s=%s; export %s; ", E{i,1}, shq (E{i,2}), E{i,1})];
+  endfor
+
+  cmd = sprintf ("%sulimit -v %d; exec %s -f %s %s%s \"$@\"", ...
+                 sets, floor (limit / 1024), ...
                  shq (HOST.sandboxExec), shq (HOST.profilePath), ...
                  shq (HOST.octaveCli), " --no-history --no-init-file -q");
   ARGS = {'-c', cmd, 'devtools'};
@@ -244,9 +265,11 @@ endfunction
 %! H.prefix = "/opt/homebrew";
 %! H.vmSize = 3 * 1024^3;
 %! H.memoryBudget = "";
+%! H.evalSeconds = "";
 %! H.home = "/Users/u";
 %! H.history = "/Users/u/.local/share/octave/history";
 %! H.selfDir = "/Users/u/src/octave-devtools/inst";
+%! H.listFiles = {"/Users/u/.local/share/octave/octave_packages"};
 %! H.installed = struct ( ...
 %!   "name", {"statistics", "datatypes", "io", "nan"}, ...
 %!   "dir", {"/Users/u/pk/statistics-1", "/Users/u/pk/datatypes-1", ...
@@ -337,11 +360,30 @@ endfunction
 %! assert (max (find (isDeny)) < min (find (isAllow)));
 
 %!test
-%! ## TMPDIR is pointed at the writable folder, or OpenMP kills the server as
-%! ## it starts.
+%! ## TMPDIR is pointed at the writable folder, Darwin putting it where the
+%! ## profile denies.
 %! [~, A] = devtools.__seatbeltProfile__ (H, {}, {});
 %! assert (! isempty (strfind (A{2}, ...
 %!   "TMPDIR='/private/tmp/devtools-1'; export TMPDIR;")));
+
+%!test
+%! ## What bwrap names with --setenv is exported here instead, since macOS
+%! ## inherits the environment rather than clearing it.
+%! [~, A] = devtools.__seatbeltProfile__ (H, {'/Users/u/work'}, {'io'});
+%! for kv = {"DEVTOOLS_SANDBOX", "1"; ...
+%!           "DEVTOOLS_SANDBOX_ROOT", "/private/tmp/devtools-1"; ...
+%!           "DEVTOOLS_SANDBOX_FOLDERS", "/Users/u/work"; ...
+%!           "DEVTOOLS_SANDBOX_PACKAGES", "io"}'
+%!   assert (! isempty (strfind (A{2}, ...
+%!     sprintf ("%s='%s'; export %s;", kv{1}, kv{2}, kv{1}))));
+%! endfor
+
+%!test
+%! ## The package lists live inside the denied home and are allowed back, or
+%! ## pkg reports every package uninstalled.
+%! P = devtools.__seatbeltProfile__ (H, {}, {});
+%! assert (hasLine (P, ['(allow file-read* (subpath ', ...
+%!   '"/Users/u/.local/share/octave/octave_packages"))']));
 
 %!test
 %! ## The launch is a shell, Darwin having no prlimit, and the cap is the
