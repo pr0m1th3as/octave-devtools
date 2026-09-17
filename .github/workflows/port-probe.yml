@@ -509,6 +509,53 @@ jobs:
           echo "exit status $?"
           exit 0
 
+      - name: How a denied network differs from an absent one
+        continue-on-error: true
+        run: |
+          set +e
+          # The Linux check reads /proc/net/dev and fails unless the only
+          # interface is the loopback.  Darwin has no /proc, so the check has
+          # to tell a denied network from one where nothing answers, from
+          # inside Octave and without a shell.  This runs the same attempts
+          # sandboxed and not, so the difference is the diagnostic or there
+          # is not one.
+          cli=$(command -v octave-cli)
+          wrap="$PWD/limited"
+          work=/private/tmp/devtools-probe
+          mkdir -p "$work"
+
+          cat > "$work/net.m" <<'M'
+          1;
+          function ask (what, url)
+            t = tic;
+            try
+              s = urlread (url);
+              printf ("%s: %d bytes in %.3f s\n", what, numel (s), toc (t));
+            catch err
+              printf ("%s: failed in %.3f s: %s\n", what, toc (t), ...
+                      err.message);
+            end_try_catch
+          endfunction
+          ask ("loopback, nothing listening", "http://127.0.0.1:9/");
+          ask ("a real address, no DNS", "http://93.184.216.34/");
+          ask ("a name, so DNS too", "http://example.com/");
+          M
+
+          cat > "$work/net.sb" <<SB
+          (version 1)
+          (allow default)
+          (deny network*)
+          SB
+
+          printf -- '--- unsandboxed, for comparison ---\n'
+          ( cd "$work" && "$wrap" 120 "$cli" --norc --no-history "$work/net.m" )
+          echo "exit status $?"
+          printf -- '--- under deny network* ---\n'
+          ( cd "$work" && "$wrap" 120 sandbox-exec -f "$work/net.sb" "$cli" \
+              --norc --no-history "$work/net.m" )
+          echo "exit status $?"
+          exit 0
+
   ## ----------------------------------------------------------------------
   ## Measurement 2.  Windows filesystem confinement without an ACE on the
   ## Octave installation.
