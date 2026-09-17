@@ -310,8 +310,11 @@ jobs:
           echo "octave-cli:  $cli"
           echo "home:        $HOME"
           echo "secret" > "$HOME/.probe-secret"
+          wrap="$PWD/limited"
+          work=/private/tmp/devtools-probe
+          mkdir -p "$work"
 
-          cat > sb.m <<'M'
+          cat > "$work/sb.m" <<'M'
           printf ("version %s\n", version ());
           f = fopen (fullfile (getenv ("HOME"), ".probe-secret"), "r");
           printf ("home file readable: %d\n", f >= 0);
@@ -327,14 +330,14 @@ jobs:
           M
 
           ## The control: everything allowed but the network.
-          cat > p1.sb <<'SB'
+          cat > "$work/p1.sb" <<'SB'
           (version 1)
           (allow default)
           (deny network*)
           SB
 
           ## Read-only but for /tmp, which is where a call's files go.
-          cat > p2.sb <<'SB'
+          cat > "$work/p2.sb" <<'SB'
           (version 1)
           (allow default)
           (deny network*)
@@ -344,7 +347,7 @@ jobs:
           SB
 
           ## Home hidden as well, which bwrap does by not mounting it.
-          cat > p3.sb <<SB
+          cat > "$work/p3.sb" <<SB
           (version 1)
           (allow default)
           (deny network*)
@@ -356,7 +359,7 @@ jobs:
 
           ## No program but the interpreter, which bwrap gets by leaving
           ## /usr/bin unmounted and Seatbelt has to state as a rule.
-          cat > p4.sb <<SB
+          cat > "$work/p4.sb" <<SB
           (version 1)
           (allow default)
           (deny network*)
@@ -371,7 +374,7 @@ jobs:
           ## The shape the Linux sandbox actually has: nothing but what is
           ## named.  This is the one that decides whether the port keeps its
           ## guarantees or has to weaken them.
-          cat > p5.sb <<SB
+          cat > "$work/p5.sb" <<SB
           (version 1)
           (deny default)
           (allow process-fork)
@@ -384,14 +387,20 @@ jobs:
             (subpath "$prefix") (subpath "/private/var/db/dyld")
             (literal "/dev/null") (literal "/dev/random")
             (literal "/dev/urandom") (literal "/dev/dtracehelper"))
+          (allow file-read* (subpath "/private/tmp"))
           (allow file-write* (subpath "/private/tmp") (literal "/dev/null"))
           (deny network*)
           SB
 
-          try_profile () {           # try_profile () <title> <file>
+          # Run from outside home and read the script from outside it too:
+          # one profile makes home unreadable, and the runner's own working
+          # directory is inside it, which killed Octave with "unable to find
+          # current directory" before the profile meant anything.  The real
+          # design puts the server's working directory at the read-only root.
+          try_profile () {           # try_profile () <title> <profile>
             printf -- '--- %s ---\n' "$1"
-            ./limited 120 sandbox-exec -f "$2" "$cli" --norc --no-history \
-              "$PWD/sb.m"
+            ( cd "$work" && "$wrap" 120 sandbox-exec -f "$work/$2" "$cli" \
+                --norc --no-history "$work/sb.m" )
             rc=$?
             if [ "$rc" -eq 124 ]; then
               echo "it hung and was stopped"
@@ -401,13 +410,31 @@ jobs:
           }
 
           printf -- '--- 0: no sandbox at all, for comparison ---\n'
-          ./limited 120 "$cli" --norc --no-history "$PWD/sb.m"
+          ( cd "$work" && "$wrap" 120 "$cli" --norc --no-history "$work/sb.m" )
           echo "exit status $?"
           try_profile "1: allow default, deny network" p1.sb
           try_profile "2: and read-only but for /tmp" p2.sb
           try_profile "3: and home unreadable" p3.sb
           try_profile "4: and no program outside the Octave prefix" p4.sb
           try_profile "5: deny default, only what is named" p5.sb
+
+          # What deny default actually needs, asked of Seatbelt rather than
+          # guessed at: a traced run emits the rules the process used, which
+          # is the profile to build from instead of a list I invented.
+          cat > "$work/trace.sb" <<'SB'
+          (version 1)
+          (trace "/private/tmp/devtools-probe/needed.sb")
+          SB
+          printf -- '--- what a traced run says Octave needs ---\n'
+          ( cd "$work" && "$wrap" 120 sandbox-exec -f "$work/trace.sb" "$cli" \
+              --norc --no-history "$work/sb.m" )
+          echo "exit status $?"
+          if [ -f "$work/needed.sb" ]; then
+            echo "the trace holds $(wc -l < "$work/needed.sb") lines:"
+            cat "$work/needed.sb"
+          else
+            echo "no trace file was produced"
+          fi
           exit 0
 
   ## ----------------------------------------------------------------------
