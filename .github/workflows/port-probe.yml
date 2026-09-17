@@ -421,8 +421,11 @@ jobs:
           # What deny default actually needs, asked of Seatbelt rather than
           # guessed at: a traced run emits the rules the process used, which
           # is the profile to build from instead of a list I invented.
+          # Trace does not imply allow: without a rule it denied the execvp
+          # of Octave itself and emitted nothing.
           cat > "$work/trace.sb" <<'SB'
           (version 1)
+          (allow default)
           (trace "/private/tmp/devtools-probe/needed.sb")
           SB
           printf -- '--- what a traced run says Octave needs ---\n'
