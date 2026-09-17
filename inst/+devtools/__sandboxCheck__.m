@@ -241,6 +241,16 @@ endfunction
 ## True when an allocation past the budget is refused.  The budget is the one
 ## the launch was given, and the reservation is larger than it by a gigabyte.
 function r = capped ()
+  ## Outside a sandbox a shell answers at once; inside, exec is denied and the
+  ## reservation is then refused before a page is touched, so neither path
+  ## costs anything.  Asking the shell first is what keeps a plain pkg test
+  ## from allocating gigabytes to learn it is not sandboxed.
+  [st, out] = system ("ulimit -v");
+  if (st == 0)
+    out = strtrim (out);
+    r = ! (isempty (out) || strcmp (out, "unlimited"));
+    return;
+  endif
   g = 2;
   v = str2double (getenv ("DEVTOOLS_SANDBOX_MEMORY"));
   if (! isnan (v) && v > 0 && v <= 1024)
@@ -259,8 +269,11 @@ endfunction
 ## True when anything answers over the network.  A name is asked for as well
 ## as an address, since resolution is refused before a connection is.
 function r = reachable ()
+  ## The name comes first because it answers fastest where a network exists,
+  ## which is the case a BIST runs in; the address follows for a machine that
+  ## resolves nothing.
   r = false;
-  for u = {"http://93.184.216.34/", "http://example.com/"}
+  for u = {"http://example.com/", "http://93.184.216.34/"}
     try
       urlread (u{1});
       r = true;
@@ -280,9 +293,16 @@ function r = isUnder (P, D)
   endif
 endfunction
 
+## The two platforms confine by different means and say so differently, so
+## the fixture names the message of the one the tests are running on.
 %!shared T, msg, wmsg
-%! msg = @(p) sprintf ("'%s' is visible but was not mounted", p);
-%! wmsg = @(p) sprintf ("'%s' is mounted but can be written", p);
+%! if (ismac ())
+%!   msg = @(p) sprintf ("'%s' is readable but was not granted", p);
+%!   wmsg = @(p) sprintf ("'%s' is granted but can be written", p);
+%! else
+%!   msg = @(p) sprintf ("'%s' is visible but was not mounted", p);
+%!   wmsg = @(p) sprintf ("'%s' is mounted but can be written", p);
+%! endif
 %! T = tempname ();
 %! mkdir (fullfile (T, "a", "b"));
 %! mkdir (fullfile (T, "c"));

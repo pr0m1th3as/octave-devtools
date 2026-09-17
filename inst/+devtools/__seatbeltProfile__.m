@@ -184,10 +184,17 @@ function [PROFILE, ARGS, ERRMSG] = __seatbeltProfile__ (HOST, FOLDERS, ...
   ## this machine's threads, so the budget is added to it.  Darwin refuses any
   ## absolute cap below that size, which is why nothing fixed is used here.
   limit = HOST.vmSize + gigabytes (HOST.memoryBudget);
-  cmd = sprintf ("ulimit -v %d; exec %s -f %s %s%s \"$@\"", ...
-                 floor (limit / 1024), shq (HOST.sandboxExec), ...
-                 shq (HOST.profilePath), shq (HOST.octaveCli), ...
-                 " --no-history --no-init-file -q");
+  ## TMPDIR is pointed at the one writable folder before anything runs.  On
+  ## macOS it is a per-user directory under /var/folders that the profile
+  ## denies, and OpenMP opens a file there as the interpreter starts: without
+  ## this the server dies with "Can't open TEMP" before it speaks.  On Linux
+  ## the case cannot arise, bwrap clearing the environment and /tmp being the
+  ## writable mount itself.
+  cmd = sprintf (["TMPDIR=%s; export TMPDIR; ulimit -v %d;", ...
+                  " exec %s -f %s %s%s \"$@\""], ...
+                 shq (HOST.tmpDir), floor (limit / 1024), ...
+                 shq (HOST.sandboxExec), shq (HOST.profilePath), ...
+                 shq (HOST.octaveCli), " --no-history --no-init-file -q");
   ARGS = {'-c', cmd, 'devtools'};
 
 endfunction
@@ -328,6 +335,13 @@ endfunction
 %! isDeny = ! cellfun (@isempty, regexp (L, '^\(deny file-read'));
 %! isAllow = ! cellfun (@isempty, regexp (L, '^\(allow file-read'));
 %! assert (max (find (isDeny)) < min (find (isAllow)));
+
+%!test
+%! ## TMPDIR is pointed at the writable folder, or OpenMP kills the server as
+%! ## it starts.
+%! [~, A] = devtools.__seatbeltProfile__ (H, {}, {});
+%! assert (! isempty (strfind (A{2}, ...
+%!   "TMPDIR='/private/tmp/devtools-1'; export TMPDIR;")));
 
 %!test
 %! ## The launch is a shell, Darwin having no prlimit, and the cap is the

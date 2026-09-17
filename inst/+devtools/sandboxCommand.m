@@ -275,25 +275,51 @@ endfunction
 %! canRun = isempty (devtools.__sandboxUsable__ ());
 
 %!test
+%! ## The program is the one that sets the limit: prlimit where there is one,
+%! ## and otherwise the shell that stands in for it.
 %! if (canRun)
-%!   [P, A] = devtools.sandboxCommand ({}, {});
-%!   assert_equal (P, file_in_path (getenv ("PATH"), "prlimit"));
+%!   P = devtools.sandboxCommand ({}, {});
+%!   if (ismac ())
+%!     assert_equal (P, "/bin/sh");
+%!   else
+%!     assert_equal (P, file_in_path (getenv ("PATH"), "prlimit"));
+%!   endif
 %! endif
 %!test
+%! ## And the sandbox itself is named in what follows it.
 %! if (canRun)
-%!   [P, A] = devtools.sandboxCommand ({}, {});
-%!   assert_equal (A{2}, file_in_path (getenv ("PATH"), "bwrap"));
+%!   [~, A] = devtools.sandboxCommand ({}, {});
+%!   if (ismac ())
+%!     assert (! isempty (strfind (A{2}, ...
+%!             file_in_path (getenv ("PATH"), "sandbox-exec"))));
+%!   else
+%!     assert_equal (A{2}, file_in_path (getenv ("PATH"), "bwrap"));
+%!   endif
 %! endif
 %!test
+%! ## The interpreter is launched the same way on either platform.
 %! if (canRun)
-%!   [P, A] = devtools.sandboxCommand ({}, {});
-%!   assert_equal (A(end-2:end), {'--no-history', '--no-init-file', '-q'});
+%!   [~, A] = devtools.sandboxCommand ({}, {});
+%!   if (ismac ())
+%!     assert (! isempty (strfind (A{2}, "--no-history --no-init-file -q")));
+%!   else
+%!     assert_equal (A(end-2:end), {'--no-history', '--no-init-file', '-q'});
+%!   endif
 %! endif
 %!test
+%! ## A named folder reaches the sandbox: on GNU/Linux in the environment it
+%! ## is given, and on macOS as a rule that allows it to be read.
 %! if (canRun)
-%!   [P, A] = devtools.sandboxCommand ({OCTAVE_HOME()}, {});
-%!   i = find (strcmp (A, "DEVTOOLS_SANDBOX_FOLDERS"));
-%!   assert_equal (A{i+1}, canonicalize_file_name (OCTAVE_HOME ()));
+%!   [~, A] = devtools.sandboxCommand ({OCTAVE_HOME()}, {});
+%!   h = canonicalize_file_name (OCTAVE_HOME ());
+%!   if (ismac ())
+%!     p = fileread (regexprep (A{2}, '^.*-f ''([^'']*)''.*$', '$1'));
+%!     assert (! isempty (strfind (p, ...
+%!             sprintf ('(allow file-read* (subpath "%s"))', h))));
+%!   else
+%!     i = find (strcmp (A, "DEVTOOLS_SANDBOX_FOLDERS"));
+%!     assert_equal (A{i+1}, h);
+%!   endif
 %! endif
 
 %!error <devtools\.sandboxCommand: invalid number of input arguments\.> ...
