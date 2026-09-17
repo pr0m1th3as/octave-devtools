@@ -267,12 +267,30 @@ function mcpEval (varargin)
   ## the sandbox was told to use, which cannot be worked out again from in
   ## here: only the canonical name exists inside.
   cli = getenv ("DEVTOOLS_SANDBOX_CLI");
-  roots = {"/home", getenv("HOME"), "/usr/bin", "/bin"};
+  if (ismac ())
+    ## The roots are what the promise covers, and the two platforms promise
+    ## different things about the same folders.  bwrap leaves /usr/bin
+    ## unmounted, so nothing there exists and its absence is checked; Seatbelt
+    ## refuses to execute what is there and does not hide it, so /bin being
+    ## readable is not a failure and demanding otherwise would refuse a
+    ## sandbox that is working.  What is promised here is that home and the
+    ## packages that were not asked for cannot be read, and that no program
+    ## runs at all, which the check tests directly.
+    roots = {getenv("HOME")};
+    for i = 1:numel (entries)
+      roots = [roots, {fileparts(entries{i}.dir), ...
+                       fileparts(entries{i}.archprefix)}];
+    endfor
+  else
+    roots = {"/home", getenv("HOME"), "/usr/bin", "/bin"};
+    if (! isempty (cli))
+      roots{end+1} = fileparts (cli);
+    endif
+  endif
   if (! isempty (cli))
     allowed{end+1} = cli;
-    roots{end+1} = fileparts (cli);
   endif
-  roots = unique (roots);
+  roots = unique (roots(! cellfun (@isempty, roots)));
   failed = devtools.__sandboxCheck__ (allowed, roots);
   if (! isempty (failed))
     error (strcat ("devtools.mcpEval: refusing to serve, the sandbox is", ...
