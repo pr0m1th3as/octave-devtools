@@ -295,6 +295,121 @@ jobs:
             && echo "the network was NOT blocked" || echo "network blocked"
           exit 0
 
+      - name: What Seatbelt profile does Octave start under
+        continue-on-error: true
+        run: |
+          set +e
+          # The one Seatbelt reading so far was a permissive profile with the
+          # network punched out of it, which is the opposite of what the
+          # sandbox needs.  These go from that control down to `deny default`,
+          # and the answer is the tightest one Octave still starts under,
+          # together with what it can still reach from inside.
+          prefix=$(brew --prefix)
+          cli=$(command -v octave-cli)
+          echo "brew prefix: $prefix"
+          echo "octave-cli:  $cli"
+          echo "home:        $HOME"
+          echo "secret" > "$HOME/.probe-secret"
+
+          cat > sb.m <<'M'
+          printf ("version %s\n", version ());
+          f = fopen (fullfile (getenv ("HOME"), ".probe-secret"), "r");
+          printf ("home file readable: %d\n", f >= 0);
+          if (f >= 0), fclose (f); endif
+          f = fopen ("/tmp/devtools-probe-write", "w");
+          printf ("tmp writable: %d\n", f >= 0);
+          if (f >= 0), fclose (f); endif
+          f = fopen (fullfile (getenv ("HOME"), ".probe-write"), "w");
+          printf ("home writable: %d\n", f >= 0);
+          if (f >= 0), fclose (f); endif
+          [s, out] = system ("/usr/bin/true");
+          printf ("system () status: %d\n", s);
+          M
+
+          ## The control: everything allowed but the network.
+          cat > p1.sb <<'SB'
+          (version 1)
+          (allow default)
+          (deny network*)
+          SB
+
+          ## Read-only but for /tmp, which is where a call's files go.
+          cat > p2.sb <<'SB'
+          (version 1)
+          (allow default)
+          (deny network*)
+          (deny file-write*)
+          (allow file-write* (subpath "/private/tmp") (subpath "/tmp"))
+          (allow file-write* (literal "/dev/null"))
+          SB
+
+          ## Home hidden as well, which bwrap does by not mounting it.
+          cat > p3.sb <<SB
+          (version 1)
+          (allow default)
+          (deny network*)
+          (deny file-write*)
+          (allow file-write* (subpath "/private/tmp") (subpath "/tmp"))
+          (allow file-write* (literal "/dev/null"))
+          (deny file-read* (subpath "$HOME"))
+          SB
+
+          ## No program but the interpreter, which bwrap gets by leaving
+          ## /usr/bin unmounted and Seatbelt has to state as a rule.
+          cat > p4.sb <<SB
+          (version 1)
+          (allow default)
+          (deny network*)
+          (deny file-write*)
+          (allow file-write* (subpath "/private/tmp") (subpath "/tmp"))
+          (allow file-write* (literal "/dev/null"))
+          (deny file-read* (subpath "$HOME"))
+          (deny process-exec*)
+          (allow process-exec (subpath "$prefix"))
+          SB
+
+          ## The shape the Linux sandbox actually has: nothing but what is
+          ## named.  This is the one that decides whether the port keeps its
+          ## guarantees or has to weaken them.
+          cat > p5.sb <<SB
+          (version 1)
+          (deny default)
+          (allow process-fork)
+          (allow process-exec (subpath "$prefix"))
+          (allow sysctl-read)
+          (allow mach-lookup)
+          (allow file-read-metadata)
+          (allow file-read*
+            (subpath "/usr/lib") (subpath "/usr/share") (subpath "/System")
+            (subpath "$prefix") (subpath "/private/var/db/dyld")
+            (literal "/dev/null") (literal "/dev/random")
+            (literal "/dev/urandom") (literal "/dev/dtracehelper"))
+          (allow file-write* (subpath "/private/tmp") (literal "/dev/null"))
+          (deny network*)
+          SB
+
+          try_profile () {           # try_profile () <title> <file>
+            printf -- '--- %s ---\n' "$1"
+            ./limited 120 sandbox-exec -f "$2" "$cli" --norc --no-history \
+              "$PWD/sb.m"
+            rc=$?
+            if [ "$rc" -eq 124 ]; then
+              echo "it hung and was stopped"
+            else
+              echo "exit status $rc"
+            fi
+          }
+
+          printf -- '--- 0: no sandbox at all, for comparison ---\n'
+          ./limited 120 "$cli" --norc --no-history "$PWD/sb.m"
+          echo "exit status $?"
+          try_profile "1: allow default, deny network" p1.sb
+          try_profile "2: and read-only but for /tmp" p2.sb
+          try_profile "3: and home unreadable" p3.sb
+          try_profile "4: and no program outside the Octave prefix" p4.sb
+          try_profile "5: deny default, only what is named" p5.sb
+          exit 0
+
   ## ----------------------------------------------------------------------
   ## Measurement 2.  Windows filesystem confinement without an ACE on the
   ## Octave installation.
