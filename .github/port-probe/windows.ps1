@@ -251,6 +251,43 @@ Section 'Whether execution needs ALL APPLICATION PACKAGES' {
   'wrote outside its grant: ' + (Test-Path C:\probe\wrote-aap.txt)
 }
 
+Section 'The profile home, which CreateAppContainerProfile ACLs itself' {
+  # Nothing above has executed a program outside System32, including one the
+  # container owns outright, so the obstacle is upstream of any ACE this probe
+  # grants.  This asks the same question in the one folder the probe did not
+  # ACL: the profile's own.  If a cmd.exe runs there, the fault is where the
+  # grants above were placed and is ours to fix; if it does not, a hosted
+  # runner cannot answer the question and the route wants a real machine.
+
+  # What the file actually carries, read from inside rather than from here.
+  InBox 'the ACL of its own copied cmd.exe' `
+        'icacls C:\probe\out\cmd-copy.exe' C:\probe\out\aclcopy.txt
+
+  $ac = Join-Path $env:LOCALAPPDATA "Packages\$AcName\AC"
+  "the profile folder: $ac"
+  'it exists: ' + (Test-Path $ac)
+  if (! (Test-Path $ac)) {
+    'no profile folder, so this arm says nothing'
+    return
+  }
+  '--- what the profile granted itself ---'
+  icacls $ac
+  '--- against what this probe granted ---'
+  icacls C:\probe\out
+
+  $tmp = Join-Path $ac 'Temp'
+  New-Item -ItemType Directory -Force $tmp | Out-Null
+  Copy-Item "$Sys\cmd.exe" "$tmp\cmd-ac.exe" -Force
+  $out = "$tmp\ac.txt"
+  $e = 0
+  # Unquoted deliberately: cmd rewrites a command line that begins with a
+  # quote, and no path here holds a space.
+  $c = "$Sys\cmd.exe /c $tmp\cmd-ac.exe /c ver > $out 2>&1"
+  $rc = [Spawn]::InAppContainer($AcName, $c, $tmp, [ref] $e)
+  "a cmd.exe in the profile's own folder: exit $rc, error $e"
+  Show 'what it printed' $out
+}
+
 Section 'A low integrity token, which needs no ACE' {
   $err = 0
 
