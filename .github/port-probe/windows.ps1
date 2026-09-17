@@ -21,6 +21,7 @@ $Root = "C:\octave-ci\octave-$OctaveVersion-w64"
 $Sys = "$env:SystemRoot\System32"
 $AcName = 'devtools-port-probe'
 $Launch = "$Root\octave-launch.exe --no-gui --norc --silent --no-history"
+$Cli = "$Root\mingw64\bin\octave-cli.exe --norc --no-history"
 
 function Section($title, $body) {
   ''
@@ -35,6 +36,16 @@ function Section($title, $body) {
 function Show($what, $file) {
   "--- $what ---"
   if (Test-Path $file) { Get-Content $file } else { '(no output)' }
+}
+
+# Run one command in the AppContainer under cmd.exe, which supplies the
+# redirection CreateProcess cannot, and print what it said.
+function InBox($label, $cmd, $out) {
+  $e = 0
+  $rc = [Spawn]::InAppContainer($AcName, "$Sys\cmd.exe /c $cmd > $out 2>&1",
+                                'C:\probe', [ref] $e)
+  "$label : exit $rc, error $e"
+  Show 'what it printed' $out
 }
 
 Add-Type -Path $SpawnSource
@@ -52,6 +63,9 @@ Section 'The machine and the installation' {
     (($f | Measure-Object -Property Length -Sum).Sum / 1GB)
   '--- the entry points at its root ---'
   Get-ChildItem -File $Root | Select-Object -ExpandProperty Name
+  '--- where an octave-cli.exe actually is ---'
+  Get-ChildItem -Recurse -Filter octave-cli.exe -ErrorAction SilentlyContinue `
+    $Root | Select-Object -ExpandProperty FullName
   '--- what the installation already grants ---'
   icacls $Root
 }
@@ -106,37 +120,43 @@ Section 'AppContainer without an ACE on the installation' {
   # System32 carries ALL APPLICATION PACKAGES by default, so this says
   # whether the container can write where it was granted, before anything is
   # asked of the Octave folder.
-  $c = "$Sys\cmd.exe /c ver > C:\probe\out\ver.txt 2>&1"
-  $rc = [Spawn]::InAppContainer($AcName, $c, 'C:\probe', [ref] $err)
-  "cmd.exe in the container: exit $rc, error $err"
-  Show 'what it printed' C:\probe\out\ver.txt
+  InBox 'cmd.exe from System32' 'ver' C:\probe\out\ver.txt
 
-  $c = "$Sys\cmd.exe /c dir `"$Root`" > C:\probe\out\dir.txt 2>&1"
-  $rc = [Spawn]::InAppContainer($AcName, $c, 'C:\probe', [ref] $err)
-  "listing the Octave folder: exit $rc, error $err"
-  Show 'what it saw' C:\probe\out\dir.txt
+  # An executable the container owns outright, to show that it may run a
+  # program from somewhere other than System32 at all.  If this fails, no
+  # grant on the Octave folder could have worked either.
+  Copy-Item "$Sys\cmd.exe" C:\probe\out\cmd-copy.exe -Force
+  InBox 'a cmd.exe copied into its own folder' `
+        'C:\probe\out\cmd-copy.exe /c ver' C:\probe\out\copyexe.txt
 
-  $c = "$Sys\cmd.exe /c $Launch C:\probe\out\ver.m " +
-       '> C:\probe\out\oct.txt 2>&1'
-  $rc = [Spawn]::InAppContainer($AcName, $c, 'C:\probe', [ref] $err)
-  "octave in the container: exit $rc, error $err"
-  Show 'what it printed' C:\probe\out\oct.txt
+  InBox 'listing the Octave folder' "dir `"$Root`"" C:\probe\out\dir.txt
+  InBox 'the launcher' "$Launch C:\probe\out\ver.m" C:\probe\out\oct.txt
 }
 
 Section 'AppContainer with the ACE, and what the ACE costs' {
   $sid = Get-Content C:\probe\sid.txt
   $err = 0
 
-  $t = Measure-Command {
-    icacls $Root /grant "*${sid}:(OI)(CI)RX" /T /C /Q | Out-Null
-  }
-  'the grant over the installation took {0:N1} s' -f $t.TotalSeconds
+  # Not Measure-Command: its scriptblock runs in a child scope and what
+  # icacls said would not come back out of it.
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  $grant = icacls $Root /grant "*${sid}:(OI)(CI)RX" /T /C /Q 2>&1
+  $sw.Stop()
+  'the grant over the installation took {0:N1} s' -f $sw.Elapsed.TotalSeconds
+  '--- what icacls reported ---'
+  $grant | Select-Object -Last 3
 
-  $c = "$Sys\cmd.exe /c $Launch C:\probe\out\ver.m " +
-       '> C:\probe\out\oct2.txt 2>&1'
-  $rc = [Spawn]::InAppContainer($AcName, $c, 'C:\probe', [ref] $err)
-  "octave with the ACE: exit $rc, error $err"
-  Show 'what it printed' C:\probe\out\oct2.txt
+  # Read and execute are separate rights, and the earlier runs could not say
+  # which was refused because the folder was never listed again after the
+  # grant.  These four ask in order: does the grant show, can the folder be
+  # listed, can a file in it be read, and only then can a program in it run.
+  InBox 'the ACL as the container sees it' `
+        "icacls `"$Root\octave-launch.exe`"" C:\probe\out\acl.txt
+  InBox 'listing the folder again' "dir `"$Root`"" C:\probe\out\dir2.txt
+  InBox 'reading a file from it' "type `"$Root\HG-ID`"" C:\probe\out\read.txt
+  InBox 'the launcher' "$Launch C:\probe\out\ver.m" C:\probe\out\oct2.txt
+  InBox 'the interpreter itself' "$Cli C:\probe\out\ver.m" `
+        C:\probe\out\oct2b.txt
 
   '--- what the container may read, write and reach ---'
   $c = "$Sys\cmd.exe /c " +
@@ -176,11 +196,14 @@ Section 'A private copy instead of an ACE on the installation' {
 
   $copy = 'C:\probe\octave\octave-launch.exe --no-gui --norc --silent ' +
           '--no-history'
-  $c = "$Sys\cmd.exe /c $copy C:\probe\out\ver.m " +
-       '> C:\probe\out\oct3.txt 2>&1'
-  $rc = [Spawn]::InAppContainer($AcName, $c, 'C:\probe', [ref] $err)
-  "octave from the copy: exit $rc, error $err"
-  Show 'what it printed' C:\probe\out\oct3.txt
+  $copyCli = 'C:\probe\octave\mingw64\bin\octave-cli.exe --norc ' +
+             '--no-history'
+  InBox 'reading a file from the copy' 'type C:\probe\octave\HG-ID' `
+        C:\probe\out\read3.txt
+  InBox 'the launcher from the copy' "$copy C:\probe\out\ver.m" `
+        C:\probe\out\oct3.txt
+  InBox 'the interpreter from the copy' "$copyCli C:\probe\out\ver.m" `
+        C:\probe\out\oct3b.txt
 }
 
 Section 'A low integrity token, which needs no ACE' {

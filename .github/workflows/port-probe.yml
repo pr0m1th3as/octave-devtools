@@ -187,14 +187,25 @@ jobs:
               echo "exit status $1"
             fi
           }
+          # Whether setrlimit took the cap, stated rather than inferred from
+          # what happened afterwards.
+          accepted () {                # accepted () <kb or unlimited>
+            if out=$(/bin/sh -c "ulimit -v $1" 2>&1); then
+              echo "  the cap was accepted"
+            else
+              echo "  the cap was REFUSED: $out"
+            fi
+          }
           start () {                   # start () <kb or unlimited>
             printf -- '--- cap %s kB, does it start ---\n' "$1"
+            accepted "$1"
             ./limited 120 /bin/sh -c "ulimit -v $1 2>/dev/null
               exec octave-cli --norc --no-history --eval 'disp (\"started\")'"
             said $?
           }
           try () {                     # try () <kb or unlimited> <N>
             printf -- '--- cap %s kB, zeros (%s) ---\n' "$1" "$2"
+            accepted "$1"
             PROBE_N="$2" ./limited 300 /bin/sh -c "ulimit -v $1 2>/dev/null
               exec octave-cli --norc --no-history '$PWD/cap.m'"
             said $?
