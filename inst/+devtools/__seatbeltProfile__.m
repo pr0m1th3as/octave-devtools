@@ -212,7 +212,12 @@ function [PROFILE, ARGS, ERRMSG] = __seatbeltProfile__ (HOST, FOLDERS, ...
     sets = [sets, sprintf("%s=%s; export %s; ", E{i,1}, shq (E{i,2}), E{i,1})];
   endfor
 
-  cmd = sprintf ("%sulimit -v %d; exec %s -f %s %s%s \"$@\"", ...
+  ## The working directory is the root, as bwrap's --chdir makes it: a server
+  ## launched from anywhere the profile denies cannot read its own cwd and
+  ## dies with "unable to find current directory", and one launched from a
+  ## writable folder would let a file a call leaves shadow a function the
+  ## server itself calls, Octave searching the working directory first.
+  cmd = sprintf ("%scd /; ulimit -v %d; exec %s -f %s %s%s \"$@\"", ...
                  sets, floor (limit / 1024), ...
                  shq (HOST.sandboxExec), shq (HOST.profilePath), ...
                  shq (HOST.octaveCli), " --no-history --no-init-file -q");
@@ -384,6 +389,11 @@ endfunction
 %! P = devtools.__seatbeltProfile__ (H, {}, {});
 %! assert (hasLine (P, ['(allow file-read* (subpath ', ...
 %!   '"/Users/u/.local/share/octave/octave_packages"))']));
+
+%!test
+%! ## The launch changes to the root first, which bwrap does with --chdir.
+%! [~, A] = devtools.__seatbeltProfile__ (H, {}, {});
+%! assert (! isempty (strfind (A{2}, "cd /; ulimit -v")));
 
 %!test
 %! ## The launch is a shell, Darwin having no prlimit, and the cap is the
