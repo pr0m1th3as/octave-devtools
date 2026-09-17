@@ -22,11 +22,21 @@
 ## entry point.
 ##
 ## Returns a cell array naming every check that failed, empty when all pass.
-## There must be no network interface
-## besides the loopback in @file{/proc/net/dev}, an address-space limit in
-## @file{/proc/self/limits}, and nothing under each folder
-## of @var{ROOTS} except @var{ALLOWED}, the paths that were mounted, and the
-## folders leading to them.  A folder that cannot be read counts as visible.
+##
+## On GNU/Linux there must be no network interface besides the loopback in
+## @file{/proc/net/dev}, an address-space limit in @file{/proc/self/limits},
+## and nothing under each folder of @var{ROOTS} except @var{ALLOWED}, the
+## paths that were mounted, and the folders leading to them.  A folder that
+## cannot be read counts as visible.
+##
+## On macOS the same promises are tested by attempting each rather than by
+## reading a statement of it, there being no @file{/proc}: a write is refused,
+## the home directory will not open, nothing under @var{ROOTS} but
+## @var{ALLOWED} can be read, no program runs, a reservation past the budget
+## is refused, and nothing answers over the network.  A folder that cannot be
+## read counts as denied, which is the inverse of the mounted case and is what
+## a refusal looks like.  Unreachable is all that can be shown of the network
+## there, so it is all the marker claims.
 ##
 ## The root filesystem and every folder of @var{ALLOWED} must refuse a file.
 ## That is the one promise the checks above do not reach, since each of them
@@ -44,6 +54,11 @@ function FAILED = __sandboxCheck__ (ALLOWED, ROOTS)
   endif
 
   FAILED = {};
+
+  if (strcmp (uname ().sysname, "Darwin"))
+    FAILED = darwinCheck (ALLOWED, ROOTS);
+    return;
+  endif
 
   try
     txt = fileread ("/proc/net/dev");
@@ -126,6 +141,133 @@ function extra = walk (D, ALLOWED)
     else
       extra{end+1} = p;
     endif
+  endfor
+endfunction
+
+## The same promises on macOS, where Seatbelt refuses rather than hides and
+## there is no /proc to read.  Each is therefore tested by attempting the
+## thing rather than by reading a statement about it, and the walk below
+## inverts: on GNU/Linux a folder that cannot be read counts as visible, since
+## an unmounted one is absent altogether, while here it counts as denied,
+## which is what a refusal looks like.
+function FAILED = darwinCheck (ALLOWED, ROOTS)
+
+  FAILED = {};
+
+  ## Nothing on disk is writable but the sandbox's own folder.
+  if (writable (filesep ()))
+    FAILED{end+1} = "the root filesystem can be written";
+  endif
+  for i = 1:numel (ALLOWED)
+    if (isfolder (ALLOWED{i}) && writable (ALLOWED{i}))
+      FAILED{end+1} = sprintf ("'%s' is granted but can be written", ...
+                               ALLOWED{i});
+    endif
+  endfor
+
+  ## The home directory is unreadable but for what was granted inside it.
+  h = getenv ("HOME");
+  if (! isempty (h) && ! any (cellfun (@(a) isUnder (h, a), ALLOWED)))
+    [~, err] = readdir (h);
+    if (err == 0)
+      FAILED{end+1} = "the home directory can be read";
+    endif
+  endif
+
+  for i = 1:numel (ROOTS)
+    if (isfolder (ROOTS{i}))
+      extra = walkReadable (ROOTS{i}, ALLOWED);
+      for j = 1:numel (extra)
+        FAILED{end+1} = sprintf ("'%s' is readable but was not granted", ...
+                                 extra{j});
+      endfor
+    endif
+  endfor
+
+  ## No program but the interpreter.  A denied exec is not a program that
+  ## failed: nothing runs at all, so any status but a refusal is a failure.
+  [st, ~] = system ("/usr/bin/true");
+  if (st == 0)
+    FAILED{end+1} = "a program can be run";
+  endif
+
+  ## An address-space limit, which no file states here, so it is measured:
+  ## a reservation past the budget must be refused, and it is refused before
+  ## a page is touched, which is why this costs nothing.
+  if (! capped ())
+    FAILED{end+1} = "no address-space limit is set";
+  endif
+
+  ## The network.  Unlike GNU/Linux, where the absence of every interface but
+  ## the loopback is a fact that can be read, here only unreachability can be
+  ## shown, so that is what the marker claims.
+  if (reachable ())
+    FAILED{end+1} = "the network can be reached";
+  endif
+
+endfunction
+
+## Paths under D that are readable and were not granted.  The sibling of
+## walk, inverted at the one place that matters: a folder that cannot be read
+## is the confinement working, not something left visible.
+function extra = walkReadable (D, ALLOWED)
+  extra = {};
+  [names, err] = readdir (D);
+  if (err != 0)
+    return;
+  endif
+  names = names(! strcmp (names, ".") & ! strcmp (names, ".."));
+  for i = 1:numel (names)
+    p = fullfile (D, names{i});
+    if (any (cellfun (@(a) isUnder (p, a), ALLOWED)))
+      continue;
+    elseif (isfolder (p) && any (cellfun (@(a) isUnder (a, p), ALLOWED)))
+      extra = [extra, walkReadable(p, ALLOWED)];
+    elseif (isfolder (p))
+      [~, e] = readdir (p);
+      if (e == 0)
+        extra{end+1} = p;
+      endif
+    else
+      fid = fopen (p, "r");
+      if (fid >= 0)
+        fclose (fid);
+        extra{end+1} = p;
+      endif
+    endif
+  endfor
+endfunction
+
+## True when an allocation past the budget is refused.  The budget is the one
+## the launch was given, and the reservation is larger than it by a gigabyte.
+function r = capped ()
+  g = 2;
+  v = str2double (getenv ("DEVTOOLS_SANDBOX_MEMORY"));
+  if (! isnan (v) && v > 0 && v <= 1024)
+    g = v;
+  endif
+  n = ceil (sqrt ((g + 1) * 1024^3 / 8));
+  r = false;
+  try
+    x = zeros (n);
+    clear x;
+  catch
+    r = true;
+  end_try_catch
+endfunction
+
+## True when anything answers over the network.  A name is asked for as well
+## as an address, since resolution is refused before a connection is.
+function r = reachable ()
+  r = false;
+  for u = {"http://93.184.216.34/", "http://example.com/"}
+    try
+      urlread (u{1});
+      r = true;
+      return;
+    catch
+      ## Unreachable, which is the expected answer.
+    end_try_catch
   endfor
 endfunction
 

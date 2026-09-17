@@ -70,9 +70,12 @@
 ## this copy of @code{devtools} is not an installed package, its folder is
 ## mounted as well and named in @env{DEVTOOLS_SANDBOX_SELF}.
 ##
-## A sandbox is available on Linux only, and needs @command{bwrap} from the
-## @code{bubblewrap} package and @command{prlimit} from @code{util-linux} on the
-## @env{PATH}.
+## A sandbox is available on GNU/Linux and on macOS.  On GNU/Linux it needs
+## @command{bwrap} from the @code{bubblewrap} package and @command{prlimit}
+## from @code{util-linux} on the @env{PATH}; on macOS it needs
+## @command{sandbox-exec}, which the system supplies, and it confines by
+## refusing rather than by hiding, so what it promises is named rather than
+## structural.
 ##
 ## @seealso{devtools.mcpEval}
 ## @end deftypefn
@@ -105,8 +108,13 @@ function [PROG, ARGS] = sandboxCommand (FOLDERS, PACKAGES)
   endfor
 
   u = uname ();
+  if (strcmp (u.sysname, "Darwin"))
+    [PROG, ARGS] = darwinCommand (folders, PACKAGES(:).');
+    return;
+  endif
   if (! strcmp (u.sysname, "Linux"))
-    error ("devtools.sandboxCommand: a sandbox is available on Linux only.");
+    error (strcat ("devtools.sandboxCommand: a sandbox is available on", ...
+                   " GNU/Linux and macOS only."));
   endif
   H.bwrap = file_in_path (getenv ("PATH"), "bwrap");
   if (isempty (H.bwrap))
@@ -185,6 +193,83 @@ function [PROG, ARGS] = sandboxCommand (FOLDERS, PACKAGES)
 
 endfunction
 
+## The macOS half.  Kept to gathering facts and writing the profile, with no
+## logic of its own, because a Darwin branch cannot be run anywhere but on a
+## Mac: everything that can be decided is decided in __seatbeltProfile__,
+## which is pure and tested on any machine.
+function [PROG, ARGS] = darwinCommand (folders, packages)
+
+  PROG = "/bin/sh";
+  H.shell = PROG;
+  H.sandboxExec = file_in_path (getenv ("PATH"), "sandbox-exec");
+  if (isempty (H.sandboxExec))
+    error (strcat ("devtools.sandboxCommand: 'sandbox-exec' is not on the", ...
+                   " PATH."));
+  endif
+
+  c = __octave_config_info__ ();
+  H.octaveCli = canonicalize_file_name (fullfile (c.bindir, "octave-cli"));
+  if (isempty (H.octaveCli))
+    error ("devtools.sandboxCommand: 'octave-cli' is not in '%s'.", c.bindir);
+  endif
+
+  ## The one tree a program may run from.  It is taken from the interpreter's
+  ## own resolved path rather than from the configured prefix, since a package
+  ## manager installs the binary under a versioned root and puts a link on the
+  ## PATH.  Libraries elsewhere are read, not run, and reading is not denied.
+  H.prefix = fileparts (fileparts (H.octaveCli));
+
+  ## The sandbox's own writable root, which is also the only writable place on
+  ## disk.  Darwin has no sized tmpfs, so DEVTOOLS_SANDBOX_TMP does not apply
+  ## here and the marker does not claim a capped one.
+  H.tmpDir = fullfile ("/private/tmp", sprintf ("devtools-%d", getpid ()));
+  [ok, msg] = mkdir (H.tmpDir);
+  if (! ok)
+    error ("devtools.sandboxCommand: cannot make '%s': %s.", H.tmpDir, msg);
+  endif
+  H.profilePath = fullfile (H.tmpDir, "profile.sb");
+
+  H.home = canonicalize_file_name (getenv ("HOME"));
+  H.history = history_file ();
+  H.evalSeconds = getenv ("DEVTOOLS_EVAL_SECONDS");
+  H.memoryBudget = getenv ("DEVTOOLS_SANDBOX_MEMORY");
+
+  ## No /proc, so the size this process already reserves is asked of ps.  It
+  ## is a large number on Apple silicon, which is why the cap is this plus a
+  ## budget and never an absolute figure: Darwin refuses any cap below it.
+  [st, out] = system (sprintf ("/bin/ps -o vsz= -p %d", getpid ()));
+  if (st != 0 || isempty (str2double (strtrim (out))) ...
+      || isnan (str2double (strtrim (out))))
+    error ("devtools.sandboxCommand: cannot read this process's size.");
+  endif
+  H.vmSize = str2double (strtrim (out)) * 1024;
+
+  ## Local packages come first, which is the one pkg load takes.
+  [localPkgs, globalPkgs] = pkg ("list");
+  entries = [localPkgs(:).', globalPkgs(:).'];
+  H.installed = struct ("name", {}, "dir", {}, "archprefix", {}, "depends", {});
+  for i = 1:numel (entries)
+    s = entries{i};
+    deps = cellfun (@(e) e.package, s.depends, "UniformOutput", false);
+    H.installed(end+1) = struct ("name", s.name, "dir", s.dir, ...
+                                 "archprefix", s.archprefix, "depends", {deps});
+  endfor
+  H.selfDir = fileparts (fileparts (mfilename ("fullpath")));
+
+  [profile, ARGS, errmsg] = devtools.__seatbeltProfile__ (H, folders, packages);
+  if (! isempty (errmsg))
+    error ("devtools.sandboxCommand: %s", errmsg);
+  endif
+
+  fid = fopen (H.profilePath, "w");
+  if (fid < 0)
+    error ("devtools.sandboxCommand: cannot write '%s'.", H.profilePath);
+  endif
+  fputs (fid, profile);
+  fclose (fid);
+
+endfunction
+
 ## A real command needs Linux and bwrap.
 %!shared canRun
 %! canRun = isempty (devtools.__sandboxUsable__ ());
@@ -223,8 +308,8 @@ endfunction
 %! devtools.sandboxCommand ({''}, {})
 %!error <devtools\.sandboxCommand: folder '/devtools-no-such-folder' does not exist\.> ...
 %! devtools.sandboxCommand ({'/devtools-no-such-folder'}, {})
-## Off GNU/Linux the platform check answers first, so both messages are named.
-%!error <devtools\.sandboxCommand: ('bwrap' is not on the PATH; install bubblewrap|a sandbox is available on Linux only)\.> ...
+## Which message comes first depends on the platform, so each is named.
+%!error <devtools\.sandboxCommand: ('bwrap' is not on the PATH; install bubblewrap|'sandbox-exec' is not on the PATH|a sandbox is available on GNU/Linux and macOS only)\.> ...
 %! p = getenv ("PATH");
 %! setenv ("PATH", "");
 %! unwind_protect

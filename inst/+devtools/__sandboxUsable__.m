@@ -25,12 +25,12 @@
 ## Returns the empty string where one can, and otherwise the reason it cannot,
 ## as the body of a message the caller completes under its own name.
 ##
-## The last check is the one that matters: @command{bwrap} is asked to build
-## its namespaces over a trivial command, because a machine can carry the
-## program and still refuse it.  A container does, and so does a kernel with
-## unprivileged user namespaces turned off, and a guard that tests only whether
-## the program is installed reports such a machine as ready and then fails
-## every sandbox test on it.
+## The last check is the one that matters, on either platform: the sandbox is
+## asked to run a trivial command, because a machine can carry the program and
+## still refuse it.  A container does, and so does a kernel with unprivileged
+## user namespaces turned off, and a guard that tests only whether the program
+## is installed reports such a machine as ready and then fails every sandbox
+## test on it.
 ##
 ## The answer is measured once and kept for the life of the interpreter.
 ##
@@ -54,8 +54,12 @@ function E = probe ()
 
   E = "";
   u = uname ();
+  if (strcmp (u.sysname, "Darwin"))
+    E = darwinProbe ();
+    return;
+  endif
   if (! strcmp (u.sysname, "Linux"))
-    E = "a sandbox runs on Linux only";
+    E = "a sandbox runs on GNU/Linux and macOS only";
     return;
   endif
   if (isempty (file_in_path (getenv ("PATH"), "bwrap")))
@@ -82,14 +86,39 @@ function E = probe ()
 
 endfunction
 
+function E = darwinProbe ()
+
+  E = "";
+  sb = file_in_path (getenv ("PATH"), "sandbox-exec");
+  if (isempty (sb))
+    E = "sandbox-exec is not on the PATH";
+    return;
+  endif
+
+  t = file_in_path (getenv ("PATH"), "true");
+  if (isempty (t))
+    t = "/usr/bin/true";
+  endif
+  ## Being present is not the same as being permitted: sandbox-exec has been
+  ## deprecated since 10.14, so it is asked to run something before it is
+  ## believed.
+  cmd = sprintf (strcat ('sandbox-exec -p "(version 1)(allow default)"', ...
+                         ' "%s" 2> /dev/null'), t);
+  if (system (cmd) != 0)
+    E = "sandbox-exec is present but will not run here";
+  endif
+
+endfunction
+
 %!test
 %! ## The answer is a character vector either way, and the same one twice.
 %! E = devtools.__sandboxUsable__ ();
 %! assert_equal ([ischar(E), isrow(E) || isempty(E)], [true, true]);
 %! assert_equal (E, devtools.__sandboxUsable__ ());
 %!test
-%! ## Off GNU/Linux the reason says so and nothing is spawned to find out.
-%! if (! strcmp (uname ().sysname, "Linux"))
+%! ## On a platform with no sandbox the reason says so and nothing is spawned
+%! ## to find out.
+%! if (! any (strcmp (uname ().sysname, {"Linux", "Darwin"})))
 %!   assert_equal (devtools.__sandboxUsable__ (), ...
-%!                 "a sandbox runs on Linux only");
+%!                 "a sandbox runs on GNU/Linux and macOS only");
 %! endif

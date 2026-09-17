@@ -144,8 +144,10 @@
 ## @subsubheading Sandbox
 ##
 ## @code{devtools.mcpEval ("Sandbox", true)} serves the same protocol from
-## inside a sandbox, on Linux only and with @command{bwrap} from the
-## @code{bubblewrap} package installed.  Before serving, the server replaces its
+## inside a sandbox, on GNU/Linux with @command{bwrap} from the
+## @code{bubblewrap} package installed, and on macOS with the system's own
+## @command{sandbox-exec}.  The two confine by different means, so each names
+## the guarantees it holds rather than claiming the other's.  Before serving, the server replaces its
 ## own process with a sandboxed @file{octave-cli} built by
 ## @code{devtools.sandboxCommand}.  The process, its standard streams and its
 ## exit code carry through unchanged, so a host launches it like the plain
@@ -307,7 +309,7 @@ function C = splitEnv (name, sep)
   C = C(! cellfun (@isempty, C));
 endfunction
 
-## A real sandbox needs Linux and bwrap.
+## A real sandbox needs GNU/Linux with bwrap, or macOS.
 %!shared canRun, exe, instdir, req, meta
 %! canRun = isempty (devtools.__sandboxUsable__ ());
 %! meta = ['"_meta":{"io.modelcontextprotocol/protocolVersion":', ...

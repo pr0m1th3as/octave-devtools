@@ -184,9 +184,10 @@ function [PROFILE, ARGS, ERRMSG] = __seatbeltProfile__ (HOST, FOLDERS, ...
   ## this machine's threads, so the budget is added to it.  Darwin refuses any
   ## absolute cap below that size, which is why nothing fixed is used here.
   limit = HOST.vmSize + gigabytes (HOST.memoryBudget);
-  cmd = sprintf ("ulimit -v %d; exec %s -f %s %s --norc --no-history \"$@\"", ...
+  cmd = sprintf ("ulimit -v %d; exec %s -f %s %s%s \"$@\"", ...
                  floor (limit / 1024), shq (HOST.sandboxExec), ...
-                 shq (HOST.profilePath), shq (HOST.octaveCli));
+                 shq (HOST.profilePath), shq (HOST.octaveCli), ...
+                 " --no-history --no-init-file -q");
   ARGS = {'-c', cmd, 'devtools'};
 
 endfunction
@@ -352,7 +353,8 @@ endfunction
 %! ## The command ends with "$@" so that the caller appends its --eval text
 %! ## as further arguments, as it does on Linux.
 %! [~, A] = devtools.__seatbeltProfile__ (H, {}, {});
-%! assert (! isempty (strfind (A{2}, '--norc --no-history "$@"')));
+%! assert (! isempty (strfind (A{2}, ...
+%!   '--no-history --no-init-file -q "$@"')));
 %! assert_equal (A{3}, 'devtools');
 
 %!test
