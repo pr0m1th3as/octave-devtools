@@ -556,6 +556,69 @@ jobs:
           echo "exit status $?"
           exit 0
 
+      - name: What OpenMP cannot open
+        continue-on-error: true
+        run: |
+          set +e
+          # Every sandboxed server on macOS prints "OMP: Warning #179:
+          # Function Can't open TEMP failed:" and serves anyway.  Exporting
+          # TMPDIR into the sandbox did not silence it, so the explanation is
+          # incomplete, and a warning nobody understands is how the next real
+          # defect gets ignored.  These four differ in one thing each.
+          cli=$(command -v octave-cli)
+          wrap="$PWD/limited"
+          work=/private/tmp/devtools-probe
+          mkdir -p "$work/own"
+
+          echo 'disp ("served")' > "$work/omp.m"
+
+          ## As the port writes it: nothing writable but one folder of ours.
+          cat > "$work/a.sb" <<SB
+          (version 1)
+          (allow default)
+          (deny file-write*)
+          (allow file-write* (subpath "$work/own"))
+          (allow file-write* (literal "/dev/null"))
+          SB
+          ## The same, with the whole of /private/tmp writable.
+          cat > "$work/b.sb" <<SB
+          (version 1)
+          (allow default)
+          (deny file-write*)
+          (allow file-write* (subpath "/private/tmp"))
+          (allow file-write* (literal "/dev/null"))
+          SB
+
+          try () {                # try () <title> <profile> <TMPDIR or -->
+            printf -- '--- %s ---\n' "$1"
+            if [ "$3" = "--" ]; then
+              ( cd / && "$wrap" 120 sandbox-exec -f "$2" "$cli" --norc \
+                  --no-history "$work/omp.m" ) 2>&1
+            else
+              ( cd / && TMPDIR="$3" "$wrap" 120 sandbox-exec -f "$2" "$cli" \
+                  --norc --no-history "$work/omp.m" ) 2>&1
+            fi
+            echo "exit status $?"
+          }
+
+          printf -- '--- no sandbox at all ---\n'
+          ( cd / && "$wrap" 120 "$cli" --norc --no-history "$work/omp.m" ) 2>&1
+          echo "exit status $?"
+          try "our own folder, TMPDIR pointed at it" "$work/a.sb" "$work/own"
+          try "our own folder, TMPDIR left alone"   "$work/a.sb" "--"
+          try "the whole of /private/tmp writable"  "$work/b.sb" "--"
+
+          # And what it is actually reaching for, asked of the filesystem
+          # rather than guessed: the registration file libomp makes is named
+          # for the process, so whatever appears is its own.
+          printf -- '--- what a run leaves in /private/tmp ---\n'
+          before=$(ls /private/tmp | wc -l)
+          ( cd / && "$wrap" 120 "$cli" --norc --no-history "$work/omp.m" ) \
+            > /dev/null 2>&1
+          ls -la /private/tmp | grep -i -E "kmp|omp|__KMP" || echo "nothing named for OpenMP"
+          echo "entries before $before, after $(ls /private/tmp | wc -l)"
+          exit 0
+
   ## ----------------------------------------------------------------------
   ## Measurement 2.  Windows filesystem confinement without an ACE on the
   ## Octave installation.
