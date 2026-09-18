@@ -15,12 +15,16 @@ concurrency:
 jobs:
   test:
     uses: pr0m1th3as/octave-ci/.github/workflows/package-test.yml@v1
+    with:
+      warning-flags: '-O2 -Wall -Wextra'
+      warning-platforms: '["linux", "windows", "macos"]'
 
   # The macOS job above runs the sandbox tests only because
   # __sandboxUsable__ happens to answer that it can.  If that ever stopped
-  # being true they would skip and the job would stay green, which is how
-  # sandbox mode shipped unable to serve wherever Octave comes from a
-  # distribution package.  This job fails if they skip.
+  # being true the server would serve unconfined and the job would stay
+  # green, which is how sandbox mode shipped unable to serve wherever Octave
+  # comes from a distribution package.  This job fails unless the sandbox is
+  # reported active.
   macos-sandbox:
     name: macOS sandbox, Octave from Homebrew
     runs-on: macos-15
@@ -106,7 +110,8 @@ jobs:
   # The shared Linux job runs in a plain container, where bwrap is installed and
   # the namespaces it needs are refused, so the sandbox checks skip there and
   # the sandbox is the one thing CI would not cover.  This job gives the
-  # container those namespaces, and fails if the checks skip rather than run.
+  # container those namespaces, and fails unless the sandbox is reported
+  # active.
   sandbox:
     name: Linux sandbox, Octave 11.3.0
     runs-on: ubuntu-latest
