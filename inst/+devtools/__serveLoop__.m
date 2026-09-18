@@ -17,16 +17,17 @@
 
 ## -*- texinfo -*-
 ## @deftypefn  {devtools} {} devtools.__serveLoop__ (@var{surface}, @var{name})
-## @deftypefnx {devtools} {} devtools.__serveLoop__ (@var{surface}, @var{name}, @var{sandboxed})
+## @deftypefnx {devtools} {} devtools.__serveLoop__ (@var{surface}, @var{name}, @var{sandbox})
 ##
 ## Read, dispatch and answer until standard input reaches end of file.
 ## Internal; not a supported entry point.
 ##
 ## @var{surface} is passed to @code{devtools.__newSession__} and decides which tool
 ## set the session offers; @var{name} is the entry point's name and appears in
-## every line this writes to standard error.  @var{sandboxed}, false by default,
-## is true only for a server that has verified its sandbox from inside, and
-## makes every result report it.
+## every line this writes to standard error.  @var{sandbox}, given only by
+## @code{devtools.mcpEval ("Sandbox")}, is a structure whose @code{state} is
+## @qcode{"active"}, @qcode{"failed"} or @qcode{"unavailable"} and whose
+## @code{reason} says why for the last two; every result then reports both.
 ##
 ## Both entry points share this loop rather than a flag: @code{devtools.mcp} and
 ## @code{devtools.mcpEval} are separate functions, separate commands and separate
@@ -36,7 +37,7 @@
 ##
 ## @end deftypefn
 
-function __serveLoop__ (surface, name, sandboxed)
+function __serveLoop__ (surface, name, sandbox)
 
   if (nargin < 2 || nargin > 3)
     error ("devtools.__serveLoop__: invalid number of input arguments.");
@@ -46,7 +47,11 @@ function __serveLoop__ (surface, name, sandboxed)
   ## The tool surface belongs to the session, not to a flag on a call
   S = devtools.__newSession__ (surface);
   if (nargin > 2)
-    S.sandboxed = sandboxed;
+    S.sandbox = sandbox.state;
+    S.sandboxReason = sandbox.reason;
+    if (! isempty (sandbox.reason))
+      logmsg (name, "sandbox %s: %s", sandbox.state, sandbox.reason);
+    endif
   endif
 
   while (true)

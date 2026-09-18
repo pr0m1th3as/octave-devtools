@@ -51,12 +51,10 @@
 ## as from an installed package.
 ##
 ## With the default command the evaluating server is checked as well, and so is
-## a sandboxed one, started with @code{devtools.mcpEval ("Sandbox", true)}:
-## that it starts, reports itself sandboxed, offers @code{octave_call} and not
-## @code{octave_eval}, and runs a call in the process it forks for it.  Where a
-## sandbox cannot run, on a system other than Linux or without @command{bwrap}
-## or @command{prlimit} on the @env{PATH}, those checks are reported as skipped
-## with the reason.
+## the program server, started with @code{devtools.mcpEval ("Sandbox")}: that
+## it starts, reports the sandbox this machine can give it, @qcode{"active"}
+## where one can be built and otherwise why not, offers @code{octave_call} and
+## not @code{octave_eval}, and runs a call in a process of its own.
 ##
 ## @seealso{devtools.mcp, devtools.mcpEval}
 ## @end deftypefn
@@ -389,103 +387,102 @@ function [OK, REPORT] = selftest (CMD)
 
     endif
 
-    ## The sandboxed server, again only with the default commands, and only
-    ## where a sandbox can run.  What the sandbox promises the server checks
-    ## for itself before it answers; this checks that it answers at all,
-    ## reports itself sandboxed, offers the sandbox's tools, and runs a call in
-    ## the process it forks for it.  Read as text, since jsondecode renames both
+    ## The program server, again only with the default commands.  What the
+    ## sandbox promises the server checks for itself before it answers; this
+    ## checks that it answers at all, reports the state this machine allows,
+    ## offers the program tools, and runs a call in a process of its own, with
+    ## or without the sandbox.  Read as text, since jsondecode renames both
     ## _meta and the dotted sandbox key.
     if (nargin < 1)
-      why = devtools.__sandboxUsable__ ();
-      if (! isempty (why))
-        REPORT = skipped (REPORT, "sandbox: a sandboxed server starts", why);
-      else
-        SCMD = defaultSandboxCommand ();
-        ssession = {sprintf(['{"jsonrpc":"2.0","id":1,', ...
-                             '"method":"server/discover","params":{%s}}'], ...
-                            meta), ...
-                    sprintf(['{"jsonrpc":"2.0","id":2,', ...
-                             '"method":"tools/list","params":{%s}}'], meta), ...
-                    sprintf(['{"jsonrpc":"2.0","id":3,', ...
-                             '"method":"tools/call",', ...
-                             '"params":{"name":"octave_call","arguments":', ...
-                             '{"function":"plus","args":', ...
-                             '[{"type":"number","value":1},', ...
-                             '{"type":"number","value":2}]},%s}}'], meta)};
-        fid = fopen (infile, "w");
-        if (fid < 0)
-          error ("devtools.selftest: cannot write a temporary file in %s.", ...
-                 tempdir ());
-        endif
-        fprintf (fid, "%s\n", ssession{:});
-        fclose (fid);
-
-        ## A sandbox configuration left in this environment must not decide
-        ## what is checked, nor a marker that would skip the relaunch
-        names = {'DEVTOOLS_SANDBOX', 'DEVTOOLS_SANDBOX_FOLDERS', ...
-                 'DEVTOOLS_SANDBOX_PACKAGES'};
-        had = cellfun (@getenv, names, "UniformOutput", false);
-        unwind_protect
-          for i = 1:numel (names)
-            unsetenv (names{i});
-          endfor
-          scmd = sprintf ('%s < "%s" 2> "%s"', SCMD, infile, errfile);
-          [status, out] = system (scmd);
-        unwind_protect_cleanup
-          for i = 1:numel (names)
-            if (! isempty (had{i}))
-              setenv (names{i}, had{i});
-            endif
-          endfor
-        end_unwind_protect
-
-        lines = strsplit (strrep (out, "\r\n", "\n"), "\n");
-        lines = lines(! cellfun (@isempty, lines));
-
-        [REPORT, OK] = check (REPORT, "sandbox: server exited cleanly", ...
-                              status == 0, ...
-                              sprintf ("exit status %d", status), OK);
-
-        [quiet, noisy] = quietStderr (errfile);
-        [REPORT, OK] = check (REPORT, ...
-          "sandbox: the interpreter raised nothing about the server", ...
-          quiet, trunc (noisy), OK);
-
-        bad = 0;
-        for i = 1:numel (lines)
-          try
-            jsondecode (lines{i});
-          catch
-            bad = i;
-            break;
-          end_try_catch
-        endfor
-        if (bad > 0)
-          detail = sprintf ("line %d of stdout is not a message: %s", bad, ...
-                            trunc (lines{bad}));
-        else
-          detail = "";
-        endif
-        [REPORT, OK] = check (REPORT, ...
-          "sandbox: every stdout line is a protocol message", ...
-          bad == 0, detail, OK);
-
-        replies = [lines, {'', '', ''}];
-        has = @(k, s) ! isempty (strfind (replies{k}, s));
-        [REPORT, OK] = check (REPORT, ...
-          "sandbox: the server reports itself sandboxed", ...
-          has (1, '"io.github.pr0m1th3as.devtools/sandbox":true'), ...
-          trunc (replies{1}), OK);
-        [REPORT, OK] = check (REPORT, ...
-          "sandbox: octave_call is offered and octave_eval is not", ...
-          has (2, '"name":"octave_call"') ...
-          && ! has (2, '"name":"octave_eval"'), ...
-          trunc (replies{2}), OK);
-        [REPORT, OK] = check (REPORT, ...
-          "sandbox: octave_call runs in a forked process, plus (1, 2) is 3", ...
-          has (3, '"isError":false') && has (3, '"cells":[3]'), ...
-          trunc (replies{3}), OK);
+      [why, want] = devtools.__sandboxUsable__ ();
+      if (isempty (why))
+        want = "active";
       endif
+      SCMD = defaultSandboxCommand ();
+      ssession = {sprintf(['{"jsonrpc":"2.0","id":1,', ...
+                           '"method":"server/discover","params":{%s}}'], ...
+                          meta), ...
+                  sprintf(['{"jsonrpc":"2.0","id":2,', ...
+                           '"method":"tools/list","params":{%s}}'], meta), ...
+                  sprintf(['{"jsonrpc":"2.0","id":3,', ...
+                           '"method":"tools/call",', ...
+                           '"params":{"name":"octave_call","arguments":', ...
+                           '{"function":"plus","args":', ...
+                           '[{"type":"number","value":1},', ...
+                           '{"type":"number","value":2}]},%s}}'], meta)};
+      fid = fopen (infile, "w");
+      if (fid < 0)
+        error ("devtools.selftest: cannot write a temporary file in %s.", ...
+               tempdir ());
+      endif
+      fprintf (fid, "%s\n", ssession{:});
+      fclose (fid);
+
+      ## A sandbox configuration left in this environment must not decide
+      ## what is checked, nor a marker that would skip the relaunch
+      names = {'DEVTOOLS_SANDBOX', 'DEVTOOLS_SANDBOX_FOLDERS', ...
+               'DEVTOOLS_SANDBOX_PACKAGES'};
+      had = cellfun (@getenv, names, "UniformOutput", false);
+      unwind_protect
+        for i = 1:numel (names)
+          unsetenv (names{i});
+        endfor
+        scmd = sprintf ('%s < "%s" 2> "%s"', SCMD, infile, errfile);
+        [status, out] = system (scmd);
+      unwind_protect_cleanup
+        for i = 1:numel (names)
+          if (! isempty (had{i}))
+            setenv (names{i}, had{i});
+          endif
+        endfor
+      end_unwind_protect
+
+      lines = strsplit (strrep (out, "\r\n", "\n"), "\n");
+      lines = lines(! cellfun (@isempty, lines));
+
+      [REPORT, OK] = check (REPORT, "sandbox: server exited cleanly", ...
+                            status == 0, ...
+                            sprintf ("exit status %d", status), OK);
+
+      [quiet, noisy] = quietStderr (errfile);
+      [REPORT, OK] = check (REPORT, ...
+        "sandbox: the interpreter raised nothing about the server", ...
+        quiet, trunc (noisy), OK);
+
+      bad = 0;
+      for i = 1:numel (lines)
+        try
+          jsondecode (lines{i});
+        catch
+          bad = i;
+          break;
+        end_try_catch
+      endfor
+      if (bad > 0)
+        detail = sprintf ("line %d of stdout is not a message: %s", bad, ...
+                          trunc (lines{bad}));
+      else
+        detail = "";
+      endif
+      [REPORT, OK] = check (REPORT, ...
+        "sandbox: every stdout line is a protocol message", ...
+        bad == 0, detail, OK);
+
+      replies = [lines, {'', '', ''}];
+      has = @(k, s) ! isempty (strfind (replies{k}, s));
+      [REPORT, OK] = check (REPORT, ...
+        sprintf ("sandbox: the server reports it %s", want), ...
+        has (1, sprintf ('"io.github.pr0m1th3as.devtools/sandbox":"%s"', ...
+                         want)), trunc (replies{1}), OK);
+      [REPORT, OK] = check (REPORT, ...
+        "sandbox: octave_call is offered and octave_eval is not", ...
+        has (2, '"name":"octave_call"') ...
+        && ! has (2, '"name":"octave_eval"'), ...
+        trunc (replies{2}), OK);
+      [REPORT, OK] = check (REPORT, ...
+        "sandbox: octave_call runs in its own process, plus (1, 2) is 3", ...
+        has (3, '"isError":false') && has (3, '"cells":[3]'), ...
+        trunc (replies{3}), OK);
     endif
 
   unwind_protect_cleanup
@@ -565,12 +562,12 @@ endfunction
 function CMD = defaultSandboxCommand ()
 
   ## The evaluating server's launch with the Sandbox option.  No capture
-  ## directory is added: a sandboxed call is contained by the process it runs
-  ## in, and the relaunch finds this copy of the package by itself.
+  ## directory is added: a call is contained by the process it runs in, and
+  ## the relaunch finds this copy of the package by itself.
   exe = octaveExe ();
   instdir = fileparts (fileparts (mfilename ("fullpath")));
   CMD = sprintf (['"%s" -q --no-init-file --eval "addpath (''%s'');', ...
-                  ' devtools.mcpEval (''Sandbox'', true)"'], exe, instdir);
+                  ' devtools.mcpEval (''Sandbox'')"'], exe, instdir);
 
 endfunction
 

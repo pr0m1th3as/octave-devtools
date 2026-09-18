@@ -21,7 +21,10 @@
 ## Build a fresh session structure.  Internal; not a supported entry point.
 ##
 ## @var{surface} is @qcode{"read-only"} for the tool set @code{devtools.mcp}
-## offers or @qcode{"eval"} for the one @code{devtools.mcpEval} adds to it.
+## offers, @qcode{"eval"} for the one @code{devtools.mcpEval} adds to it,
+## @qcode{"program"} for the one @code{devtools.mcpEval ("Sandbox")} offers a
+## program, and @qcode{"halted"} for a sandboxed server that failed its check
+## from inside and offers nothing.
 ##
 ## The double underscore is core Octave's convention for a function that is
 ## reachable but unsupported, and it is used here because @emph{a namespace has
@@ -38,21 +41,24 @@ function S = __newSession__ (surface)
     error ("devtools.__newSession__: invalid number of input arguments.");
   endif
   if (! (ischar (surface) && isrow (surface) ...
-         && any (strcmp (surface, {'read-only', 'eval'}))))
-    error ("devtools.__newSession__: SURFACE must be 'read-only' or 'eval'.");
+         && any (strcmp (surface, {'read-only', 'eval', 'program', ...
+                                   'halted'}))))
+    error (strcat ("devtools.__newSession__: SURFACE must be 'read-only',", ...
+                   " 'eval', 'program' or 'halted'."));
   endif
 
   ## era is 'unknown' until the client opens, then 'legacy' or 'modern'.
   ## ws holds the evaluation workspaces by handle and is empty on a read-only
   ## session, which is what makes the surface a property of the session rather
-  ## than a flag on a call.  sandboxed is set only by a server that verified
-  ## its sandbox from inside.
+  ## than a flag on a call.  sandbox is the state a program server reports,
+  ## empty on any other, and sandboxReason says why it is not "active".
   S = struct ();
   S.era = "unknown";
   S.version = "";
   S.initialized = false;
   S.surface = surface;
-  S.sandboxed = false;
+  S.sandbox = "";
+  S.sandboxReason = "";
   S.ws = struct ();
   S.wsorder = {};
   S.wsnext = 1;

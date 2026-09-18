@@ -7,7 +7,7 @@
 
 MKOCTFILE ?= mkoctfile
 
-all: capture guard
+all: capture guard spawn
 
 capture:
 	@if $(MKOCTFILE) __devtools_capture__.cc > devtools_capture.log 2>&1; then \
@@ -32,7 +32,17 @@ guard:
 	  cat devtools_guard.log; \
 	fi
 
-clean:
-	-rm -f *.o *.oct devtools_capture.log devtools_guard.log
+spawn:
+	@if $(MKOCTFILE) __devtools_spawn__.cc > devtools_spawn.log 2>&1; then \
+	  echo "devtools: built __devtools_spawn__.oct"; \
+	else \
+	  echo "devtools: no working compiler for __devtools_spawn__.cc."; \
+	  echo "devtools: on Windows, devtools.mcpEval ('Sandbox') will refuse"; \
+	  echo "devtools: every call, each needing a process of its own."; \
+	  cat devtools_spawn.log; \
+	fi
 
-.PHONY: all capture guard clean
+clean:
+	-rm -f *.o *.oct devtools_capture.log devtools_guard.log devtools_spawn.log
+
+.PHONY: all capture guard spawn clean

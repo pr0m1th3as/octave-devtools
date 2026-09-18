@@ -165,9 +165,12 @@ with our name and version.
 
 ### A key of our own: `io.github.pr0m1th3as.devtools/sandbox`
 
-A sandboxed `devtools.mcpEval` sets this key to `true` beside `serverInfo`, on
-every modern result and in the legacy `initialize` result; a server that is not
-sandboxed leaves it out. From `basic/index`, under "General fields":
+`devtools.mcpEval ('Sandbox')` sets this key beside `serverInfo`, on every
+modern result and in the legacy `initialize` result, to one of `"active"`,
+`"failed"` or `"unavailable"`, and for the last two sets
+`io.github.pr0m1th3as.devtools/sandboxReason` to why. A server started
+without the option leaves both out. From `basic/index`, under "General
+fields":
 
 > **Key name format:** valid `_meta` key names have two segments: an optional
 > **prefix**, and a **name**.
@@ -185,8 +188,8 @@ and
 
 The prefix `io.github.pr0m1th3as.devtools/` is the reverse of the project's
 `pr0m1th3as.github.io`, every label starts with a letter and ends with a letter
-or digit, and its second label is `github`, so it is not reserved. The name
-`sandbox` is alphanumeric.
+or digit, and its second label is `github`, so it is not reserved. The names
+`sandbox` and `sandboxReason` are alphanumeric.
 
 **What the key is worth.** It is self-reported, and the same page says of the
 two self-reported identity keys:
@@ -199,9 +202,9 @@ That sentence is about `clientInfo` and `serverInfo`, but its reason applies
 here too: a server can write anything into `_meta`. The key is sound only
 where the client started the server itself, with the `Sandbox` option and a
 command line it controls. The claim and the launch then come from one party,
-and the server refuses to serve at all, writing nothing to standard output,
-when its own check of the sandbox fails. `octave-calc` uses it exactly that
-way. For a server some other party started, the key is a claim and nothing
+and `"active"` is written only after the server's own check of the sandbox
+passed from inside. `octave-calc` uses it exactly that way, running cells
+only on `"active"`. For a server some other party started, the key is a claim and nothing
 more. The server itself never changes behaviour on it.
 
 ### `server/discover`

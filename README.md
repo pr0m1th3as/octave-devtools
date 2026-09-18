@@ -129,15 +129,15 @@ The evaluating server, under its own name:
 }
 ```
 
-The evaluating server in [sandbox mode](#sandbox-mode), on Linux, under a name of
-its own. What it may read and load is set in `env`, never in the command:
+The program server in [sandbox mode](#sandbox-mode), under a name of its own.
+What it may read and load is set in `env`, never in the command:
 
 ```json
 {
   "mcpServers": {
     "octave-sandbox": {
       "command": "octave-cli",
-      "args": ["-q", "--no-init-file", "--eval", "pkg load devtools; devtools.mcpEval ('Sandbox', true)"],
+      "args": ["-q", "--no-init-file", "--eval", "pkg load devtools; devtools.mcpEval ('Sandbox')"],
       "env": {
         "DEVTOOLS_SANDBOX_FOLDERS": "/home/me/analysis",
         "DEVTOOLS_SANDBOX_PACKAGES": "statistics,datatypes"
@@ -290,17 +290,32 @@ server is unaffected either way.
 
 #### Sandbox mode
 
-`devtools.mcpEval ('Sandbox', true)` runs the evaluating server inside a
-sandbox built with `bwrap`, on Linux only. It was made for programs that pass
-data to Octave from somewhere untrusted, a spreadsheet for one, and need a
-server that can call a function and do nothing else.
+`devtools.mcpEval ('Sandbox')` runs a server for programs that pass data to
+Octave from somewhere untrusted, a spreadsheet for one, and need a server that
+can call a function and do nothing else. It runs inside a sandbox **where the
+machine can build one**: on Linux with `bwrap` and `prlimit`, and on macOS
+with the system's `sandbox-exec`. Where it cannot, it serves without one.
 
-Before it answers anything, the server checks from inside that the sandbox
-holds, and refuses to serve if it does not. Every result then carries
-`_meta["io.github.pr0m1th3as.devtools/sandbox"]` set to `true`, a key absent
-from a server that is not sandboxed, and the server's `instructions` say so.
+Every result says which, in `_meta["io.github.pr0m1th3as.devtools/sandbox"]`:
 
-Visible inside, read-only:
+| State | Meaning |
+|---|---|
+| `"active"` | the sandbox was built and checked from inside, and every call runs in it |
+| `"failed"` | the machine has the mechanism, but the sandbox did not start or did not pass its check; the server runs unconfined |
+| `"unavailable"` | the machine has no mechanism, Windows for one; the server runs unconfined |
+
+For the last two, `_meta["io.github.pr0m1th3as.devtools/sandboxReason"]` says
+why, and the server's `instructions` say the same. A program that needs the
+sandbox must read the state; a host that does not read `_meta` should not be
+given this option on a machine without a sandbox.
+
+Before it enters the sandbox, the server builds it once, checks it from
+inside and leaves it, and runs unconfined as `"failed"` if the check does not
+pass. Unconfined, each call still runs in a process of its own and is stopped
+at the deadline, but it can read and write files and use the network as any
+Octave code can.
+
+Visible inside the Linux sandbox, read-only:
 
 - the system libraries, Octave's own installation and the `octave-cli` binary;
 - the packages named in `DEVTOOLS_SANDBOX_PACKAGES`, separated by commas and
@@ -323,7 +338,7 @@ process's size plus 2 GB, and `/tmp` holds at most 2 GB; set
 `DEVTOOLS_SANDBOX_MEMORY` and `DEVTOOLS_SANDBOX_TMP` to other numbers of
 gigabytes to change them.
 
-A sandboxed server offers `octave_call` and `octave_test`, and not
+In every state it offers `octave_call` and `octave_test`, and not
 `octave_eval`. `octave_call` is for programs, such as `octave-calc`, not for
 an assistant: its results are in `structuredContent`, and its text is a
 one-line summary without the values. It takes a function name, never code:

@@ -72,8 +72,10 @@ jobs:
           [ok, report] = devtools.selftest ();
           printf ("%s\n", report{:});
 
-          if (any (! cellfun (@isempty, strfind (report, "SKIP  sandbox"))))
-            printf ("\nthe sandbox checks skipped, proving nothing.\n");
+          ## A program server serves without a sandbox too, saying why, so a
+          ## run that passed is proof only if it reported the sandbox active.
+          if (! any (strcmp (report, "PASS  sandbox: the server reports it active")))
+            printf ("\nthe sandbox was not active, proving nothing.\n");
             exit (1);
           endif
           if (! isempty (bad))
@@ -95,7 +97,7 @@ jobs:
             --eval "pkg ('install', '-local', '$PWD/package.tar.gz')"
           echo "--- what a sandboxed server says for itself ---"
           octave-cli --norc --no-history --eval \
-            "pkg load devtools; devtools.mcpEval ('Sandbox', true)" \
+            "pkg load devtools; devtools.mcpEval ('Sandbox')" \
             < /dev/null 2>&1 | head -20 || true
           echo "--- the checks ---"
           octave-cli --norc --no-history \
@@ -138,8 +140,10 @@ jobs:
           [ok, report] = devtools.selftest ();
           printf ("%s\n", report{:});
 
-          if (any (! cellfun (@isempty, strfind (report, "SKIP  sandbox"))))
-            printf ("\nthe sandbox checks skipped, proving nothing.\n");
+          ## A program server serves without a sandbox too, saying why, so a
+          ## run that passed is proof only if it reported the sandbox active.
+          if (! any (strcmp (report, "PASS  sandbox: the server reports it active")))
+            printf ("\nthe sandbox was not active, proving nothing.\n");
             exit (1);
           endif
           if (! isempty (bad))
@@ -177,7 +181,7 @@ jobs:
                 --eval "pkg (\"install\", \"-local\", \"/work/package.tar.gz\")"
               echo "--- what a sandboxed server says for itself ---"
               octave-cli --norc --no-history --eval \
-                "pkg load devtools; devtools.mcpEval (\"Sandbox\", true)" \
+                "pkg load devtools; devtools.mcpEval (\"Sandbox\")" \
                 < /dev/null 2>&1 | head -20 || true
               echo "--- the checks ---"
               octave-cli --norc --no-history \

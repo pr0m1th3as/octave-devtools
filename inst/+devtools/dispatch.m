@@ -51,11 +51,16 @@
 ## @item initialized
 ## True once a legacy client has sent its @code{notifications/initialized}.
 ##
-## @item sandboxed
-## True only for a server that verified its sandbox from inside.  Every modern
-## result and the legacy @code{initialize} result then carry
-## @code{_meta["io.github.pr0m1th3as.devtools/sandbox"]} set to true, and the
-## @code{instructions} say so.  A session without the field is not sandboxed.
+## @item sandbox
+## Empty except on a server started with @code{devtools.mcpEval ("Sandbox")},
+## where it is @qcode{"active"} for a sandbox verified from inside,
+## @qcode{"failed"} for one that was tried and did not hold, and
+## @qcode{"unavailable"} where this machine has none; @code{sandboxReason}
+## says why for the last two.  Every modern result and the legacy
+## @code{initialize} result then carry both, as
+## @code{_meta["io.github.pr0m1th3as.devtools/sandbox"]} and
+## @code{_meta["io.github.pr0m1th3as.devtools/sandboxReason"]}, and the
+## @code{instructions} say so.  A session without the field reports none.
 ## @end table
 ##
 ## The eras differ in their envelope and in nothing else.  A modern result
@@ -106,8 +111,11 @@ function [RESP, S] = dispatch (R, S)
   if (! isfield (S, "surface"))
     S.surface = "read-only";
   endif
-  if (! isfield (S, "sandboxed"))
-    S.sandboxed = false;
+  if (! isfield (S, "sandbox"))
+    S.sandbox = "";
+  endif
+  if (! isfield (S, "sandboxReason"))
+    S.sandboxReason = "";
   endif
   if (! all (isfield (S, {'ws', 'wsorder', 'wsnext'})))
     S.ws = struct ();
@@ -163,39 +171,39 @@ function [RESP, S] = dispatch (R, S)
   endif
 
   era = S.era;
+  sb = struct ("state", S.sandbox, "reason", S.sandboxReason);
 
   switch (R.method)
 
     case 'initialize'
-      [res, S.version] = initializeResult (R.params, S.surface, S.sandboxed);
-      RESP = mkResponse (R.id, res, era, S.sandboxed);
+      [res, S.version] = initializeResult (R.params, S.surface, sb);
+      RESP = mkResponse (R.id, res, era, sb);
 
     case 'ping'
       ## Allowed before initialization completes, in either era
-      RESP = mkResponse (R.id, emptyResult (era), era, S.sandboxed);
+      RESP = mkResponse (R.id, emptyResult (era), era, sb);
 
     case 'server/discover'
       if (strcmp (era, "legacy"))
         RESP = devtools.jsonrpcError (R.id, -32601, ...
                  "Method not found: server/discover is not part of this session's protocol revision.");
       else
-        RESP = mkResponse (R.id, discoverResult (S.surface, S.sandboxed), ...
-                           era, S.sandboxed);
+        RESP = mkResponse (R.id, discoverResult (S.surface, sb), era, sb);
       endif
 
     case 'tools/list'
-      res = toolsListResult (era, S.surface, S.sandboxed);
-      RESP = mkResponse (R.id, res, era, S.sandboxed);
+      res = toolsListResult (era, S.surface, sb);
+      RESP = mkResponse (R.id, res, era, sb);
 
     case 'resources/list'
-      RESP = mkResponse (R.id, resourcesListResult (era), era, S.sandboxed);
+      RESP = mkResponse (R.id, resourcesListResult (era), era, sb);
 
     case 'resources/read'
       [res, code, msg, data] = resourcesRead (R.params, era);
       if (code != 0)
         RESP = devtools.jsonrpcError (R.id, code, msg, data);
       else
-        RESP = mkResponse (R.id, res, era, S.sandboxed);
+        RESP = mkResponse (R.id, res, era, sb);
       endif
 
     case 'tools/call'
@@ -203,7 +211,7 @@ function [RESP, S] = dispatch (R, S)
       if (code != 0)
         RESP = devtools.jsonrpcError (R.id, code, msg);
       else
-        RESP = mkResponse (R.id, res, era, S.sandboxed);
+        RESP = mkResponse (R.id, res, era, sb);
       endif
 
     otherwise
@@ -219,7 +227,7 @@ function V = legacyVersions ()
   V = {'2025-11-25'};
 endfunction
 
-function [res, ver] = initializeResult (params, surface, sandboxed)
+function [res, ver] = initializeResult (params, surface, sb)
 
   ## The rule here is not the modern one.  A legacy server does not reject an
   ## unknown version: it answers with one it does support and lets the client
@@ -240,11 +248,11 @@ function [res, ver] = initializeResult (params, surface, sandboxed)
   res.protocolVersion = ver;
   res.capabilities = caps;
   res.serverInfo = struct ("name", n, "version", v);
-  res.instructions = instructionsText (surface, sandboxed);
+  res.instructions = instructionsText (surface, sb);
   ## serverInfo is a field of its own here, so the legacy result carries a
   ## _meta only to report the sandbox
-  if (sandboxed)
-    res._meta = struct ("io_github_pr0m1th3as_devtools_sandbox", true);
+  if (! isempty (sb.state))
+    res._meta = sandboxMeta (struct (), sb);
   endif
 
 endfunction
@@ -256,11 +264,11 @@ function res = emptyResult (era)
   endif
 endfunction
 
-function RESP = mkResponse (id, res, era, sandboxed)
+function RESP = mkResponse (id, res, era, sb)
   ## Only a modern result identifies the server on every reply; a legacy one
   ## carried serverInfo once, in the initialize result
   if (strcmp (era, "modern"))
-    res._meta = serverMeta (sandboxed);
+    res._meta = serverMeta (sb);
   endif
   RESP = struct ("jsonrpc", "2.0", "id", id);
   RESP.result = res;
@@ -277,13 +285,21 @@ function [N, V] = serverIdentity ()
   V = "0.2.0";
 endfunction
 
-function M = serverMeta (sandboxed)
+function M = serverMeta (sb)
   [n, v] = serverIdentity ();
   M = struct ();
   M.io_modelcontextprotocol_serverInfo = struct ("name", n, "version", v);
-  ## Absent rather than false when not sandboxed
-  if (sandboxed)
-    M.io_github_pr0m1th3as_devtools_sandbox = true;
+  M = sandboxMeta (M, sb);
+endfunction
+
+function M = sandboxMeta (M, sb)
+  ## Absent from a server that was never asked for a sandbox; on one that was,
+  ## always one of three states, and never silent about the last two
+  if (! isempty (sb.state))
+    M.io_github_pr0m1th3as_devtools_sandbox = sb.state;
+    if (! isempty (sb.reason))
+      M.io_github_pr0m1th3as_devtools_sandboxReason = sb.reason;
+    endif
   endif
 endfunction
 
@@ -330,9 +346,13 @@ function [code, msg, data] = checkMeta (params)
 
 endfunction
 
-function T = toolTable (surface, sandboxed)
+function T = toolTable (surface, sb)
 
   T = {};
+  ## A sandbox that failed its check from inside runs nothing at all
+  if (strcmp (surface, "halted"))
+    return;
+  endif
 
   t = struct ();
   t.name = "octave_which";
@@ -504,7 +524,7 @@ function T = toolTable (surface, sandboxed)
   t.outputSchema = osc;
   T{end+1} = t;
 
-  if (! strcmp (surface, "eval"))
+  if (! any (strcmp (surface, {"eval", "program"})))
     return;
   endif
 
@@ -533,9 +553,9 @@ function T = toolTable (surface, sandboxed)
   t.inputSchema = isc;
   ## No outputSchema: the payload is the output of the code, which is prose to
   ## everyone but the interpreter.  The handle leads the text instead, where
-  ## truncation cannot take it.  A sandboxed server starts every call fresh,
+  ## truncation cannot take it.  A program server starts every call fresh,
   ## so a workspace handle would carry nothing and the tool is not offered.
-  if (! sandboxed)
+  if (strcmp (surface, "eval"))
     T{end+1} = t;
   endif
 
@@ -557,9 +577,9 @@ function T = toolTable (surface, sandboxed)
   t.inputSchema = isc;
   T{end+1} = t;
 
-  ## A sandboxed server's call runs no code text: a name and typed values in,
+  ## A program server's call runs no code text: a name and typed values in,
   ## typed cells out, which is what a spreadsheet needs and all it may send
-  if (! sandboxed)
+  if (! strcmp (surface, "program"))
     return;
   endif
   t = struct ();
@@ -599,7 +619,7 @@ function T = toolTable (surface, sandboxed)
 
 endfunction
 
-function t = instructionsText (surface, sandboxed)
+function t = instructionsText (surface, sb)
   ## The version goes here, not into a tool.  This field is sent once, at
   ## connection, and stays in the model's context; a tool reporting a constant
   ## charges its description against every request for the life of the session.
@@ -613,7 +633,7 @@ function t = instructionsText (surface, sandboxed)
     " may be fewer than an interactive session has; say so rather than", ...
     " concluding a name does not exist. Evaluates no code, runs no user", ...
     " function, and writes nothing.")];
-  if (strcmp (surface, "eval"))
+  if (any (strcmp (surface, {"eval", "program", "halted"})))
     ## Replaced rather than appended: the read-only claim is exactly false here
     ## and a model that reads both sentences is entitled to believe the first.
     t = sprintf (strcat ("This server runs GNU Octave %s on %s. No tool", ...
@@ -623,21 +643,36 @@ function t = instructionsText (surface, sandboxed)
       " interpreter this server runs inside. It sees only the packages its", ...
       " own launch command loaded, which may be fewer than an interactive", ...
       " session has; say so rather than concluding a name does not exist.")];
-    if (! sandboxed)
+    if (strcmp (surface, "eval"))
       t = [t, strcat(" Code runs in a workspace named by a handle: pass", ...
         " new to open one and the handle it returns to keep the variables.")];
     endif
   endif
-  if (sandboxed)
-    t = [t, strcat(" It runs in a sandbox: there is no network and no", ...
-      " shell or other program to start, only the folders and packages it", ...
-      " was configured with are visible, and nothing outside /tmp can be", ...
-      " written. Every call starts from the same state, and nothing one", ...
-      " call does reaches the next.")];
-  endif
+  switch (sb.state)
+    case "active"
+      t = [t, strcat(" It runs in a sandbox: there is no network and no", ...
+        " shell or other program to start, only the folders and packages", ...
+        " it was configured with are visible, and nothing outside /tmp can", ...
+        " be written. Every call starts from the same state, and nothing", ...
+        " one call does reaches the next.")];
+    case {"failed", "unavailable"}
+      if (strcmp (surface, "halted"))
+        t = [t, sprintf(strcat (" Its sandbox failed its check from inside", ...
+          " (%s), so it runs nothing and offers no tools."), sb.reason)];
+      else
+        if (strcmp (sb.state, "failed"))
+          t = [t, sprintf(" Its sandbox failed (%s).", sb.reason)];
+        else
+          t = [t, sprintf(" No sandbox is available here (%s).", sb.reason)];
+        endif
+        t = [t, strcat(" It runs without one: every call starts from the", ...
+          " same state in a process of its own, but can read and write", ...
+          " files and use the network as any Octave code can.")];
+      endif
+  endswitch
 endfunction
 
-function res = discoverResult (surface, sandboxed)
+function res = discoverResult (surface, sb)
 
   caps = struct ();
   caps.tools = struct ();
@@ -647,19 +682,19 @@ function res = discoverResult (surface, sandboxed)
   res.resultType = "complete";
   res.supportedVersions = supportedVersions ();
   res.capabilities = caps;
-  res.instructions = instructionsText (surface, sandboxed);
+  res.instructions = instructionsText (surface, sb);
   res.ttlMs = 3600000;
   res.cacheScope = "public";
 
 endfunction
 
-function res = toolsListResult (era, surface, sandboxed)
+function res = toolsListResult (era, surface, sb)
 
   res = struct ();
   if (strcmp (era, "modern"))
     res.resultType = "complete";
   endif
-  res.tools = toolTable (surface, sandboxed);
+  res.tools = toolTable (surface, sb);
   if (strcmp (era, "modern"))
     ## Cache hints are a 2026-07-28 addition and have no legacy counterpart
     res.ttlMs = 3600000;
@@ -681,7 +716,8 @@ function [res, code, msg, S] = toolsCall (params, era, S)
     return;
   endif
 
-  T = toolTable (S.surface, S.sandboxed);
+  T = toolTable (S.surface, struct ("state", S.sandbox, ...
+                                    "reason", S.sandboxReason));
   names = cellfun (@(t) t.name, T, "UniformOutput", false);
   if (! any (strcmp (params.name, names)))
     code = -32602;
@@ -709,11 +745,27 @@ function [res, code, msg, S] = toolsCall (params, era, S)
     case 'octave_eval'
       [res, S] = callOctaveEval (args, era, S);
     case 'octave_test'
-      res = callOctaveTest (args, era, S.sandboxed);
+      res = callOctaveTest (args, era, runMode (S));
     case 'octave_call'
-      res = callOctaveCall (args, era, S.sandboxed);
+      res = callOctaveCall (args, era, runMode (S));
   endswitch
 
+endfunction
+
+## Where a call runs: in this process on the evaluating server, and on a
+## program server in a process of its own, forked inside the sandbox where
+## one is active, forked without one where the system can fork, and started
+## afresh on Windows, which cannot.
+function mode = runMode (S)
+  if (! strcmp (S.surface, "program"))
+    mode = "here";
+  elseif (strcmp (S.sandbox, "active"))
+    mode = "sandbox";
+  elseif (ispc ())
+    mode = "spawn";
+  else
+    mode = "fork";
+  endif
 endfunction
 
 function res = callOctaveWhich (args, era)
@@ -2044,7 +2096,7 @@ function [res, S] = callOctaveEval (args, era, S)
 
 endfunction
 
-function res = callOctaveTest (args, era, sandboxed)
+function res = callOctaveTest (args, era, mode)
 
   ## Locals prefixed, as everywhere that shares an interpreter with the code
   ## it runs.
@@ -2114,7 +2166,7 @@ function res = callOctaveTest (args, era, sandboxed)
     " fclose (devtoolsTestLid);"), quoteFor (t_log), quoteFor (t_path));
 
   [t_W, t_out, t_err, t_stopped, t_sub, t_cinfo] = ...
-    runContained (struct (), t_code, sandboxed);
+    runContained (struct (), t_code, mode);
 
   t_text = "";
   if (exist (t_log, "file") == 2)
@@ -2174,11 +2226,12 @@ function q = quoteFor (str)
   q = strrep (str, "'", "''");
 endfunction
 
-function res = callOctaveCall (args, era, sandboxed)
+function res = callOctaveCall (args, era, mode)
 
   ## The name and the values travel as variables into a fixed text, so that
   ## nothing a request carries is ever evaluated as code.  Names refused here
-  ## are refused for a clear message only: the sandbox is the protection.
+  ## are refused for a clear message only: in a sandbox the sandbox is the
+  ## protection, and without one the program calling decides what it calls.
   res = struct ();
   if (strcmp (era, "modern"))
     res.resultType = "complete";
@@ -2211,13 +2264,13 @@ function res = callOctaveCall (args, era, sandboxed)
                'eval', 'evalin', 'evalc', 'builtin', 'cellfun', 'arrayfun', ...
                'str2func'};
   if (any (strcmp (c_fn, c_blocked)))
-    c_msg = sprintf ("%s is not available in a sandbox.", c_fn);
+    c_msg = sprintf ("%s is not available to octave_call.", c_fn);
     res = callError (res, c_msg, "devtools:octave_call:arguments");
     return;
   endif
 
-  ## A call run only for its side effects has no use in a sandbox that
-  ## discards every trace of it
+  ## A call run only for its side effects has no use in a process that is
+  ## discarded after it
   c_n = 1;
   if (isfield (args, "nargout"))
     if (! (isnumeric (args.nargout) && isscalar (args.nargout) ...
@@ -2267,7 +2320,7 @@ function res = callOctaveCall (args, era, sandboxed)
     "end_try_catch");
 
   [W, c_out, c_err, c_stopped, c_sub, c_info] = ...
-    runContained (W, c_code, sandboxed);
+    runContained (W, c_code, mode);
   ## What the function printed, which no cell can show, travels beside the
   ## outputs for the caller to use or drop
   c_printed = capText ([c_out, c_sub], evalCap ());
@@ -2312,13 +2365,20 @@ function res = callError (res, msg, id, printed)
                                   "identifier", id, "printed", printed);
 endfunction
 
-function [W, out, err, stopped, sub, cinfo] = runContained (W, code, sandboxed)
+function [W, out, err, stopped, sub, cinfo] = runContained (W, code, mode)
 
-  ## A sandboxed server never evaluates in its own process
-  if (sandboxed)
-    [W, out, err, stopped, sub, cinfo] = runForked (W, code);
-    return;
-  endif
+  ## A program server never evaluates in its own process
+  switch (mode)
+    case "sandbox"
+      [W, out, err, stopped, sub, cinfo] = runForked (W, code, true);
+      return;
+    case "fork"
+      [W, out, err, stopped, sub, cinfo] = runForked (W, code, false);
+      return;
+    case "spawn"
+      [W, out, err, stopped, sub, cinfo] = runSpawned (W, code);
+      return;
+  endswitch
 
   ## Everything that runs code goes through here, the evaluating tool and the
   ## testing one alike, so that a deadline, a capture and a shadow cannot be
@@ -2400,7 +2460,7 @@ function [W, out, err, stopped, sub, cinfo] = runContained (W, code, sandboxed)
 
 endfunction
 
-function [W, out, err, stopped, sub, cinfo] = runForked (W, code)
+function [W, out, err, stopped, sub, cinfo] = runForked (W, code, sandboxed)
 
   ## The call runs in a process forked for it, which is killed when it returns
   ## or at the deadline.  Measured on 11.3.0 inside bwrap: dup2 takes every
@@ -2412,43 +2472,56 @@ function [W, out, err, stopped, sub, cinfo] = runForked (W, code)
   stopped = false;
   sub = "";
   cinfo = struct ("deadline", evalSeconds (), "captured", true, "elapsed", 0);
-
-  ## Sweeping every process and emptying /tmp are what a sandbox needs and
-  ## what would wreck a desktop session, so neither runs unless the process
-  ## containment that makes them safe is in force.
-  why = devtools.__sweepCheck__ ();
-  if (! isempty (why))
-    err = strcat (why, ", so the call was refused");
-    W = struct ();
-    return;
-  endif
-
-  ## Emptied and the package lists rebuilt before the call rather than after
-  ## it, so that what a call leaves, a test log among it, can be read by the
-  ## caller in between.  New names each call, so that a folder a call made
-  ## unremovable cannot stop the next one.
   persistent n = 0;
-  n++;
-  root = getenv ("DEVTOOLS_SANDBOX_ROOT");
-  if (isempty (root))
-    root = "/tmp";
-  endif
-  wipeTmp (root);
-  d = fullfile (root, sprintf ("call-%d", n));
-  try
-    devtools.__sandboxLists__ (getenv ("DEVTOOLS_SANDBOX_LOCAL_LIST"), ...
-                               getenv ("DEVTOOLS_SANDBOX_GLOBAL_LIST"), ...
-                               fullfile (root, sprintf ("devtools-%d", n)));
+
+  ## Without a sandbox the call has a folder of its own, removed after it,
+  ## and nothing else is touched: the sweep and the wipe below would wreck a
+  ## desktop session, and a process the call forks outlives it here.
+  if (! sandboxed)
+    d = tempname ();
     [ok, msg] = mkdir (d);
     if (! ok)
-      error ("%s", msg);
+      err = sprintf ("the call could not be given a folder: %s", msg);
+      W = struct ();
+      return;
     endif
-  catch e
-    err = sprintf ("the sandbox could not be reset before the call: %s", ...
-                   e.message);
-    W = struct ();
-    return;
-  end_try_catch
+  else
+    ## Sweeping every process and emptying /tmp are what a sandbox needs and
+    ## what would wreck a desktop session, so neither runs unless the process
+    ## containment that makes them safe is in force.
+    why = devtools.__sweepCheck__ ();
+    if (! isempty (why))
+      err = strcat (why, ", so the call was refused");
+      W = struct ();
+      return;
+    endif
+
+    ## Emptied and the package lists rebuilt before the call rather than after
+    ## it, so that what a call leaves, a test log among it, can be read by the
+    ## caller in between.  New names each call, so that a folder a call made
+    ## unremovable cannot stop the next one.
+    n++;
+    root = getenv ("DEVTOOLS_SANDBOX_ROOT");
+    if (isempty (root))
+      root = "/tmp";
+    endif
+    wipeTmp (root);
+    d = fullfile (root, sprintf ("call-%d", n));
+    try
+      devtools.__sandboxLists__ (getenv ("DEVTOOLS_SANDBOX_LOCAL_LIST"), ...
+                                 getenv ("DEVTOOLS_SANDBOX_GLOBAL_LIST"), ...
+                                 fullfile (root, sprintf ("devtools-%d", n)));
+      [ok, msg] = mkdir (d);
+      if (! ok)
+        error ("%s", msg);
+      endif
+    catch e
+      err = sprintf ("the sandbox could not be reset before the call: %s", ...
+                     e.message);
+      W = struct ();
+      return;
+    end_try_catch
+  endif
 
   ## Flushed first, or what is buffered here would be written again by the
   ## child
@@ -2462,6 +2535,7 @@ function [W, out, err, stopped, sub, cinfo] = runForked (W, code)
   if (pid < 0)
     err = "the call could not be started";
     W = struct ();
+    removeCallDir (d, sandboxed);
     return;
   endif
 
@@ -2479,7 +2553,9 @@ function [W, out, err, stopped, sub, cinfo] = runForked (W, code)
     pause (0.01);
   endwhile
   cinfo.elapsed = toc (t0);
-  devtools.__sweepCall__ ();
+  if (sandboxed)
+    devtools.__sweepCall__ ();
+  endif
 
   f = fullfile (d, "output");
   if (exist (f, "file") == 2)
@@ -2507,7 +2583,84 @@ function [W, out, err, stopped, sub, cinfo] = runForked (W, code)
     err = sprintf ("the call ended without a result, exit status %d", ...
                    WEXITSTATUS (status));
   endif
+  removeCallDir (d, sandboxed);
 
+endfunction
+
+function [W, out, err, stopped, sub, cinfo] = runSpawned (W, code)
+
+  ## Windows has no fork, and from Octave no way to wait for a process with a
+  ## deadline or to kill one: waitpid ignores WNOHANG there and kill signals
+  ## the caller.  So the call runs in an octave-cli started for it inside a
+  ## job object by __devtools_spawn__, which waits out the deadline and ends
+  ## the whole job at it.  The child finds the call and leaves its result in
+  ## a folder of its own, as a forked child does.
+  out = "";
+  err = "";
+  stopped = false;
+  sub = "";
+  cinfo = struct ("deadline", evalSeconds (), "captured", true, "elapsed", 0);
+
+  if (exist ("__devtools_spawn__") != 3)
+    err = strcat ("a call runs in a process of its own here, which needs", ...
+                  " __devtools_spawn__, built when the package is", ...
+                  " installed with a working compiler");
+    W = struct ();
+    return;
+  endif
+
+  d = tempname ();
+  [ok, msg] = mkdir (d);
+  if (! ok)
+    err = sprintf ("the call could not be given a folder: %s", msg);
+    W = struct ();
+    return;
+  endif
+  save ("-binary", fullfile (d, "call"), "W", "code");
+
+  cli = fullfile (OCTAVE_HOME (), "bin", "octave-cli.exe");
+  self = fileparts (fileparts (mfilename ("fullpath")));
+  child = sprintf ("addpath ('%s'); devtools.__spawnedChild__ ('%s')", ...
+                   quoteFor (self), quoteFor (d));
+  cmd = sprintf ('"%s" --norc --no-history --quiet --eval "%s"', cli, child);
+
+  t0 = tic ();
+  [status, timedout] = __devtools_spawn__ (cmd, fullfile (d, "output"), ...
+                                           cinfo.deadline);
+  cinfo.elapsed = toc (t0);
+
+  f = fullfile (d, "output");
+  if (exist (f, "file") == 2)
+    sub = fileread (f);
+  endif
+  f = fullfile (d, "result");
+  W = struct ();
+  if (exist (f, "file") == 2)
+    try
+      R = load (f);
+      out = R.out;
+      err = R.err;
+      W = R.vars;
+    catch e
+      err = sprintf ("the result of the call could not be read: %s", ...
+                     e.message);
+    end_try_catch
+  elseif (timedout)
+    stopped = true;
+  else
+    err = sprintf ("the call ended without a result, exit status %d", status);
+  endif
+  removeCallDir (d, false);
+
+endfunction
+
+## A sandboxed call's folder goes with the next wipe; any other is removed
+## now, being on the host's disk.
+function removeCallDir (d, sandboxed)
+  if (! sandboxed && exist (d, "dir") == 7)
+    confirm_recursive_rmdir (false, "local");
+    [~] = rmdir (d, "s");
+  endif
 endfunction
 
 function forkedChild (W, code, d)
@@ -2780,40 +2933,43 @@ endfunction
 %! assert_equal (si.name, "devtools");
 
 %!test
-%! ## A sandboxed server reports it beside serverInfo.
-%! S = devtools.__newSession__ ("eval");
-%! S.sandboxed = true;
+%! ## A program server reports its sandbox beside serverInfo.
+%! S = devtools.__newSession__ ("program");
+%! S.sandbox = "active";
 %! RESP = devtools.dispatch (mkreq ("server/discover", ""), S);
-%! assert_equal (RESP.result._meta.io_github_pr0m1th3as_devtools_sandbox, true);
+%! k = "io_github_pr0m1th3as_devtools_sandbox";
+%! assert_equal (RESP.result._meta.(k), "active");
 
 %!test
 %! ## On every modern result, not only at discovery.
-%! S = devtools.__newSession__ ("eval");
-%! S.sandboxed = true;
+%! S = devtools.__newSession__ ("program");
+%! S.sandbox = "active";
 %! RESP = devtools.dispatch (mkreq ("tools/list", ""), S);
-%! assert_equal (RESP.result._meta.io_github_pr0m1th3as_devtools_sandbox, true);
+%! k = "io_github_pr0m1th3as_devtools_sandbox";
+%! assert_equal (RESP.result._meta.(k), "active");
 
 %!test
-%! ## A server that is not sandboxed leaves the key out rather than false.
+%! ## A server never asked for a sandbox leaves the key out.
 %! RESP = devtools.dispatch (mkreq ("server/discover", ""), []);
 %! k = "io_github_pr0m1th3as_devtools_sandbox";
 %! assert_equal (isfield (RESP.result._meta, k), false);
 
 %!test
-%! ## A session made without the field is not sandboxed.
-%! S = rmfield (devtools.__newSession__ ("eval"), "sandboxed");
+%! ## A session made without the field reports none.
+%! S = rmfield (devtools.__newSession__ ("eval"), "sandbox");
 %! RESP = devtools.dispatch (mkreq ("server/discover", ""), S);
 %! k = "io_github_pr0m1th3as_devtools_sandbox";
 %! assert_equal (isfield (RESP.result._meta, k), false);
 
 %!test
 %! ## A legacy client reads it from the initialize result.
-%! S = devtools.__newSession__ ("eval");
-%! S.sandboxed = true;
+%! S = devtools.__newSession__ ("program");
+%! S.sandbox = "active";
 %! R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,', ...
 %!      '"method":"initialize","params":{"protocolVersion":"2025-11-25"}}']);
 %! RESP = devtools.dispatch (R, S);
-%! assert_equal (RESP.result._meta.io_github_pr0m1th3as_devtools_sandbox, true);
+%! k = "io_github_pr0m1th3as_devtools_sandbox";
+%! assert_equal (RESP.result._meta.(k), "active");
 
 %!test
 %! R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,', ...
@@ -2823,8 +2979,8 @@ endfunction
 
 %!test
 %! ## The model is told as well.
-%! S = devtools.__newSession__ ("eval");
-%! S.sandboxed = true;
+%! S = devtools.__newSession__ ("program");
+%! S.sandbox = "active";
 %! RESP = devtools.dispatch (mkreq ("server/discover", ""), S);
 %! s = RESP.result.instructions;
 %! assert_equal (isempty (strfind (s, "It runs in a sandbox")), false);
@@ -2836,24 +2992,24 @@ endfunction
 %! assert_equal (isempty (strfind (s, "sandbox")), true);
 
 %!test
-%! ## A sandboxed server starts every call fresh and offers no workspaces.
-%! S = devtools.__newSession__ ("eval");
-%! S.sandboxed = true;
+%! ## A program server starts every call fresh and offers no workspaces.
+%! S = devtools.__newSession__ ("program");
+%! S.sandbox = "active";
 %! RESP = devtools.dispatch (mkreq ("tools/list", ""), S);
 %! nms = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
 %! assert_equal (any (strcmp (nms, "octave_eval")), false);
 %! assert_equal (any (strcmp (nms, "octave_test")), true);
 
 %!test
-%! S = devtools.__newSession__ ("eval");
-%! S.sandboxed = true;
+%! S = devtools.__newSession__ ("program");
+%! S.sandbox = "active";
 %! RESP = devtools.dispatch (mkreq ("tools/call", ...
 %!   '"name":"octave_eval","arguments":{"code":"1","workspace":"new"}'), S);
 %! assert_equal (RESP.error.message, "Unknown tool: octave_eval");
 
 %!test
-%! S = devtools.__newSession__ ("eval");
-%! S.sandboxed = true;
+%! S = devtools.__newSession__ ("program");
+%! S.sandbox = "active";
 %! RESP = devtools.dispatch (mkreq ("server/discover", ""), S);
 %! s = RESP.result.instructions;
 %! assert_equal (isempty (strfind (s, "workspace")), true);
@@ -2870,17 +3026,85 @@ endfunction
 %! s = RESP.result.instructions;
 %! assert_equal (isempty (strfind (s, "stated here. Introspects")), false);
 
+%!test
+%! ## A sandbox that did not hold, or that this machine has none of, is
+%! ## reported with its reason, never left out.
+%! S = devtools.__newSession__ ("program");
+%! S.sandbox = "unavailable";
+%! S.sandboxReason = "bwrap is not on the PATH; install bubblewrap";
+%! RESP = devtools.dispatch (mkreq ("tools/list", ""), S);
+%! M = RESP.result._meta;
+%! assert_equal ({M.io_github_pr0m1th3as_devtools_sandbox, ...
+%!                M.io_github_pr0m1th3as_devtools_sandboxReason}, ...
+%!               {"unavailable", ...
+%!                "bwrap is not on the PATH; install bubblewrap"});
+%!test
+%! S = devtools.__newSession__ ("program");
+%! S.sandbox = "failed";
+%! S.sandboxReason = "the sandbox is not in force: network";
+%! R = devtools.decodeRequest (['{"jsonrpc":"2.0","id":1,', ...
+%!      '"method":"initialize","params":{"protocolVersion":"2025-11-25"}}']);
+%! RESP = devtools.dispatch (R, S);
+%! M = RESP.result._meta;
+%! assert_equal ({M.io_github_pr0m1th3as_devtools_sandbox, ...
+%!                M.io_github_pr0m1th3as_devtools_sandboxReason}, ...
+%!               {"failed", "the sandbox is not in force: network"});
+%!test
+%! ## An active sandbox has no reason to give.
+%! S = devtools.__newSession__ ("program");
+%! S.sandbox = "active";
+%! RESP = devtools.dispatch (mkreq ("tools/list", ""), S);
+%! k = "io_github_pr0m1th3as_devtools_sandboxReason";
+%! assert_equal (isfield (RESP.result._meta, k), false);
+%!test
+%! ## Without a sandbox a program server offers the same tools, and says why.
+%! S = devtools.__newSession__ ("program");
+%! S.sandbox = "unavailable";
+%! S.sandboxReason = "a sandbox runs on GNU/Linux and macOS only";
+%! RESP = devtools.dispatch (mkreq ("tools/list", ""), S);
+%! nms = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
+%! assert_equal ([any(strcmp (nms, "octave_call")), ...
+%!                any(strcmp (nms, "octave_test")), ...
+%!                any(strcmp (nms, "octave_eval"))], [true, true, false]);
+%! RESP = devtools.dispatch (mkreq ("server/discover", ""), S);
+%! s = RESP.result.instructions;
+%! w = ["No sandbox is available here (a sandbox runs on GNU/Linux and", ...
+%!      " macOS only)."];
+%! assert_equal ([isempty(strfind (s, w)), ...
+%!                isempty(strfind (s, "It runs without one"))], [false, false]);
+%!test
+%! S = devtools.__newSession__ ("program");
+%! S.sandbox = "failed";
+%! S.sandboxReason = "bwrap is installed but cannot build its namespaces here";
+%! RESP = devtools.dispatch (mkreq ("server/discover", ""), S);
+%! s = RESP.result.instructions;
+%! assert_equal (isempty (strfind (s, ["Its sandbox failed (bwrap is", ...
+%!               " installed but cannot build its namespaces here)."])), false);
+%!test
+%! ## A sandbox that failed its check from inside offers nothing to run.
+%! S = devtools.__newSession__ ("halted");
+%! S.sandbox = "failed";
+%! S.sandboxReason = "the sandbox is not in force: network";
+%! RESP = devtools.dispatch (mkreq ("tools/list", ""), S);
+%! assert_equal (RESP.result.tools, {});
+%! RESP = devtools.dispatch (mkreq ("tools/call", ...
+%!   '"name":"octave_which","arguments":{"name":"sin"}'), S);
+%! assert_equal (RESP.error.message, "Unknown tool: octave_which");
+%! RESP = devtools.dispatch (mkreq ("server/discover", ""), S);
+%! s = RESP.result.instructions;
+%! assert_equal (isempty (strfind (s, "so it runs nothing")), false);
+
 %!function RESP = callCall (arguments)
-%!  S = devtools.__newSession__ ("eval");
-%!  S.sandboxed = true;
+%!  S = devtools.__newSession__ ("program");
+%!  S.sandbox = "active";
 %!  RESP = devtools.dispatch (mkreq ("tools/call", ...
 %!    ['"name":"octave_call","arguments":' arguments]), S);
 %!endfunction
 
 %!test
-%! ## Only a sandboxed server offers octave_call.
-%! S = devtools.__newSession__ ("eval");
-%! S.sandboxed = true;
+%! ## Only a program server offers octave_call.
+%! S = devtools.__newSession__ ("program");
+%! S.sandbox = "active";
 %! RESP = devtools.dispatch (mkreq ("tools/list", ""), S);
 %! nms = cellfun (@(t) t.name, RESP.result.tools, "UniformOutput", false);
 %! assert_equal (any (strcmp (nms, "octave_call")), true);
@@ -2898,8 +3122,8 @@ endfunction
 %! assert_equal (RESP.error.message, "Unknown tool: octave_call");
 
 %!test
-%! S = devtools.__newSession__ ("eval");
-%! S.sandboxed = true;
+%! S = devtools.__newSession__ ("program");
+%! S.sandbox = "active";
 %! RESP = devtools.dispatch (mkreq ("tools/list", ""), S);
 %! T = RESP.result.tools{end};
 %! assert_equal (T.name, "octave_call");
@@ -2929,13 +3153,13 @@ endfunction
 %!test
 %! RESP = callCall ('{"function":"system"}');
 %! assert_equal (RESP.result.structuredContent.error, ...
-%!               "system is not available in a sandbox.");
+%!               "system is not available to octave_call.");
 
 %!test
 %! ## A function that calls another by name is refused as well.
 %! RESP = callCall ('{"function":"feval"}');
 %! assert_equal (RESP.result.structuredContent.error, ...
-%!               "feval is not available in a sandbox.");
+%!               "feval is not available to octave_call.");
 
 %!test
 %! RESP = callCall ('{"function":"mean","nargout":0}');

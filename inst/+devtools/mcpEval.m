@@ -17,7 +17,7 @@
 
 ## -*- texinfo -*-
 ## @deftypefn  {devtools} {} devtools.mcpEval ()
-## @deftypefnx {devtools} {} devtools.mcpEval (@qcode{"Sandbox"}, @var{TF})
+## @deftypefnx {devtools} {} devtools.mcpEval (@qcode{"Sandbox"})
 ##
 ## Serve the Model Context Protocol on standard input and output, with
 ## evaluation.
@@ -143,13 +143,90 @@
 ##
 ## @subsubheading Sandbox
 ##
-## @code{devtools.mcpEval ("Sandbox", true)} serves the same protocol from
-## inside a sandbox, on GNU/Linux with @command{bwrap} from the
-## @code{bubblewrap} package installed, and on macOS with the system's own
-## @command{sandbox-exec}.  The two confine by different means, so each names
-## the guarantees it holds rather than claiming the other's.
+## @code{devtools.mcpEval ("Sandbox")} serves a program rather than a model,
+## @strong{inside a sandbox where this machine can build one}: on GNU/Linux
+## with @command{bwrap} from the @code{bubblewrap} package and
+## @command{prlimit} installed, and on macOS with the system's own
+## @command{sandbox-exec}.  Where it cannot, it serves without one and says
+## so.  A host that does not read the report below should not be given this
+## option on a machine without a sandbox.
 ##
-## On macOS a sandboxed server writes one line to standard error as it starts,
+## Every result states the sandbox in
+## @code{_meta["io.github.pr0m1th3as.devtools/sandbox"]}, one of three states,
+## and the @code{instructions} say the same to a model:
+##
+## @table @asis
+## @item @qcode{"active"}
+## The sandbox was built and verified from inside, and every call runs in it.
+##
+## @item @qcode{"failed"}
+## The machine has the mechanism, but the sandbox did not start or did not
+## pass its check.  The server serves unconfined.
+##
+## @item @qcode{"unavailable"}
+## The machine has no mechanism for one: another system, or @command{bwrap},
+## @command{prlimit} or @command{sandbox-exec} missing.  The server serves
+## unconfined.
+## @end table
+##
+## For the last two, @code{_meta["io.github.pr0m1th3as.devtools/sandboxReason"]}
+## says why, and standard error logs it as the server starts.
+##
+## Either way it offers @code{octave_call} and @code{octave_test} beside the
+## read-only tools, and not @code{octave_eval}: every call starts from the same
+## state in a process of its own, so a workspace would carry nothing.
+## @code{octave_call} is for programs, which read its structured result, its
+## text being a summary without the values.  It runs no code text: it calls
+## one function by name on typed arguments, a range carrying each cell's kind
+## and value, and returns each output as typed cells row by row, dates as
+## serial numbers from the document's null date, with anything the function
+## printed beside them.  A call that crashes the interpreter comes back as an
+## error, and the server keeps serving.
+##
+## The folders it may read and the packages it loads are set in the launch
+## environment, never in the command.  @env{DEVTOOLS_SANDBOX_FOLDERS} holds
+## absolute folder paths separated by @code{pathsep}, and
+## @env{DEVTOOLS_SANDBOX_PACKAGES} holds package names separated by commas,
+## loaded in that order.  Nothing checks whether two of them conflict.  The
+## folders are on the load path, ahead of the packages, with or without the
+## sandbox.  A host launches it like the plain server:
+##
+## @example
+## octave-cli -q --no-init-file \
+##   --eval "pkg load devtools; devtools.mcpEval ('Sandbox')"
+## @end example
+##
+## @subsubheading Inside the sandbox
+##
+## The server first builds the sandbox once, checks it from inside and leaves
+## it, and serves unconfined, @qcode{"failed"}, if that check does not pass.
+## Only then does it replace its own process with a sandboxed
+## @file{octave-cli} built by @code{devtools.sandboxCommand}.  The process, its
+## standard streams and its exit code carry through unchanged.  The trial is
+## there because a replaced process cannot come back: a sandbox found wanting
+## from inside has no unconfined process left to serve from.  Should the check
+## pass on the trial and fail on the real run, the server stays up, reports
+## @qcode{"failed"} and offers no tools at all, since serving half-confined is
+## what the check exists to prevent.
+##
+## The check is that there is no @file{/usr/bin}, no network interface
+## besides the loopback, an address-space limit in force, and nothing under
+## @file{/home} or the home directory that was not mounted.  The limit is this
+## process's size plus 2 GB, or plus the number of gigabytes in
+## @env{DEVTOOLS_SANDBOX_MEMORY}, and an allocation beyond it fails with
+## Octave's own out-of-memory error.  @file{/tmp}, whose files are memory too,
+## holds at most 2 GB, or the number of gigabytes in
+## @env{DEVTOOLS_SANDBOX_TMP}.  It lists only the packages that are mounted,
+## so loading any other says it is not installed.  See
+## @code{devtools.sandboxCommand} for what is mounted and what is refused.
+## Each call runs in a process forked for it, which is killed when it returns
+## or when the deadline passes, together with every process it started, and
+## @file{/tmp} is emptied before the next call, so that nothing one call does
+## reaches another.
+##
+## The two systems confine by different means, so each names the guarantees it
+## holds rather than claiming the other's.  On macOS a sandboxed server writes
+## one line to standard error as it starts,
 ## @code{OMP: Warning #179: Function Can't set size of /tmp file failed:}, and
 ## then serves normally.  OpenMP registers itself by making
 ## @file{/tmp/__KMP_REGISTERED_LIB_<pid>}, naming @file{/tmp} rather
@@ -160,64 +237,21 @@
 ## server's outside the sandbox at every launch, and suppressing the warning
 ## would hide the next thing to go wrong on the same path.
 ##
-## Before serving, the server replaces its
-## own process with a sandboxed @file{octave-cli} built by
-## @code{devtools.sandboxCommand}.  The process, its standard streams and its
-## exit code carry through unchanged, so a host launches it like the plain
-## server:
+## @subsubheading Without the sandbox
 ##
-## @example
-## octave-cli -q --no-init-file \
-##   --eval "pkg load devtools; devtools.mcpEval ('Sandbox', true)"
-## @end example
-##
-## The folders it may read and the packages it loads are set in the launch
-## environment, never in the command.  @env{DEVTOOLS_SANDBOX_FOLDERS} holds
-## absolute folder paths separated by @code{pathsep}, and
-## @env{DEVTOOLS_SANDBOX_PACKAGES} holds package names separated by commas,
-## loaded in that order.  Nothing checks whether two of them conflict.  See
-## @code{devtools.sandboxCommand} for what is mounted and what is refused.
-##
-## Before it answers anything, the sandboxed server checks from inside that
-## there is no @file{/usr/bin}, no network interface besides the loopback, an
-## address-space limit in force, and nothing under @file{/home} or the home
-## directory that was not mounted, and it refuses to serve if any check fails.
-## The limit is this process's size plus 2 GB, or plus the number of gigabytes
-## in @env{DEVTOOLS_SANDBOX_MEMORY}, and an allocation beyond it fails with
-## Octave's own out-of-memory error.  @file{/tmp}, whose files are memory too,
-## holds at most 2 GB, or the number of gigabytes in
-## @env{DEVTOOLS_SANDBOX_TMP}.  It lists only the packages that are
-## mounted, so loading any other says it is not installed.  Every result then
-## carries @code{_meta["io.github.pr0m1th3as.devtools/sandbox"]} set to true,
-## which is absent from a server that is not sandboxed, and the
-## @code{instructions} say so.
-##
-## The folders are on the load path, ahead of the packages.
-##
-## A sandboxed server offers @code{octave_call} and @code{octave_test} beside
-## the read-only tools, and not @code{octave_eval}: every call starts from the
-## same state, so a workspace would carry nothing.  @code{octave_call} is for
-## programs, which read its structured result, its text being a summary without
-## the values.  It runs no code text: it calls one function by name on typed
-## arguments, a range carrying each cell's kind and value, and returns each
-## output as typed cells
-## row by row, dates as serial numbers from the document's null date, with
-## anything the function printed beside them.  Each call runs in a process
-## forked for it,
-## which is killed when it returns or when the deadline passes, together with
-## every process it started, and @file{/tmp} is emptied before the next call,
-## so that nothing one call does reaches another.  A call that crashes the
-## interpreter comes back as an error, and the server keeps serving.
-##
-## @code{devtools.mcpEval ("Sandbox", false)} serves exactly as
-## @code{devtools.mcpEval ()}.
+## Unconfined, each call still runs in a process of its own and is stopped at
+## the deadline: forked where the system can fork, and on Windows, which
+## cannot, an @file{octave-cli} started for the call inside a job object by
+## @code{__devtools_spawn__}, which a working compiler builds at installation.
+## A process a call starts outlives it where it was forked, and the call can
+## read and write files and use the network as any Octave code can.
 ##
 ## @subsubheading What this is not
 ##
-## Unless started with @qcode{"Sandbox"}, none of this is a sandbox.  Evaluated
-## code can read and write files, use the network and consume memory exactly as
-## any code in this interpreter can.  Configure this server only where that is
-## acceptable.
+## Unless started with @qcode{"Sandbox"} and reporting it @qcode{"active"},
+## none of this is a sandbox.  Evaluated code can read and write files, use the
+## network and consume memory exactly as any code in this interpreter can.
+## Configure this server only where that is acceptable.
 ##
 ## @seealso{devtools.mcp, devtools.selftest, devtools.sandboxCommand}
 ## @end deftypefn
@@ -225,37 +259,117 @@
 function mcpEval (varargin)
 
   if (nargin == 0)
-    sandbox = false;
-  elseif (nargin == 2)
-    if (! (ischar (varargin{1}) && strcmpi (varargin{1}, "Sandbox")))
-      error ("devtools.mcpEval: the only option is 'Sandbox'.");
-    endif
-    sandbox = varargin{2};
-    if (! (islogical (sandbox) && isscalar (sandbox)))
-      error ("devtools.mcpEval: 'Sandbox' must be a logical scalar.");
-    endif
-  else
-    error ("devtools.mcpEval: invalid number of input arguments.");
-  endif
-
-  if (! sandbox)
     devtools.__serveLoop__ ("eval", "mcpEval");
     return;
   endif
+  if (nargin != 1)
+    error ("devtools.mcpEval: invalid number of input arguments.");
+  endif
+  if (! (ischar (varargin{1}) && strcmpi (varargin{1}, "Sandbox")))
+    error ("devtools.mcpEval: the only option is 'Sandbox'.");
+  endif
 
-  ## Outside: relaunch inside and never return.  The marker only prevents a
-  ## loop; what proves the sandbox is the check the relaunched server makes.
-  if (! strcmp (getenv ("DEVTOOLS_SANDBOX"), "1"))
+  ## The marker only says which side of the relaunch this is; what proves
+  ## the sandbox is the check the relaunched server makes.
+  if (strcmp (getenv ("DEVTOOLS_SANDBOX"), "1"))
+    serveInside ();
+    return;
+  endif
+
+  ## Outside.  No mechanism is "unavailable", a mechanism that refuses is
+  ## "failed", and both serve here, unconfined, saying which.  Where the
+  ## sandbox can be built it is tried once before it is entered, since an
+  ## exec cannot come back: a sandbox that fails its check from inside
+  ## leaves no unconfined process to serve from.
+  [why, state] = devtools.__sandboxUsable__ ();
+  if (isempty (why))
     folders = splitEnv ("DEVTOOLS_SANDBOX_FOLDERS", pathsep ());
     packages = splitEnv ("DEVTOOLS_SANDBOX_PACKAGES", ",");
-    [prog, args] = devtools.sandboxCommand (folders, packages);
-    code = strcat ("self = getenv ('DEVTOOLS_SANDBOX_SELF');", ...
-                   " if (isempty (self)) pkg ('load', 'devtools');", ...
-                   " else addpath (self); endif;", ...
-                   " devtools.mcpEval ('Sandbox', true)");
-    [~, msg] = exec (prog, [args, {"--eval", code}]);
-    error ("devtools.mcpEval: the sandbox did not start: %s.", msg);
+    try
+      [prog, args] = devtools.sandboxCommand (folders, packages);
+      why = trialRun (prog, args);
+    catch err
+      why = regexprep (err.message, '^devtools\.sandboxCommand: |\.$', "");
+    end_try_catch
+    if (isempty (why))
+      [~, msg] = exec (prog, [args, {"--eval", insideCode("")}]);
+      why = sprintf ("the sandbox did not start: %s", msg);
+    endif
+    state = "failed";
   endif
+  serveOutside (state, why);
+
+endfunction
+
+## The code a relaunched interpreter evaluates.  A trial run sets its marker
+## first, the sandbox clearing every variable it was not given.
+function code = insideCode (pre)
+  code = strcat (pre, " self = getenv ('DEVTOOLS_SANDBOX_SELF');", ...
+                 " if (isempty (self)) pkg ('load', 'devtools');", ...
+                 " else addpath (self); endif;", ...
+                 " devtools.mcpEval ('Sandbox')");
+endfunction
+
+## Build the sandbox once, check it from inside and leave, so that the
+## server enters only a sandbox that is known to hold.  Returns the empty
+## string, or why it does not.
+function why = trialRun (prog, args)
+
+  why = "";
+  code = insideCode ("setenv ('DEVTOOLS_SANDBOX_TRIAL', '1');");
+  [in, out, pid] = popen2 (prog, [args, {"--eval", code}]);
+  fclose (in);
+  if (pid < 0)
+    why = "the sandbox could not be started for its trial run";
+    fclose (out);
+    return;
+  endif
+  t0 = tic ();
+  while (true)
+    [r, status] = waitpid (pid, WNOHANG ());
+    if (r == pid)
+      break;
+    endif
+    if (toc (t0) > 60)
+      kill (pid, 9);
+      waitpid (pid);
+      fclose (out);
+      why = "the sandbox did not finish its trial run within 60 seconds";
+      return;
+    endif
+    pause (0.05);
+  endwhile
+  txt = fread (out, Inf, "char=>char").';
+  fclose (out);
+  k = regexp (txt, 'devtools-sandbox: (ok|failed: [^\n]*)', "tokens", "once");
+  if (isempty (k))
+    why = sprintf (strcat ("the sandbox ended its trial run without an", ...
+                           " answer, exit %d"), WEXITSTATUS (status));
+  elseif (! strcmp (k{1}, "ok"))
+    why = k{1}(9:end);
+  endif
+
+endfunction
+
+## Serve without a sandbox, the packages and folders set up as they would be
+## inside it, and every result saying why there is none.
+function serveOutside (state, why)
+
+  packages = splitEnv ("DEVTOOLS_SANDBOX_PACKAGES", ",");
+  for i = 1:numel (packages)
+    pkg ("load", packages{i});
+  endfor
+  folders = splitEnv ("DEVTOOLS_SANDBOX_FOLDERS", pathsep ());
+  for i = 1:numel (folders)
+    addpath (folders{i});
+  endfor
+  devtools.__serveLoop__ ("program", "mcpEval", ...
+                          struct ("state", state, "reason", why));
+
+endfunction
+
+## Inside the sandbox: check it, and serve only if it holds.
+function serveInside ()
 
   ## Inside.  A killed Octave writes octave-workspace into its working
   ## directory unless told not to.
@@ -305,9 +419,24 @@ function mcpEval (varargin)
   endif
   roots = unique (roots(! cellfun (@isempty, roots)));
   failed = devtools.__sandboxCheck__ (allowed, roots);
+  if (strcmp (getenv ("DEVTOOLS_SANDBOX_TRIAL"), "1"))
+    if (isempty (failed))
+      printf ("devtools-sandbox: ok\n");
+    else
+      printf ("devtools-sandbox: failed: the sandbox is not in force: %s\n", ...
+              strjoin (failed, "; "));
+    endif
+    fflush (stdout);
+    exit (0);
+  endif
+  ## Only a race gets here: the trial run passed and this one did not.  It
+  ## cannot leave the sandbox, and serving half-confined is what the check
+  ## exists to prevent, so it runs nothing and says why.
   if (! isempty (failed))
-    error (strcat ("devtools.mcpEval: refusing to serve, the sandbox is", ...
-                   " not in force: %s."), strjoin (failed, "; "));
+    why = sprintf ("the sandbox is not in force: %s", strjoin (failed, "; "));
+    devtools.__serveLoop__ ("halted", "mcpEval", ...
+                            struct ("state", "failed", "reason", why));
+    return;
   endif
 
   ## The mounted lists name every installed package.  The server reads lists
@@ -336,7 +465,8 @@ function mcpEval (varargin)
     addpath (folders{i});
   endfor
 
-  devtools.__serveLoop__ ("eval", "mcpEval", true);
+  devtools.__serveLoop__ ("program", "mcpEval", ...
+                          struct ("state", "active", "reason", ""));
 
 endfunction
 
@@ -358,7 +488,7 @@ endfunction
 %!        '"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}'];
 
 %!test
-%! ## Started outside, the server relaunches inside and reports the sandbox.
+%! ## Started outside, the server relaunches inside and reports it active.
 %! if (canRun)
 %!   f = tempname ();
 %!   fid = fopen (f, "w");
@@ -367,15 +497,16 @@ endfunction
 %!   cmd = sprintf (['env DEVTOOLS_SANDBOX= DEVTOOLS_SANDBOX_FOLDERS=', ...
 %!                   ' DEVTOOLS_SANDBOX_PACKAGES= "%s" -q --no-init-file', ...
 %!                   ' --eval "addpath (''%s''); devtools.mcpEval', ...
-%!                   ' (''Sandbox'', true)" < "%s" 2>/dev/null'], ...
+%!                   ' (''Sandbox'')" < "%s" 2>/dev/null'], ...
 %!                  exe, instdir, f);
 %!   [~, out] = system (cmd);
 %!   delete (f);
-%!   k = '"io.github.pr0m1th3as.devtools/sandbox":true';
+%!   k = '"io.github.pr0m1th3as.devtools/sandbox":"active"';
 %!   assert_equal (isempty (strfind (out, k)), false);
 %! endif
 %!test
-%! ## The marker alone is not a sandbox: outside, the check refuses to serve.
+%! ## The marker alone is not a sandbox: outside, the check fails and the
+%! ## server runs nothing, saying why.
 %! if (canRun)
 %!   f = tempname ();
 %!   fid = fopen (f, "w");
@@ -383,11 +514,13 @@ endfunction
 %!   fclose (fid);
 %!   cmd = sprintf (['env DEVTOOLS_SANDBOX=1 "%s" -q --no-init-file', ...
 %!                   ' --eval "addpath (''%s''); devtools.mcpEval', ...
-%!                   ' (''Sandbox'', true)" < "%s" 2>/dev/null'], ...
+%!                   ' (''Sandbox'')" < "%s" 2>/dev/null'], ...
 %!                  exe, instdir, f);
 %!   [status, out] = system (cmd);
 %!   delete (f);
-%!   assert_equal ([status != 0, isempty(out)], [true, true]);
+%!   k = '"io.github.pr0m1th3as.devtools/sandbox":"failed"';
+%!   assert_equal ([status, isempty(strfind (out, k)), ...
+%!                  isempty(strfind (out, "not in force"))], [0, false, false]);
 %! endif
 
 %!function out = sandboxRun (exe, instdir, envs, lines)
@@ -399,7 +532,7 @@ endfunction
 %!  cmd = sprintf (['env DEVTOOLS_SANDBOX= DEVTOOLS_SANDBOX_FOLDERS=', ...
 %!                  ' DEVTOOLS_SANDBOX_PACKAGES= %s "%s" -q --no-init-file', ...
 %!                  ' --eval "addpath (''%s''); devtools.mcpEval', ...
-%!                  ' (''Sandbox'', true)" < "%s" 2> "%s"'], ...
+%!                  ' (''Sandbox'')" < "%s" 2> "%s"'], ...
 %!                 envs, exe, instdir, f, e);
 %!  [status, out] = system (cmd);
 %!  ## A sandbox that refuses to serve says why here and nowhere else, so a
@@ -519,15 +652,30 @@ endfunction
 %!   assert_equal (isempty (strfind (out, p)), false);
 %! endif
 
+%!test
+%! ## A sandbox that cannot be built serves anyway, unconfined, saying which
+%! ## state it is in and why, and a call runs in a process of its own.  A
+%! ## folder inside /tmp is one bwrap refuses.
+%! if (! ispc ())
+%!   d = tempname ();
+%!   mkdir (d);
+%!   C = ['{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{', meta, ...
+%!        ',"name":"octave_call","arguments":{"function":"plus","args":[', ...
+%!        '{"type":"number","value":2},{"type":"number","value":3}]}}}'];
+%!   out = sandboxRun (exe, instdir, ["DEVTOOLS_SANDBOX_FOLDERS=", d], {C});
+%!   rmdir (d);
+%!   st = regexp (out, '"io.github.pr0m1th3as.devtools/sandbox":"(\w+)"', ...
+%!                "tokens", "once");
+%!   assert_equal (isempty (strfind (out, '"cells":[5]')), false);
+%!   if (strcmp (uname ().sysname, "Linux"))
+%!     assert_equal (any (strcmp (st{1}, {"failed", "unavailable"})), true);
+%!     assert_equal (isempty (strfind (out, "sandboxReason")), false);
+%!   endif
+%! endif
+
 %!error <devtools\.mcpEval: invalid number of input arguments\.> ...
-%! devtools.mcpEval ("Sandbox")
-%!error <devtools\.mcpEval: invalid number of input arguments\.> ...
-%! devtools.mcpEval ("Sandbox", true, 1)
+%! devtools.mcpEval ("Sandbox", true)
 %!error <devtools\.mcpEval: the only option is 'Sandbox'\.> ...
-%! devtools.mcpEval ("Sandboxed", true)
+%! devtools.mcpEval ("Sandboxed")
 %!error <devtools\.mcpEval: the only option is 'Sandbox'\.> ...
-%! devtools.mcpEval (1, true)
-%!error <devtools\.mcpEval: 'Sandbox' must be a logical scalar\.> ...
-%! devtools.mcpEval ("Sandbox", 1)
-%!error <devtools\.mcpEval: 'Sandbox' must be a logical scalar\.> ...
-%! devtools.mcpEval ("Sandbox", [true, false])
+%! devtools.mcpEval (1)

@@ -17,13 +17,19 @@
 
 
 ## -*- texinfo -*-
-## @deftypefn {devtools} {@var{ERRMSG} =} devtools.__sandboxUsable__ ()
+## @deftypefn  {devtools} {@var{ERRMSG} =} devtools.__sandboxUsable__ ()
+## @deftypefnx {devtools} {[@var{ERRMSG}, @var{STATE}] =} devtools.__sandboxUsable__ ()
 ##
 ## Whether a sandbox can be built on this machine.  Internal; not a supported
 ## entry point.
 ##
 ## Returns the empty string where one can, and otherwise the reason it cannot,
 ## as the body of a message the caller completes under its own name.
+##
+## @var{STATE} is empty where a sandbox can be built, @qcode{"unavailable"}
+## where this machine has no mechanism for one (another system, or
+## @command{bwrap}, @command{prlimit} or @command{sandbox-exec} missing), and
+## @qcode{"failed"} where the mechanism is present but refuses to run.
 ##
 ## The last check is the one that matters, on either platform: the sandbox is
 ## asked to run a trivial command, because a machine can carry the program and
@@ -37,25 +43,28 @@
 ## @seealso{devtools.sandboxCommand}
 ## @end deftypefn
 
-function ERRMSG = __sandboxUsable__ ()
+function [ERRMSG, STATE] = __sandboxUsable__ ()
 
   persistent measured = false;
   persistent answer = "";
+  persistent state = "";
 
   if (! measured)
-    answer = probe ();
+    [answer, state] = probe ();
     measured = true;
   endif
   ERRMSG = answer;
+  STATE = state;
 
 endfunction
 
-function E = probe ()
+function [E, K] = probe ()
 
   E = "";
+  K = "unavailable";
   u = uname ();
   if (strcmp (u.sysname, "Darwin"))
-    E = darwinProbe ();
+    [E, K] = darwinProbe ();
     return;
   endif
   if (! strcmp (u.sysname, "Linux"))
@@ -80,15 +89,18 @@ function E = probe ()
   ## probe that stops at the namespaces answers yes about what it never tried.
   cmd = sprintf (strcat ('bwrap --unshare-all --ro-bind / / --proc /proc', ...
                          ' --dev /dev "%s" 2> /dev/null'), t);
+  K = "";
   if (system (cmd) != 0)
     E = "bwrap is installed but cannot build its namespaces here";
+    K = "failed";
   endif
 
 endfunction
 
-function E = darwinProbe ()
+function [E, K] = darwinProbe ()
 
   E = "";
+  K = "unavailable";
   sb = file_in_path (getenv ("PATH"), "sandbox-exec");
   if (isempty (sb))
     E = "sandbox-exec is not on the PATH";
@@ -104,8 +116,10 @@ function E = darwinProbe ()
   ## believed.
   cmd = sprintf (strcat ('sandbox-exec -p "(version 1)(allow default)"', ...
                          ' "%s" 2> /dev/null'), t);
+  K = "";
   if (system (cmd) != 0)
     E = "sandbox-exec is present but will not run here";
+    K = "failed";
   endif
 
 endfunction
@@ -116,9 +130,19 @@ endfunction
 %! assert_equal ([ischar(E), isrow(E) || isempty(E)], [true, true]);
 %! assert_equal (E, devtools.__sandboxUsable__ ());
 %!test
+%! ## The state is empty exactly where the reason is, and otherwise names
+%! ## which kind of refusal it is.
+%! [E, K] = devtools.__sandboxUsable__ ();
+%! if (isempty (E))
+%!   assert_equal (K, "");
+%! else
+%!   assert_equal (any (strcmp (K, {"unavailable", "failed"})), true);
+%! endif
+%!test
 %! ## On a platform with no sandbox the reason says so and nothing is spawned
 %! ## to find out.
 %! if (! any (strcmp (uname ().sysname, {"Linux", "Darwin"})))
-%!   assert_equal (devtools.__sandboxUsable__ (), ...
-%!                 "a sandbox runs on GNU/Linux and macOS only");
+%!   [E, K] = devtools.__sandboxUsable__ ();
+%!   assert_equal ({E, K}, {"a sandbox runs on GNU/Linux and macOS only", ...
+%!                          "unavailable"});
 %! endif
