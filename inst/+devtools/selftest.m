@@ -562,12 +562,19 @@ endfunction
 function CMD = defaultSandboxCommand ()
 
   ## The evaluating server's launch with the Sandbox option.  No capture
-  ## directory is added: a call is contained by the process it runs in, and
-  ## the relaunch finds this copy of the package by itself.
+  ## directory is needed, a call being contained by the process it runs in,
+  ## and the relaunch finds this copy of the package by itself.  What is
+  ## added is the directory holding __devtools_spawn__, which runs every call
+  ## on Windows, as the evaluating command adds the capture's.
   exe = octaveExe ();
   instdir = fileparts (fileparts (mfilename ("fullpath")));
-  CMD = sprintf (['"%s" -q --no-init-file --eval "addpath (''%s'');', ...
-                  ' devtools.mcpEval (''Sandbox'')"'], exe, instdir);
+  add = sprintf ("addpath ('%s');", instdir);
+  spawn = which ("__devtools_spawn__");
+  if (! isempty (spawn))
+    add = [add sprintf(" addpath ('%s');", fileparts (spawn))];
+  endif
+  CMD = sprintf (['"%s" -q --no-init-file --eval "%s', ...
+                  ' devtools.mcpEval (''Sandbox'')"'], exe, add);
 
 endfunction
 
