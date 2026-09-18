@@ -680,10 +680,11 @@ endfunction
 
 %!test
 %! [ok, rep] = devtools.selftest ();
-%! assert_equal (ok, true);
 %! assert_equal (iscellstr (rep), true);
+%! ## The checks that failed, compared as text so that a failure shows them
 %! done = strncmp (rep, "PASS", 4) | strncmp (rep, "SKIP", 4);
-%! assert_equal (all (done), true);
+%! assert_equal (strjoin (rep(! done), "\n"), "");
+%! assert_equal (ok, true);
 
 %!test
 %! ## A command that writes something other than a message must be caught.
