@@ -222,7 +222,7 @@ Request params are `_meta` only. The result shape we return:
   "resultType": "complete",
   "supportedVersions": ["2026-07-28"],
   "capabilities": { "tools": {}, "resources": {} },
-  "_meta": { "io.modelcontextprotocol/serverInfo": { "name": "devtools", "version": "0.2.0" } },
+  "_meta": { "io.modelcontextprotocol/serverInfo": { "name": "devtools", "version": "0.2.1" } },
   "instructions": "...",
   "ttlMs": 3600000,
   "cacheScope": "public"

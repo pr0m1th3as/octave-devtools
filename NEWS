@@ -1,31 +1,38 @@
-Summary of important user-visible changes for devtools 0.2.0:
+Summary of important user-visible changes for devtools 0.2.1:
 -------------------------------------------------------------
 
- ** `devtools.mcpEval ("Sandbox", true)` runs the evaluating server inside a
-    sandbox, on Linux with `bwrap` and `prlimit`.  Read-only inside are the
-    system libraries, Octave, the packages named in
-    `DEVTOOLS_SANDBOX_PACKAGES` with their dependencies, and the folders named
-    in `DEVTOOLS_SANDBOX_FOLDERS`.  There is no shell, no network and none of
-    the rest of the home directory, and only an in-memory `/tmp` is writable.
-    The server checks the sandbox before answering, refuses to serve if it
-    does not hold, and marks every result with
-    `_meta["io.github.pr0m1th3as.devtools/sandbox"]`.
+ This release serves programs on every system, sandboxed where the machine
+ allows it, adds the sandbox on macOS, and fixes sandbox mode where Octave
+ comes from a distribution package.
 
- ** In sandbox mode each call runs in a process of its own, killed at the
-    deadline together with anything it started, and `/tmp` is emptied before
-    the next call.  A call that crashes the interpreter returns an error, and
-    the server keeps serving.
+ ** `devtools.mcpEval ("Sandbox")` serves wherever Octave runs: inside a
+    sandbox where the machine can build one, unconfined where it cannot.
+    Every result states which, `"active"`, `"failed"` or `"unavailable"`, in
+    `_meta["io.github.pr0m1th3as.devtools/sandbox"]`, with the reason for the
+    last two in `.../sandboxReason`.  Each call runs in a process of its own and
+    is stopped at the deadline; on Windows this needs a compiler at
+    installation.
 
- ** A sandbox's memory is limited to the size of the process starting it plus
-    2 GB, and its `/tmp` to 2 GB.  `DEVTOOLS_SANDBOX_MEMORY` and
-    `DEVTOOLS_SANDBOX_TMP` set other sizes in gigabytes.
+ ** The sandbox works on macOS, using the system's `sandbox-exec`.  There
+    `/tmp` is not size-capped, and the network is shown unreachable rather
+    than proven denied.  The server prints one OpenMP warning as it starts.
 
- ** `octave_call`, offered in sandbox mode in place of `octave_eval`, calls one
-    function by name on typed arguments, spreadsheet ranges included, and
-    returns its outputs as typed cells in `structuredContent`.  It is for
-    programs such as `octave-calc`.  Ranges of dates and times need the
-    datatypes package.
+ ** Sandbox mode works where Octave is installed from a distribution
+    package, where it refused to serve.
 
- ** `devtools.selftest` also checks a sandboxed server, where one can run.
+ ** The sandbox also checks that the root filesystem and every mounted folder
+    refuse a write.
 
- ** The instructions sent to a client no longer run two sentences together.
+ ** `pkg test devtools` passes where `bwrap` cannot build its namespaces,
+    as in an ordinary container, where eleven sandbox tests failed.
+
+ ** `octave_which` names the package of a core function on Windows, and
+    `octave_help` no longer answers with `*note` cross references.
+
+
+Backwards incompatible improvements:
+
+ ** `devtools.mcpEval ("Sandbox", true)` is now `devtools.mcpEval ("Sandbox")`,
+    and `("Sandbox", false)` is gone.  The sandbox key holds a state where it
+    held `true`, and a server whose sandbox fails serves unconfined instead of
+    exiting, so a program that needs the sandbox must read the state.
