@@ -268,19 +268,17 @@
  as from an installed package.
 </p>
 <p> With the default command the evaluating server is checked as well, and so is
- a sandboxed one, started with <code>devtools.mcpEval (&quot;Sandbox&quot;, true)</code>:
- that it starts, reports itself sandboxed, offers <code>octave_call</code> and not
- <code>octave_eval</code>, and runs a call in the process it forks for it.  Where a
- sandbox cannot run, on a system other than Linux or without <code>bwrap</code>
- or <code>prlimit</code> on the <code>PATH</code>, those checks are reported as skipped
- with the reason.
+ the program server, started with <code>devtools.mcpEval (&quot;Sandbox&quot;)</code>: that
+ it starts, reports the sandbox this machine can give it, <code>&quot;active&quot;</code>
+ where one can be built and otherwise why not, offers <code>octave_call</code> and
+ not <code>octave_eval</code>, and runs a call in a process of its own.
 </p>
 <p> <strong>See also: </strong>
   <a href="devtools.mcp.html">devtools.mcp</a>, 
   <a href="devtools.mcpEval.html">devtools.mcpEval</a>
 </p>
 <p><strong>Source Code: </strong>
-  <a href="https://github.com/pr0m1th3as/octave-devtools/blob/5602cba/inst/+devtools/selftest.m">devtools.selftest</a>
+  <a href="https://github.com/pr0m1th3as/octave-devtools/blob/7adc250/inst/+devtools/selftest.m">devtools.selftest</a>
 </div>
 
             </div>

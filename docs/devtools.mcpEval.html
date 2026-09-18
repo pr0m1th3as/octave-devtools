@@ -233,7 +233,7 @@
             <div class="card-body">
 <dl>
 <dt><code><h5 class="fs">devtools: <b>devtools.mcpEval</b> ()</code></h5></dt>
-<dt><code><h5 class="fs">devtools: <b>devtools.mcpEval</b> (<code>&quot;Sandbox&quot;</code>, <var>TF</var>)</code></h5></dt>
+<dt><code><h5 class="fs">devtools: <b>devtools.mcpEval</b> (<code>&quot;Sandbox&quot;</code>)</code></h5></dt>
 </dl>
 <p> Serve the Model Context Protocol on standard input and output, with
  evaluation.
@@ -358,65 +358,112 @@
 </p>
 <p>  Sandbox
 </p>
-<p> <code>devtools.mcpEval (&quot;Sandbox&quot;, true)</code> serves the same protocol from
- inside a sandbox, on Linux only and with <code>bwrap</code> from the
- <code>bubblewrap</code> package installed.  Before serving, the server replaces its
- own process with a sandboxed <code>octave-cli</code> built by
- <code>devtools.sandboxCommand</code>.  The process, its standard streams and its
- exit code carry through unchanged, so a host launches it like the plain
- server:
+<p> <code>devtools.mcpEval (&quot;Sandbox&quot;)</code> serves a program rather than a model,
+ <strong>inside a sandbox where this machine can build one</strong>: on GNU/Linux
+ with <code>bwrap</code> from the <code>bubblewrap</code> package and
+ <code>prlimit</code> installed, and on macOS with the system&rsquo;s own
+ <code>sandbox-exec</code>.  Where it cannot, it serves without one and says
+ so.  A host that does not read the report below should not be given this
+ option on a machine without a sandbox.
 </p>
-<table><tr><td>&nbsp;</td><td><pre class="example"> octave-cli -q --no-init-file \
-   --eval &quot;pkg load devtools; devtools.mcpEval ('Sandbox', true)&quot;
-</pre></td></tr></table>
+<p> Every result states the sandbox in
+ <code>_meta[&quot;io.github.pr0m1th3as.devtools/sandbox&quot;]</code>, one of three states,
+ and the <code>instructions</code> say the same to a model:
+</p>
+<dl compact="compact">
+<dt> <code>&quot;active&quot;</code></dt>
+<dd> The sandbox was built and verified from inside, and every call runs in it.</dd>
+<dt> <code>&quot;failed&quot;</code></dt>
+<dd> The machine has the mechanism, but the sandbox did not start or did not
+ pass its check.  The server serves unconfined.</dd>
+<dt> <code>&quot;unavailable&quot;</code></dt>
+<dd> The machine has no mechanism for one: another system, or <code>bwrap</code>,
+ <code>prlimit</code> or <code>sandbox-exec</code> missing.  The server serves
+ unconfined.</dd>
+</dl>
 
+<p> For the last two, <code>_meta[&quot;io.github.pr0m1th3as.devtools/sandboxReason&quot;]</code>
+ says why, and standard error logs it as the server starts.
+</p>
+<p> Either way it offers <code>octave_call</code> and <code>octave_test</code> beside the
+ read-only tools, and not <code>octave_eval</code>: every call starts from the same
+ state in a process of its own, so a workspace would carry nothing.
+ <code>octave_call</code> is for programs, which read its structured result, its
+ text being a summary without the values.  It runs no code text: it calls
+ one function by name on typed arguments, a range carrying each cell&rsquo;s kind
+ and value, and returns each output as typed cells row by row, dates as
+ serial numbers from the document&rsquo;s null date, with anything the function
+ printed beside them.  A call that crashes the interpreter comes back as an
+ error, and the server keeps serving.
+</p>
 <p> The folders it may read and the packages it loads are set in the launch
  environment, never in the command.  <code>DEVTOOLS_SANDBOX_FOLDERS</code> holds
  absolute folder paths separated by <code>pathsep</code>, and
  <code>DEVTOOLS_SANDBOX_PACKAGES</code> holds package names separated by commas,
- loaded in that order.  Nothing checks whether two of them conflict.  See
- <code>devtools.sandboxCommand</code> for what is mounted and what is refused.
+ loaded in that order.  Nothing checks whether two of them conflict.  The
+ folders are on the load path, ahead of the packages, with or without the
+ sandbox.  A host launches it like the plain server:
 </p>
-<p> Before it answers anything, the sandboxed server checks from inside that
- there is no <code>/usr/bin</code>, no network interface besides the loopback, an
- address-space limit in force, and nothing under <code>/home</code> or the home
- directory that was not mounted, and it refuses to serve if any check fails.
- The limit is this process&rsquo;s size plus 2 GB, or plus the number of gigabytes
- in <code>DEVTOOLS_SANDBOX_MEMORY</code>, and an allocation beyond it fails with
+<table><tr><td>&nbsp;</td><td><pre class="example"> octave-cli -q --no-init-file \
+   --eval &quot;pkg load devtools; devtools.mcpEval ('Sandbox')&quot;
+</pre></td></tr></table>
+
+<p>  Inside the sandbox
+</p>
+<p> The server first builds the sandbox once, checks it from inside and leaves
+ it, and serves unconfined, <code>&quot;failed&quot;</code>, if that check does not pass.
+ Only then does it replace its own process with a sandboxed
+ <code>octave-cli</code> built by <code>devtools.sandboxCommand</code>.  The process, its
+ standard streams and its exit code carry through unchanged.  The trial is
+ there because a replaced process cannot come back: a sandbox found wanting
+ from inside has no unconfined process left to serve from.  Should the check
+ pass on the trial and fail on the real run, the server stays up, reports
+ <code>&quot;failed&quot;</code> and offers no tools at all, since serving half-confined is
+ what the check exists to prevent.
+</p>
+<p> The check is that there is no <code>/usr/bin</code>, no network interface
+ besides the loopback, an address-space limit in force, and nothing under
+ <code>/home</code> or the home directory that was not mounted.  The limit is this
+ process&rsquo;s size plus 2 GB, or plus the number of gigabytes in
+ <code>DEVTOOLS_SANDBOX_MEMORY</code>, and an allocation beyond it fails with
  Octave&rsquo;s own out-of-memory error.  <code>/tmp</code>, whose files are memory too,
  holds at most 2 GB, or the number of gigabytes in
- <code>DEVTOOLS_SANDBOX_TMP</code>.  It lists only the packages that are
- mounted, so loading any other says it is not installed.  Every result then
- carries <code>_meta[&quot;io.github.pr0m1th3as.devtools/sandbox&quot;]</code> set to true,
- which is absent from a server that is not sandboxed, and the
- <code>instructions</code> say so.
+ <code>DEVTOOLS_SANDBOX_TMP</code>.  It lists only the packages that are mounted,
+ so loading any other says it is not installed.  See
+ <code>devtools.sandboxCommand</code> for what is mounted and what is refused.
+ Each call runs in a process forked for it, which is killed when it returns
+ or when the deadline passes, together with every process it started, and
+ <code>/tmp</code> is emptied before the next call, so that nothing one call does
+ reaches another.
 </p>
-<p> The folders are on the load path, ahead of the packages.
+<p> The two systems confine by different means, so each names the guarantees it
+ holds rather than claiming the other&rsquo;s.  On macOS a sandboxed server writes
+ one line to standard error as it starts,
+ <code>OMP: Warning #179: Function Can't set size of /tmp file failed:</code>, and
+ then serves normally.  OpenMP registers itself by making
+ <code>/tmp/__KMP_REGISTERED_LIB_&lt;pid&gt;</code>, naming <code>/tmp</code> rather
+ than reading <code>TMPDIR</code>, and the sandbox does not grant the host&rsquo;s
+ <code>/tmp</code>.  What that registration detects is a second OpenMP runtime in
+ the same process, which Octave does not have, so nothing is lost by it.  It
+ is left alone deliberately: granting the write would put a file of the
+ server&rsquo;s outside the sandbox at every launch, and suppressing the warning
+ would hide the next thing to go wrong on the same path.
 </p>
-<p> A sandboxed server offers <code>octave_call</code> and <code>octave_test</code> beside
- the read-only tools, and not <code>octave_eval</code>: every call starts from the
- same state, so a workspace would carry nothing.  <code>octave_call</code> is for
- programs, which read its structured result, its text being a summary without
- the values.  It runs no code text: it calls one function by name on typed
- arguments, a range carrying each cell&rsquo;s kind and value, and returns each
- output as typed cells
- row by row, dates as serial numbers from the document&rsquo;s null date, with
- anything the function printed beside them.  Each call runs in a process
- forked for it,
- which is killed when it returns or when the deadline passes, together with
- every process it started, and <code>/tmp</code> is emptied before the next call,
- so that nothing one call does reaches another.  A call that crashes the
- interpreter comes back as an error, and the server keeps serving.
+<p>  Without the sandbox
 </p>
-<p> <code>devtools.mcpEval (&quot;Sandbox&quot;, false)</code> serves exactly as
- <code>devtools.mcpEval ()</code>.
+<p> Unconfined, each call still runs in a process of its own and is stopped at
+ the deadline: forked where the system can fork, and on Windows, which
+ cannot, an <code>octave-cli</code> started for the call inside a job object by
+ <code>__devtools_spawn__</code>, which a working compiler builds at installation.
+ A process a call starts outlives it where it was forked, and the call can
+ read and write files and use the network as any Octave code can.
 </p>
 <p>  What this is not
 </p>
-<p> Unless started with <code>&quot;Sandbox&quot;</code>, none of this is a sandbox.  Evaluated
- code can read and write files, use the network and consume memory exactly as
- any code in this interpreter can.  Configure this server only where that is
- acceptable.
+<p> Unless started with <code>&quot;Sandbox&quot;</code> and reporting it <code>&quot;active&quot;</code>,
+ none of this is a sandbox.  Evaluated code can read and write files, use the
+ network and consume memory exactly as any code in this interpreter can.
+ Configure this server only where that is acceptable.
 </p>
 <p> <strong>See also: </strong>
   <a href="devtools.mcp.html">devtools.mcp</a>, 
@@ -424,7 +471,7 @@
 devtools.sandboxCommand
 </p>
 <p><strong>Source Code: </strong>
-  <a href="https://github.com/pr0m1th3as/octave-devtools/blob/5602cba/inst/+devtools/mcpEval.m">devtools.mcpEval</a>
+  <a href="https://github.com/pr0m1th3as/octave-devtools/blob/7adc250/inst/+devtools/mcpEval.m">devtools.mcpEval</a>
 </div>
 
             </div>
