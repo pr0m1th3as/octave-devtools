@@ -7,7 +7,7 @@
 
 MKOCTFILE ?= mkoctfile
 
-all: capture guard spawn
+all: capture guard spawn parse
 
 capture:
 	@if $(MKOCTFILE) __devtools_capture__.cc > devtools_capture.log 2>&1; then \
@@ -42,7 +42,35 @@ spawn:
 	  cat devtools_spawn.log; \
 	fi
 
-clean:
-	-rm -f *.o *.oct devtools_capture.log devtools_guard.log devtools_spawn.log
+## The parser is three compilations and a link: the tree-sitter runtime,
+## which its own lib.c gathers into one translation unit, the generated
+## grammar, and the scanner beside it.  Vendored whole because pkg has no way
+## to depend on a system libtree-sitter, and a user would not have one.
+TS_RUNTIME = tree-sitter/src/lib.c
+TS_INCLUDE = -Itree-sitter/include -Itree-sitter/src
+TS_OBJS = ts_runtime.o ts_parser.o ts_scanner.o
 
-.PHONY: all capture guard spawn clean
+parse:
+	@if $(MKOCTFILE) -c $(TS_INCLUDE) $(TS_RUNTIME) -o ts_runtime.o \
+	    > devtools_parse.log 2>&1 \
+	  && $(MKOCTFILE) -c -Igrammar grammar/parser.c -o ts_parser.o \
+	    >> devtools_parse.log 2>&1 \
+	  && $(MKOCTFILE) -c -Igrammar grammar/scanner.c -o ts_scanner.o \
+	    >> devtools_parse.log 2>&1 \
+	  && $(MKOCTFILE) -Itree-sitter/include __devtools_parse__.cc $(TS_OBJS) \
+	    -o __devtools_parse__.oct >> devtools_parse.log 2>&1; then \
+	  echo "devtools: built __devtools_parse__.oct"; \
+	else \
+	  echo "devtools: no working compiler for __devtools_parse__.cc."; \
+	  echo "devtools: the servers are unaffected; what is lost is parsing"; \
+	  echo "devtools: Octave source without running it, which the language"; \
+	  echo "devtools: server and the dialect checks need."; \
+	  echo "devtools: Build log follows."; \
+	  cat devtools_parse.log; \
+	fi
+
+clean:
+	-rm -f *.o *.oct devtools_capture.log devtools_guard.log \
+	  devtools_spawn.log devtools_parse.log
+
+.PHONY: all capture guard spawn parse clean
