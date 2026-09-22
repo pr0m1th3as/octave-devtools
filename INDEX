@@ -4,3 +4,5 @@ Servers
  devtools.mcpEval
 Diagnostics
  devtools.selftest
+Package checks
+ devtools.doclint
