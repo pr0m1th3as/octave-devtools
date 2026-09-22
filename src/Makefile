@@ -42,21 +42,35 @@ spawn:
 	  cat devtools_spawn.log; \
 	fi
 
-## The parser is three compilations and a link: the tree-sitter runtime,
+## A directory per dialect, named as the call names it, so that
+## `__parse__ (TEXT, 'octave-strict')` and grammar/octave-strict are plainly the same
+## thing.  Only Octave takes the qualifier, having the two modes; MATLAB has
+## one and its bare name says so.  The parser is seven compilations and a link: the tree-sitter runtime,
 ## which its own lib.c gathers into one translation unit, the generated
 ## grammar, and the scanner beside it.  Vendored whole because pkg has no way
 ## to depend on a system libtree-sitter, and a user would not have one.
 TS_RUNTIME = tree-sitter/src/lib.c
 TS_INCLUDE = -Itree-sitter/include -Itree-sitter/src
-TS_OBJS = ts_runtime.o ts_parser.o ts_scanner.o
+TS_OBJS = ts_runtime.o \
+  ts_octave.o ts_octave_scanner.o \
+  ts_octave_strict.o ts_octave_strict_scanner.o \
+  ts_matlab.o ts_matlab_scanner.o
 
 parse:
 	@if $(MKOCTFILE) -c $(TS_INCLUDE) $(TS_RUNTIME) -o ts_runtime.o \
 	    > devtools_parse.log 2>&1 \
-	  && $(MKOCTFILE) -c -Igrammar grammar/parser.c -o ts_parser.o \
+	  && $(MKOCTFILE) -c -Igrammar grammar/octave/parser.c -o ts_octave.o \
 	    >> devtools_parse.log 2>&1 \
-	  && $(MKOCTFILE) -c -Igrammar grammar/scanner.c -o ts_scanner.o \
-	    >> devtools_parse.log 2>&1 \
+	  && $(MKOCTFILE) -c -Igrammar grammar/octave/scanner.c \
+	    -o ts_octave_scanner.o >> devtools_parse.log 2>&1 \
+	  && $(MKOCTFILE) -c -Igrammar grammar/octave-strict/parser.c \
+	    -o ts_octave_strict.o >> devtools_parse.log 2>&1 \
+	  && $(MKOCTFILE) -c -Igrammar grammar/octave-strict/scanner.c \
+	    -o ts_octave_strict_scanner.o >> devtools_parse.log 2>&1 \
+	  && $(MKOCTFILE) -c -Igrammar grammar/matlab/parser.c \
+	    -o ts_matlab.o >> devtools_parse.log 2>&1 \
+	  && $(MKOCTFILE) -c -Igrammar grammar/matlab/scanner.c \
+	    -o ts_matlab_scanner.o >> devtools_parse.log 2>&1 \
 	  && $(MKOCTFILE) -Itree-sitter/include __devtools_parse__.cc $(TS_OBJS) \
 	    -o __devtools_parse__.oct >> devtools_parse.log 2>&1; then \
 	  echo "devtools: built __devtools_parse__.oct"; \

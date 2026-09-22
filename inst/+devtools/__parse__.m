@@ -16,10 +16,16 @@
 ## this program; if not, see <http://www.gnu.org/licenses/>.
 
 ## -*- texinfo -*-
-## @deftypefn {devtools} {@var{R} =} devtools.__parse__ (@var{TEXT})
+## @deftypefn  {devtools} {@var{R} =} devtools.__parse__ (@var{TEXT})
+## @deftypefnx {devtools} {@var{R} =} devtools.__parse__ (@var{TEXT}, @var{DIALECT})
 ##
-## Parse Octave source without running it.  Internal; not a supported entry
-## point.
+## Parse source without running it.  Internal; not a supported entry point.
+##
+## @var{DIALECT} is @qcode{'octave'}, which reads Octave written in its own
+## spellings alone, or @qcode{'matlab'}, which reads MATLAB.  Omitting it
+## reads either language, as Octave itself does, accepting the MATLAB spelling
+## of everything that has two.  The lenient grammar has no name because naming
+## a dialect is what restricts the parse.
 ##
 ## @var{R} is a scalar structure holding @code{sexp}, the tree written as an
 ## s-expression, @code{ok}, true where the grammar completed the parse, and
@@ -34,13 +40,21 @@
 ##
 ## @end deftypefn
 
-function R = __parse__ (TEXT)
+function R = __parse__ (TEXT, DIALECT)
 
-  if (nargin != 1)
+  if (nargin < 1 || nargin > 2)
     error ("devtools.__parse__: invalid number of input arguments.");
   endif
   if (! (ischar (TEXT) && (isrow (TEXT) || isempty (TEXT))))
     error ("devtools.__parse__: TEXT must be a character vector.");
+  endif
+  if (nargin == 2)
+    if (! (ischar (DIALECT) && isrow (DIALECT)))
+      error ("devtools.__parse__: DIALECT must be a character vector.");
+    endif
+    if (! any (strcmp (DIALECT, {'octave', 'matlab'})))
+      error ("devtools.__parse__: DIALECT must be 'octave' or 'matlab'.");
+    endif
   endif
 
   persistent built = [];
@@ -53,7 +67,11 @@ function R = __parse__ (TEXT)
                    " with a working compiler."));
   endif
 
-  R = __devtools_parse__ (TEXT);
+  if (nargin == 2)
+    R = __devtools_parse__ (TEXT, DIALECT);
+  else
+    R = __devtools_parse__ (TEXT);
+  endif
 
 endfunction
 
@@ -93,5 +111,23 @@ endfunction
 %! R = devtools.__parse__ (sprintf ("x = 1;\n$"));
 %! assert_equal (R.faults(1).row, 2);
 
+%!test
+%! R = devtools.__parse__ ("x = ~a;", "octave");
+%! assert_equal (R.ok, false);
+
+%!test
+%! R = devtools.__parse__ ("x = !a;", "octave");
+%! assert_equal (R.ok, true);
+
+%!test
+%! R = devtools.__parse__ ("x = !a;", "matlab");
+%! assert_equal (R.ok, false);
+
+%!test
+%! R = devtools.__parse__ ("x = ~a;", "matlab");
+%! assert_equal (R.ok, true);
+
 %!error<devtools.__parse__: invalid number of input arguments.> devtools.__parse__ ()
+%!error<devtools.__parse__: DIALECT must be 'octave' or 'matlab'.> ...
+%! devtools.__parse__ ("x = 1;", "klingon")
 %!error<devtools.__parse__: TEXT must be a character vector.> devtools.__parse__ (5)

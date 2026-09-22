@@ -3,8 +3,12 @@
     "source": "tree-sitter-octave",
     "sourceUrl": "https://github.com/pr0m1th3as/tree-sitter-octave",
     "commit": "81923444677a36aa7189cf414869c4f799848440",
-    "variant": "lenient",
-    "note": "Generated parser and scanner, copied at release by tools/regen_grammar.m."
+    "variant": [
+      "octave (lenient, the unnamed default)",
+      "octave-strict (the call names this one octave)",
+      "matlab"
+    ],
+    "note": "Generated parsers and the shared scanner, copied from the grammar repository.  One oct-file links all three: the parsers export distinct symbols and the generated headers are identical across variants."
   },
   "runtime": {
     "source": "tree-sitter",

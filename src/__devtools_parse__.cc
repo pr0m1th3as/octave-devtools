@@ -25,6 +25,26 @@
 #include <vector>
 
 extern "C" const TSLanguage *tree_sitter_octave (void);
+extern "C" const TSLanguage *tree_sitter_octave_strict (void);
+extern "C" const TSLanguage *tree_sitter_matlab_strict (void);
+
+/* One oct-file carries all three: the parsers export distinct symbols and
+   the runtime is shared, so this costs two compilations rather than two more
+   builds and two more loads.
+
+   Naming a dialect restricts the parse, so the lenient grammar has no name:
+   it is what an omitted argument gets.  The exported names keep their longer
+   form because a grammar exporting tree_sitter_matlab would collide with the
+   existing MATLAB grammar were both ever linked into one program. */
+static const TSLanguage *
+language_for (const std::string& dialect)
+{
+  if (dialect == "octave")
+    return tree_sitter_octave_strict ();
+  if (dialect == "matlab")
+    return tree_sitter_matlab_strict ();
+  return nullptr;
+}
 
 struct Fault
 {
@@ -75,9 +95,21 @@ collect_faults (TSNode root, std::vector<Fault>& faults)
 
 DEFUN_DLD (__devtools_parse__, args, ,
            "-*- texinfo -*-\n\
-@deftypefn {devtools} {@var{R} =} __devtools_parse__ (@var{TEXT})\n\
+@deftypefn  {devtools} {@var{R} =} __devtools_parse__ (@var{TEXT})\n\
+@deftypefnx {devtools} {@var{R} =} __devtools_parse__ (@var{TEXT}, @var{DIALECT})\n\
 \n\
-Parse @var{TEXT} as Octave source.  Internal; not a supported entry point.\n\
+Parse @var{TEXT}.  Internal; not a supported entry point.\n\
+\n\
+@var{DIALECT} is @qcode{'octave'}, which reads Octave written in its own\n\
+spellings alone, or @qcode{'matlab'}, which reads MATLAB.  Omitting it reads\n\
+either language, as Octave itself does, accepting the MATLAB spelling of\n\
+everything that has two.  The lenient grammar has no name because naming a\n\
+dialect is what restricts the parse.\n\
+\n\
+The exported names stay @code{tree_sitter_octave_strict} and\n\
+@code{tree_sitter_matlab_strict}: a grammar exporting\n\
+@code{tree_sitter_matlab} would collide with the existing MATLAB grammar\n\
+were both ever linked into one program.\n\
 \n\
 @var{R} is a scalar structure holding @code{sexp}, the tree written as an\n\
 s-expression, @code{ok}, true where the grammar completed the parse, and\n\
@@ -87,15 +119,26 @@ s-expression, @code{ok}, true where the grammar completed the parse, and\n\
 \n\
 @end deftypefn")
 {
-  if (args.length () != 1)
+  if (args.length () < 1 || args.length () > 2)
     error ("__devtools_parse__: invalid number of input arguments.");
   if (! args(0).is_string ())
     error ("__devtools_parse__: TEXT must be a character vector.");
 
+  const TSLanguage *language = tree_sitter_octave ();
+  if (args.length () == 2)
+    {
+      if (! args(1).is_string ())
+        error ("__devtools_parse__: DIALECT must be a character vector.");
+      std::string dialect = args(1).string_value ();
+      language = language_for (dialect);
+      if (language == nullptr)
+        error ("__devtools_parse__: unknown dialect: '%s'", dialect.c_str ());
+    }
+
   std::string text = args(0).string_value ();
 
   TSParser *parser = ts_parser_new ();
-  ts_parser_set_language (parser, tree_sitter_octave ());
+  ts_parser_set_language (parser, language);
   TSTree *tree = ts_parser_parse_string (parser, nullptr, text.c_str (),
                                          static_cast<uint32_t> (text.size ()));
   if (tree == nullptr)

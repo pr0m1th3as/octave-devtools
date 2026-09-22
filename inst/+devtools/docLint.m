@@ -16,17 +16,17 @@
 ## this program; if not, see <http://www.gnu.org/licenses/>.
 
 ## -*- texinfo -*-
-## @deftypefn  {devtools} {} devtools.doclint (@var{TARGET})
-## @deftypefnx {devtools} {@var{R} =} devtools.doclint (@var{TARGET})
+## @deftypefn  {devtools} {} devtools.docLint (@var{TARGET})
+## @deftypefnx {devtools} {@var{R} =} devtools.docLint (@var{TARGET})
 ##
 ## Check the documentation of a package against the code it describes.
 ##
-## @code{devtools.doclint (@var{TARGET})} prints every disagreement it finds
+## @code{devtools.docLint (@var{TARGET})} prints every disagreement it finds
 ## between a package's texinfo blocks and the package itself.  @var{TARGET} is
 ## either the folder a package's source is in or the name of an installed
 ## package, which is looked up with @code{pkg ("list")}.
 ##
-## @code{@var{R} = devtools.doclint (@var{TARGET})} prints nothing and returns
+## @code{@var{R} = devtools.docLint (@var{TARGET})} prints nothing and returns
 ## the findings as a structure array holding @code{file}, @code{line},
 ## @code{rule} and @code{message}, empty where there is nothing to report.
 ##
@@ -77,21 +77,21 @@
 ## @seealso{devtools.mcp, devtools.selftest}
 ## @end deftypefn
 
-function R = doclint (TARGET)
+function R = docLint (TARGET)
 
   ## Input validation
   if (nargin != 1)
-    error ("devtools.doclint: invalid number of input arguments.");
+    error ("devtools.docLint: invalid number of input arguments.");
   endif
   if (! (ischar (TARGET) && isrow (TARGET)))
-    error ("devtools.doclint: TARGET must be a character vector.");
+    error ("devtools.docLint: TARGET must be a character vector.");
   endif
 
   root = __resolveTarget__ (TARGET);
   pkgname = __packageName__ (root);
   INV = devtools.__pkgInventory__ (root);
   if (isempty (INV))
-    error ("devtools.doclint: no function files found under '%s'", root);
+    error ("devtools.docLint: no function files found under '%s'", root);
   endif
 
   F = struct ("file", {}, "line", {}, "rule", {}, "message", {});
@@ -126,7 +126,7 @@ function ROOT = __resolveTarget__ (TARGET)
       return;
     endif
   endfor
-  error (strcat ("devtools.doclint: TARGET is neither a folder nor an", ...
+  error (strcat ("devtools.docLint: TARGET is neither a folder nor an", ...
                  " installed package: '%s'"), TARGET);
 
 endfunction
@@ -457,7 +457,7 @@ endfunction
 function __report__ (F, ROOT)
 
   if (isempty (F))
-    printf ("devtools.doclint: %s, nothing to report.\n", ROOT);
+    printf ("devtools.docLint: %s, nothing to report.\n", ROOT);
     return;
   endif
 
@@ -540,51 +540,51 @@ endfunction
 %! fclose (fid);
 
 %!test
-%! R = devtools.doclint (D);
+%! R = devtools.docLint (D);
 %! S = R(strcmp ({R.rule}, 'deftypefn-name'));
 %! assert_equal (numel (S), 1);
 %! assert_equal (S.message, "documents 'other' above function 'slip'.");
 
 %!test
-%! R = devtools.doclint (D);
+%! R = devtools.docLint (D);
 %! S = R(strcmp ({R.rule}, 'width'));
 %! assert_equal (numel (S), 1);
 %! assert_equal (S.line, 4);
 
 %!test
-%! R = devtools.doclint (D);
+%! R = devtools.docLint (D);
 %! S = R(strcmp ({R.rule}, 'seealso-target'));
 %! assert_equal (numel (S), 1);
 %! assert_equal (S.message, "'zznowhere' resolves nowhere.");
 
 %!test
-%! R = devtools.doclint (D);
+%! R = devtools.docLint (D);
 %! S = R(strcmp ({R.rule}, 'seealso-member'));
 %! assert_equal (numel (S), 1);
 %! assert_equal (S.message, "'zzmember' is a member of cls; write it qualified.");
 
 %!test
-%! R = devtools.doclint (D);
+%! R = devtools.docLint (D);
 %! S = R(strcmp ({R.rule}, 'category'));
 %! assert_equal (numel (S), 1);
 %! assert_equal (S.message, "heading is 'fixt'; expected 'cls'.");
 
 %!test
-%! R = devtools.doclint (D);
+%! R = devtools.docLint (D);
 %! S = R(strcmp ({R.rule}, 'index-missing'));
 %! assert_equal (numel (S), 1);
 %! assert_equal (S.message, "lists 'ghost', which the package does not supply.");
 
 %!test
-%! R = devtools.doclint (D);
+%! R = devtools.docLint (D);
 %! assert_equal (any (strcmp ({R.rule}, 'index-unlisted')), false);
 
 %!test
-%! R = devtools.doclint (D);
+%! R = devtools.docLint (D);
 %! [~, base] = cellfun (@fileparts, {R.file}, "UniformOutput", false);
 %! assert_equal (any (strcmp (base, 'plain')), false);
 
-%!error<devtools.doclint: invalid number of input arguments.> devtools.doclint ()
-%!error<devtools.doclint: TARGET must be a character vector.> devtools.doclint (5)
-%!error<devtools.doclint: TARGET is neither a folder nor an installed package: 'zznopkg'> ...
-%! devtools.doclint ('zznopkg')
+%!error<devtools.docLint: invalid number of input arguments.> devtools.docLint ()
+%!error<devtools.docLint: TARGET must be a character vector.> devtools.docLint (5)
+%!error<devtools.docLint: TARGET is neither a folder nor an installed package: 'zznopkg'> ...
+%! devtools.docLint ('zznopkg')

@@ -5,4 +5,5 @@ Servers
 Diagnostics
  devtools.selftest
 Package checks
- devtools.doclint
+ devtools.docLint
+ devtools.dialectLint
