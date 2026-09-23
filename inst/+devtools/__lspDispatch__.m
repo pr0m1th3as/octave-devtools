@@ -108,7 +108,8 @@ function [REPLIES, S] = __lspDispatch__ (R, S)
       endif
       S = setDoc (S, P.textDocument.uri, ch.text);
     case 'textDocument/didClose'
-      S.docs = S.docs(! strcmp ({S.docs.uri}, P.textDocument.uri));
+      k = docIndex (S, P.textDocument.uri);
+      S.docs(k) = [];
     case 'textDocument/didSave'
       S = reindex (S);
     case 'textDocument/hover'
@@ -231,7 +232,7 @@ function I = loadedInventory ()
 endfunction
 
 function S = setDoc (S, uri, text)
-  k = find (strcmp ({S.docs.uri}, uri), 1);
+  k = docIndex (S, uri);
   if (isempty (k))
     k = numel (S.docs) + 1;
   endif
@@ -240,7 +241,7 @@ function S = setDoc (S, uri, text)
 endfunction
 
 function T = docText (S, uri)
-  k = find (strcmp ({S.docs.uri}, uri), 1);
+  k = docIndex (S, uri);
   if (isempty (k))
     T = '';
     f = uriToPath (uri);
@@ -249,6 +250,26 @@ function T = docText (S, uri)
     endif
   else
     T = S.docs(k).text;
+  endif
+endfunction
+
+function k = docIndex (S, uri)
+  ## The open document a URI names, compared as paths: an editor and this
+  ## server may spell the same file differently on Windows
+  if (isempty (S.docs) || isempty (uri))
+    k = [];
+    return;
+  endif
+  want = samePath (uriToPath (uri));
+  k = find (strcmp (cellfun (@(u) samePath (uriToPath (u)), {S.docs.uri}, ...
+                             "UniformOutput", false), want), 1);
+endfunction
+
+function P = samePath (P)
+  ## One spelling per file: forward slashes, and any case on Windows
+  P = strrep (P, '\', '/');
+  if (ispc ())
+    P = lower (P);
   endif
 endfunction
 
@@ -729,7 +750,7 @@ function T = locate (S, T)
 endfunction
 
 function D = defsFor (S, T)
-  k = find (strcmp ({S.docs.uri}, T.uri), 1);
+  k = docIndex (S, T.uri);
   if (isempty (k))
     D = fileDefs (T.file);
   else
@@ -783,13 +804,14 @@ function txt = hoverText (S, T)
 endfunction
 
 function tf = inProject (S, file)
-  tf = ! isempty (S.root) && strncmp (file, S.root, numel (S.root));
+  root = samePath (S.root);
+  tf = ! isempty (root) && strncmp (samePath (file), root, numel (root));
 endfunction
 
 function txt = fileHelp (S, T)
   ## The texinfo block documenting a definition, rendered as help renders it
   txt = '';
-  k = find (strcmp ({S.docs.uri}, T.uri), 1);
+  k = docIndex (S, T.uri);
   if (isempty (k))
     text = fileread (T.file);
   else
@@ -895,7 +917,7 @@ function res = definition (S, P)
 endfunction
 
 function text = docOrFile (S, T)
-  k = find (strcmp ({S.docs.uri}, T.uri), 1);
+  k = docIndex (S, T.uri);
   if (isempty (k))
     text = fileread (T.file);
   else
