@@ -111,7 +111,7 @@ function R = dialectLint (TARGET, DIALECT = 'octave')
     R = F;
     return;
   endif
-  __report__ (F, root, DIALECT);
+  __report__ (F, root, DIALECT, files);
 
 endfunction
 
@@ -126,12 +126,19 @@ function F = __add__ (F, FILE, FAULT, RULE, LINES)
 
 endfunction
 
-function __report__ (F, ROOT, DIALECT)
+function __report__ (F, ROOT, DIALECT, FILES)
 
   if (isempty (F))
-    printf ("devtools.dialectLint: %s, every file is %s.\n", ROOT, ...
-            ifelse (strcmp (DIALECT, "octave"), "Octave's own", ...
-                    "readable by MATLAB"));
+    ## One file is named as itself, not by the folder it sits in
+    if (numel (FILES) == 1)
+      printf ("devtools.dialectLint: %s is %s.\n", FILES{1}, ...
+              ifelse (strcmp (DIALECT, "octave"), "in Octave's own dialect", ...
+                      "readable by MATLAB"));
+    else
+      printf ("devtools.dialectLint: %s, every file is %s.\n", ROOT, ...
+              ifelse (strcmp (DIALECT, "octave"), "Octave's own", ...
+                      "readable by MATLAB"));
+    endif
     return;
   endif
 
@@ -208,6 +215,12 @@ endfunction
 %!test
 %! R = devtools.dialectLint (fullfile (D, "matlab_dialect.m"));
 %! assert_equal (R.line, 1);
+
+%!test
+%! f = fullfile (D, "octave_dialect.m");
+%! out = evalc ("devtools.dialectLint (f)");
+%! assert_equal (out, sprintf (["devtools.dialectLint: %s is in Octave's", ...
+%!                              " own dialect.\n"], f));
 
 %!error<devtools.dialectLint: invalid number of input arguments.> ...
 %! devtools.dialectLint ()
