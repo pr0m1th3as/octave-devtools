@@ -81,6 +81,27 @@
 ## --eval "pkg load devtools statistics datatypes; devtools.lsp ()"
 ## @end example
 ##
+## For Kate, enable the LSP Client plugin and add to its User Server Settings:
+##
+## @example
+## @group
+## @{
+##   "servers": @{
+##     "octave": @{
+##       "command": ["octave-cli", "-q", "--no-init-file", "--eval",
+##                   "pkg load devtools; devtools.lsp ()"],
+##       "rootIndicationFileNames": ["DESCRIPTION", ".git"],
+##       "highlightingModeRegex": "^(Octave|Matlab)$"
+##     @}
+##   @}
+## @}
+## @end group
+## @end example
+##
+## Kate may take a @file{.m} file for Objective-C and start its server for
+## that language instead; set the file's highlighting to Octave, or give the
+## Octave file type the higher priority for @file{*.m}.
+##
 ## For Neovim 0.11 and later, in @file{init.lua}:
 ##
 ## @example
