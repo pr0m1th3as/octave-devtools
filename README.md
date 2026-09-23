@@ -20,7 +20,10 @@ knowledge, a source formatter being the clearest example.
 |---|---|---|
 | `devtools.mcp` | Model Context Protocol server, read-only | configure it in an MCP host |
 | `devtools.mcpEval` | the same, plus evaluation, optionally inside a sandbox | configure it in an MCP host |
+| `devtools.lsp` | Language Server Protocol server for editors | configure it in an editor |
 | `devtools.selftest` | a check that the servers start and stay clean, a sandboxed one included | call it from Octave |
+| `devtools.docLint` | a check of a package's documentation against the code it describes | call it from Octave |
+| `devtools.dialectLint` | which language a file is written in, Octave's own dialect or MATLAB's | call it from Octave |
 
 A surface reached over a protocol is documented here, because the program using
 it never sees an Octave prompt and cannot ask `help`. Anything you call
@@ -33,7 +36,11 @@ GNU Octave 11.1.0 or later.
 
 A C++ compiler is **optional**. The package installs without one and the
 read-only server is unaffected; what the evaluating server loses is described
-under [What contains it](#what-contains-it-and-what-does-not).
+under [What contains it](#what-contains-it-and-what-does-not). The language
+server and `devtools.dialectLint` read source through a parser built at
+install time, so without a compiler neither works: `dialectLint` raises an
+error saying why, and the language server answers each request with an error
+whose reason goes to its log.
 
 [Sandbox mode](#sandbox-mode) needs Linux, `bwrap` from the `bubblewrap`
 package, and `prlimit` from `util-linux`. It needs no compiler.
@@ -371,6 +378,86 @@ and `feval`, are refused by name.
 revision, quoting the specification and naming the source page for every
 answer. Revision `2026-07-28`, with two deviations, each registered beside the
 sentence it departs from.
+
+## Language Server Protocol
+
+`devtools.lsp` serves an editor over the [Language Server
+Protocol](https://microsoft.github.io/language-server-protocol/): hover, go to
+definition, document symbols, workspace symbols and completion. Like the MCP
+servers it is an Octave interpreter, so its answers are what that Octave, with
+the packages its launch command loads, would itself say. It evaluates no code,
+runs no user function, and writes nothing.
+
+Launch it with:
+
+```
+octave-cli -q --no-init-file --eval "pkg load devtools; devtools.lsp ()"
+```
+
+**Do not shorten that command**, for the reason given for the MCP servers:
+`--no-init-file` keeps the output of `~/.octaverc` off the stream. On Windows,
+name `octave-cli.exe` in full. Load the packages the project uses:
+
+```
+--eval "pkg load devtools statistics datatypes; devtools.lsp ()"
+```
+
+The folder the editor opens is the project. Its functions and classes are read
+from its files and never put on the load path, since adding a folder to the
+path runs its `PKG_ADD`; where the project and a loaded package define the same
+name, the project's definition is the one answered, the installed copy of a
+package under development being the stale one.
+
+A method that several classes define is answered only where the class is
+certain: a call written `Class.method`, or a method or property used on the
+object of the method being edited, such as `predict (obj, X)` or `obj.X` inside
+a method whose first parameter is `obj`. Otherwise hover lists every
+definition and go to definition offers each. A name's meaning is otherwise
+settled only at run time, so there are no diagnostics and no rename.
+
+### Kate
+
+Tested with Kate 25.04. Enable the LSP Client plugin and add to its User Server
+Settings:
+
+```json
+{
+  "servers": {
+    "octave": {
+      "command": ["octave-cli", "-q", "--no-init-file", "--eval",
+                  "pkg load devtools; devtools.lsp ()"],
+      "rootIndicationFileNames": ["DESCRIPTION", ".git"],
+      "highlightingModeRegex": "^(Octave|Matlab)$"
+    }
+  }
+}
+```
+
+Kate may take a `.m` file for Objective-C and start its server for that
+language instead. Set the file's highlighting to Octave, or give the Octave
+file type the higher priority for `*.m` under Modes & Filetypes.
+
+### Neovim and Emacs
+
+Not yet tested. Neovim 0.11 and later, in `init.lua`:
+
+```lua
+vim.lsp.config ('octave', {
+  cmd = {'octave-cli', '-q', '--no-init-file', '--eval',
+         'pkg load devtools; devtools.lsp ()'},
+  filetypes = {'octave', 'matlab'},
+  root_markers = {'DESCRIPTION', '.git'},
+})
+vim.lsp.enable ('octave')
+```
+
+Emacs with Eglot:
+
+```elisp
+(add-to-list 'eglot-server-programs
+             '(octave-mode . ("octave-cli" "-q" "--no-init-file" "--eval"
+                              "pkg load devtools; devtools.lsp ()")))
+```
 
 ## License
 
