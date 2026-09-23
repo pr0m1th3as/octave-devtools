@@ -6,6 +6,9 @@ answer about itself, packaged so that a program outside Octave can ask.
 Everything described here is implemented and tested on GNU/Linux. Release 0.1.0
 was also tested on Windows; sandbox mode, new in 0.2.0, runs on Linux only.
 
+Step by step guides to each part are at
+<https://pr0m1th3as.github.io/octave-devtools/guides/>.
+
 ## What belongs here
 
 Something belongs in this package if answering it requires the interpreter's
@@ -303,7 +306,10 @@ can call a function and do nothing else. It runs inside a sandbox **where the
 machine can build one**: on Linux with `bwrap` and `prlimit`, and on macOS
 with the system's `sandbox-exec`. Where it cannot, it serves without one.
 
-Every result says which, in `_meta["io.github.pr0m1th3as.devtools/sandbox"]`:
+The server says which in `_meta["io.github.pr0m1th3as.devtools/sandbox"]`,
+in its reply to `initialize` and, under the stateless protocol revision, which
+has no `initialize`, in every reply. The state is settled when the server
+starts and does not change while it runs:
 
 | State | Meaning |
 |---|---|
@@ -439,7 +445,8 @@ file type the higher priority for `*.m` under Modes & Filetypes.
 
 ### Neovim and Emacs
 
-Not yet tested. Neovim 0.11 and later, in `init.lua`:
+Hover tested with Neovim 0.12.5 and Emacs 30.1. Neovim 0.11 and later, in
+`init.lua`:
 
 ```lua
 vim.lsp.config ('octave', {
@@ -451,12 +458,15 @@ vim.lsp.config ('octave', {
 vim.lsp.enable ('octave')
 ```
 
-Emacs with Eglot:
+Emacs with Eglot, in `init.el`. The first line stops Emacs taking a `.m` file
+for Objective-C:
 
 ```elisp
-(add-to-list 'eglot-server-programs
-             '(octave-mode . ("octave-cli" "-q" "--no-init-file" "--eval"
-                              "pkg load devtools; devtools.lsp ()")))
+(add-to-list 'auto-mode-alist '("\\.m\\'" . octave-mode))
+(with-eval-after-load 'eglot
+  (add-to-list 'eglot-server-programs
+               '(octave-mode . ("octave-cli" "-q" "--no-init-file" "--eval"
+                                "pkg load devtools; devtools.lsp ()"))))
 ```
 
 ## License
