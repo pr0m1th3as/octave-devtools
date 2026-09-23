@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Octave for your spreadsheet and other programs: sandbox mode</title>
+  <meta name="description" content="How devtools.mcpEval ('Sandbox') lets LibreOffice Calc, or any other program, run Octave functions on data from outside without giving that data your machine.">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ==" crossorigin="anonymous" referrerpolicy="no-referrer">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/css/bootstrap.min.css" integrity="sha384-KyZXEAg3QhqLMpG8r+8fhAXLRk2vvoC2f3B09zVXn8CA5QIVfZOJ3BCsw2P0p/We" crossorigin="anonymous">
+  <style>
+    article p, article li { line-height: 1.65; }
+    article pre { background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: .375rem;
+                  padding: 1rem; overflow-x: auto; }
+    article code { color: #24292e; }
+    article pre code { color: inherit; }
+    article h2 { margin-top: 2.25rem; }
+    article h3 { margin-top: 1.5rem; }
+    .lead-rule { border-left: .25rem solid #6c757d; padding-left: 1rem; color: #495057; }
+  </style>
+</head>
+<body>
+  <div class="bg-dark">
+    <div class="container-xl">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+          <a class="navbar-brand" href="https://gnu-octave.github.io/packages/devtools">
+            <img src="../assets/devtools.png" alt="devtools" class="d-inline-block align-top" width="25" height="25">
+            Developer tooling for GNU Octave
+          </a>
+          <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav">
+              <li class="nav-item">
+                <a class="nav-link" href="../index.html"><i class="fas fa-book"></i> Documentation</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" href="index.html"><i class="fas fa-compass"></i> Guides</a>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </nav>
+    </div>
+  </div>
+
+  <div class="container-xl my-4">
+    <div class="row">
+      <div class="col-md-9">
+        <article>
+          <h1>Octave for your spreadsheet and other programs: sandbox mode</h1>
+          <p class="text-muted">Guide &middot; 23 September 2026</p>
+
+          <p class="lead-rule"><code>devtools.mcpEval ('Sandbox')</code> is a
+          server for programs that hand Octave data from somewhere they do not
+          control, a spreadsheet for one, and need Octave to call a function on it
+          and do nothing else. It runs each call in a sandbox with no network, no
+          other program, nothing writable on disk, and only the folders and packages
+          you name. Its best-known user is LibreOffice Calc.</p>
+
+          <h2>From LibreOffice Calc</h2>
+
+          <p><a href="https://github.com/pr0m1th3as/octave-calc">octave-calc</a>,
+          published on extensions.libreoffice.org as <em>Octave for LibreOffice
+          Calc</em>, lets you run GNU Octave on the cells of your sheet without
+          leaving Calc: from a <em>Data &rarr; Statistics with GNU Octave</em>
+          menu, or from a cell, with a formula such as</p>
+<pre><code>=OCTAVE("mean", A1:C2, 2, "omitnan")
+</code></pre>
+          <p>Behind both is this server. The extension starts it for you; you never
+          write a launch command. What you need on the machine:</p>
+          <ul>
+            <li>GNU Octave 11.1.0 or later, and this package,
+                <code>devtools</code>, installed in it with
+                <code>pkg install devtools</code>;</li>
+            <li>for the Statistics menu, the <code>statistics</code> package, and
+                <code>datatypes</code> beneath it;</li>
+            <li>on Linux, <code>bwrap</code> from the <code>bubblewrap</code>
+                package and <code>prlimit</code> from <code>util-linux</code>; on
+                macOS nothing more, the system's <code>sandbox-exec</code> being
+                built in.</li>
+          </ul>
+
+          <h3>Its settings are the sandbox's</h3>
+
+          <p>The extension's settings, under <em>Tools &rarr; Options &rarr; Advanced
+          &rarr; Open Expert Configuration</em>, in
+          <code>org.octavecalc.Settings</code>, are passed to this server unchanged.
+          Each one sets what the sections below describe:</p>
+          <table class="table table-sm">
+            <thead><tr><th>Calc setting</th><th>Server setting</th><th>What it
+              decides</th></tr></thead>
+            <tbody>
+              <tr><td><code>Folders</code></td>
+                <td><code>DEVTOOLS_SANDBOX_FOLDERS</code></td>
+                <td>the folders of your own functions a call can see</td></tr>
+              <tr><td><code>Packages</code></td>
+                <td><code>DEVTOOLS_SANDBOX_PACKAGES</code></td>
+                <td>the Octave packages loaded, and so visible</td></tr>
+              <tr><td><code>MemoryGB</code>, 2</td>
+                <td><code>DEVTOOLS_SANDBOX_MEMORY</code></td>
+                <td>gigabytes of memory a call may use above the server's own
+                  size</td></tr>
+              <tr><td><code>TmpGB</code>, 2</td>
+                <td><code>DEVTOOLS_SANDBOX_TMP</code></td>
+                <td>gigabytes of the in-memory <code>/tmp</code>, the only
+                  writable place</td></tr>
+              <tr><td><code>CellSeconds</code>, 10, and
+                  <code>AnalysisSeconds</code>, 300</td>
+                <td><code>DEVTOOLS_EVAL_SECONDS</code></td>
+                <td>how long a cell, and an analysis from the menu, may run before
+                  it is stopped</td></tr>
+            </tbody>
+          </table>
+
+          <h3>Where there is no sandbox</h3>
+
+          <p>Cells run <em>only</em> in a sandbox. On a machine without one, Windows
+          for now, or where the sandbox fails to start, no cell is evaluated and
+          the cell says why. The Statistics menu runs with or without one, since
+          what it runs comes from the extension and never from the document.</p>
+
+          <h2>What the sandbox promises</h2>
+
+          <p>Inside the Linux sandbox, a call can read the system libraries, Octave's
+          own installation, the packages named, with every package they depend on,
+          and the folders named, which come ahead of the packages on the load path.
+          Nothing else:</p>
+          <ul>
+            <li>no <code>/usr/bin</code>, so there is no shell and no program to
+                start;</li>
+            <li>no rest of your home directory, Octave's history included;</li>
+            <li>no network;</li>
+            <li>nothing writable but an in-memory <code>/tmp</code>, emptied before
+                every call.</li>
+          </ul>
+          <p>Each call runs in a process of its own, starting from the same state
+          every time, and is killed at the deadline together with anything it
+          started. A call that crashes the interpreter comes back as an error and
+          the server keeps serving. Memory is capped. Your home directory itself, a
+          folder holding Octave's history, and anything under <code>/tmp</code>,
+          <code>/proc</code> or <code>/dev</code> are refused as folders.</p>
+          <p>On macOS the same promises are kept by <code>sandbox-exec</code>,
+          which refuses access where Linux hides it. Two are weaker there:
+          <code>/tmp</code> has no size limit, macOS having no sized in-memory
+          filesystem, and the network is shown to be unreachable rather than proven
+          denied, an offline Mac looking the same as a denied one.</p>
+
+          <h2>Does this machine have one?</h2>
+
+          <p>The server always says, in
+          <code>_meta["io.github.pr0m1th3as.devtools/sandbox"]</code>. The state is
+          settled when the server starts and does not change while it runs, so it
+          is stated in the reply to <code>initialize</code>; under the stateless
+          protocol version, <code>2026-07-28</code>, which has no
+          <code>initialize</code>, it is in every reply instead.</p>
+          <table class="table table-sm">
+            <thead><tr><th>State</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td><code>"active"</code></td><td>the sandbox was built and checked
+                from inside, and every call runs in it</td></tr>
+              <tr><td><code>"failed"</code></td><td>the machine has the mechanism,
+                but the sandbox did not start or did not pass its check; the server
+                runs unconfined</td></tr>
+              <tr><td><code>"unavailable"</code></td><td>the machine has no
+                mechanism, Windows for one; the server runs unconfined</td></tr>
+            </tbody>
+          </table>
+          <p>For the last two,
+          <code>_meta["io.github.pr0m1th3as.devtools/sandboxReason"]</code> says
+          why. This is what Calc reads to decide whether a cell may run. To see the
+          answer for your own machine, run <code>devtools.selftest ()</code> at the
+          Octave prompt: it starts a sandboxed server and reports its state, with
+          the reason where it is not active.</p>
+
+          <h2>For developers of other programs</h2>
+
+          <p>Nothing here is specific to Calc. Any program can start the server and
+          speak the Model Context Protocol to it over its standard input and
+          output. The configuration, in the form an MCP host takes it:</p>
+<pre><code>{
+  "mcpServers": {
+    "octave-sandbox": {
+      "command": "octave-cli",
+      "args": ["-q", "--no-init-file", "--eval", "pkg load devtools; devtools.mcpEval ('Sandbox')"],
+      "env": {
+        "DEVTOOLS_SANDBOX_FOLDERS": "/home/me/analysis",
+        "DEVTOOLS_SANDBOX_PACKAGES": "statistics,datatypes"
+      }
+    }
+  }
+}
+</code></pre>
+          <p>What a call may see is set in the environment, never in the command:
+          folders separated by <code>:</code>, packages by commas and loaded in that
+          order. The rules of the other servers apply: do not shorten the command,
+          and name <code>octave-cli.exe</code> in full on Windows. A program that
+          needs the sandbox must read the state above before it sends a call; do
+          not give this server to a host that does not read <code>_meta</code> on
+          a machine without a sandbox.</p>
+
+          <h3>A minimal client in Python</h3>
+
+          <p>Messages are single lines of JSON, one per line in each direction.
+          These cells need nothing beyond Python's standard library; run them in
+          order. Each output shown is what the cell printed when run against a
+          sandboxed server.</p>
+
+          <p><strong>Start the server</strong>, naming in its environment what the
+          sandbox may load, and define three helpers: <code>send</code> writes a
+          message, <code>request</code> sends one and reads the reply, and
+          <code>call</code> runs one Octave function and returns its first
+          output.</p>
+<pre style="overflow-x: auto; white-space: pre; padding: 0.6rem 0.8rem; margin: 0.3rem 0; border: 1px solid #cfe0e6; border-left: 4px solid #4a90a4; border-radius: 4px; background-color: #eef5f8;">import json, os, subprocess, sys
+
+server = subprocess.Popen (
+  ["octave-cli", "-q", "--no-init-file", "--eval",
+   "pkg load devtools; devtools.mcpEval ('Sandbox')"],
+  stdin = subprocess.PIPE, stdout = subprocess.PIPE, text = True,
+  env = dict (os.environ, DEVTOOLS_SANDBOX_PACKAGES = "statistics"))
+
+def send (message):
+  server.stdin.write (json.dumps (message) + "\n")
+  server.stdin.flush ()
+
+def request (id, method, params):
+  send ({"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+  return json.loads (server.stdout.readline ())
+
+def call (id, function, args):
+  reply = request (id, "tools/call",
+                   {"name": "octave_call",
+                    "arguments": {"function": function, "args": args}})
+  return reply["result"]["structuredContent"]["outputs"][0]</pre>
+
+          <p><strong>Complete the handshake</strong>. Its reply says whether the
+          sandbox is real, and a program that needs one stops here unless it
+          is:</p>
+<pre style="overflow-x: auto; white-space: pre; padding: 0.6rem 0.8rem; margin: 0.3rem 0; border: 1px solid #cfe0e6; border-left: 4px solid #4a90a4; border-radius: 4px; background-color: #eef5f8;">reply = request (1, "initialize",
+                 {"protocolVersion": "2025-11-25", "capabilities": {},
+                  "clientInfo": {"name": "example", "version": "1.0"}})
+send ({"jsonrpc": "2.0", "method": "notifications/initialized"})
+meta = reply["result"].get ("_meta", {})
+state = meta.get ("io.github.pr0m1th3as.devtools/sandbox")
+if (state != "active"):
+  sys.exit ("no sandbox here: %s" %
+            meta.get ("io.github.pr0m1th3as.devtools/sandboxReason"))
+print (state)</pre>
+<pre style="overflow-x: auto; white-space: pre; padding: 0.6rem 0.8rem; margin: 0.3rem 0 0.8rem 0; border: 1px solid #e2e2e2; border-left: 4px solid #b7b7b7; border-radius: 4px; background-color: #fafafa;">active</pre>
+
+          <p><strong>Plain values.</strong> A number, a text or a logical value is
+          passed as itself. This is <code>nchoosek (5, 2)</code>:</p>
+<pre style="overflow-x: auto; white-space: pre; padding: 0.6rem 0.8rem; margin: 0.3rem 0; border: 1px solid #cfe0e6; border-left: 4px solid #4a90a4; border-radius: 4px; background-color: #eef5f8;">out = call (2, "nchoosek", [{"type": "number", "value": 5},
+                            {"type": "number", "value": 2}])
+print (out["cells"])</pre>
+<pre style="overflow-x: auto; white-space: pre; padding: 0.6rem 0.8rem; margin: 0.3rem 0 0.8rem 0; border: 1px solid #e2e2e2; border-left: 4px solid #b7b7b7; border-radius: 4px; background-color: #fafafa;">[10]</pre>
+
+          <p>Even a single number comes back as a list of one cell; why is
+          explained below.</p>
+
+          <p><strong>A matrix</strong> is passed as a list of rows. A flat list is
+          a column, as Octave's own <code>jsondecode</code> reads it, so a row
+          vector is written <code>[[1, 2, 3]]</code>. A two-dimensional NumPy
+          array's <code>tolist ()</code> gives exactly this form, and a
+          one-dimensional one a flat list, which arrives as a column.
+          <code>null</code> stands for <code>NaN</code> and the text
+          <code>"Inf"</code> and <code>"-Inf"</code> for the infinities. A list of
+          only <code>true</code> and <code>false</code> is a logical matrix. The
+          only empty matrix is <code>[]</code>, which is 0-by-0. This is
+          <code>mean ([1 2 3; 4 5 6])</code>:</p>
+<pre style="overflow-x: auto; white-space: pre; padding: 0.6rem 0.8rem; margin: 0.3rem 0; border: 1px solid #cfe0e6; border-left: 4px solid #4a90a4; border-radius: 4px; background-color: #eef5f8;">out = call (3, "mean", [{"type": "matrix",
+                         "value": [[1, 2, 3], [4, 5, 6]]}])
+print (out["rows"], "by", out["cols"], out["cells"])</pre>
+<pre style="overflow-x: auto; white-space: pre; padding: 0.6rem 0.8rem; margin: 0.3rem 0 0.8rem 0; border: 1px solid #e2e2e2; border-left: 4px solid #b7b7b7; border-radius: 4px; background-color: #fafafa;">1 by 3 [2.5, 3.5, 4.5]</pre>
+
+          <p>Results come back as their shape, <code>rows</code> and
+          <code>cols</code>, and a flat list of <code>cells</code>, row by row.
+          With NumPy, <code>numpy.array (out["cells"]).reshape (out["rows"],
+          out["cols"])</code> gives the array back. The shape is stated because a
+          JSON list cannot carry it: a row, a column and an empty matrix would
+          otherwise be indistinguishable.</p>
+
+          <p><strong>Stop the server</strong> by closing its input:</p>
+<pre style="overflow-x: auto; white-space: pre; padding: 0.6rem 0.8rem; margin: 0.3rem 0; border: 1px solid #cfe0e6; border-left: 4px solid #4a90a4; border-radius: 4px; background-color: #eef5f8;">server.stdin.close ()
+server.wait ()</pre>
+
+          <p>A program that makes more than one call keeps the server running and
+          sends each call with a new <code>id</code>. Measured on a Linux
+          workstation, starting it and the handshake take about a second, and each
+          call about 40 milliseconds more than the function itself, the price of
+          a fresh process per call.</p>
+
+          <h3>Its tools</h3>
+
+          <p>In every state it offers <code>octave_call</code> and
+          <code>octave_test</code>, and never <code>octave_eval</code>: it runs a
+          named function, not code. <code>octave_call</code> takes:</p>
+          <table class="table table-sm">
+            <thead><tr><th>Argument</th><th>What it holds</th></tr></thead>
+            <tbody>
+              <tr><td><code>function</code></td><td>a function name, such as
+                <code>mean</code> or <code>geom.area</code></td></tr>
+              <tr><td><code>args</code></td><td>the arguments in call order, each
+                <code>number</code>, <code>string</code>, <code>logical</code>,
+                <code>matrix</code> or <code>range</code></td></tr>
+              <tr><td><code>nargout</code></td><td>how many outputs to return, 1 to
+                16, 1 when omitted</td></tr>
+              <tr><td><code>nullDate</code></td><td>the date serial number 0 stands
+                for, <code>1899-12-30</code> when omitted</td></tr>
+            </tbody>
+          </table>
+          <p>A <code>range</code> is the form a spreadsheet hands over, for a block
+          whose cells may differ in kind. It carries its rows, its columns and its
+          cells row by row, each
+          with a kind, <code>empty</code>, <code>number</code>,
+          <code>logical</code>, <code>text</code>, <code>error</code>,
+          <code>date</code>, <code>datetime</code>, <code>time</code> or
+          <code>duration</code>, and a value. A numeric range becomes a matrix with
+          <code>NaN</code> for an empty cell, a text range a cell array of text, a
+          range of dates a <code>datetime</code>, a range of times a
+          <code>duration</code>, and a range mixing kinds a cell array. A range
+          holding an error cell is refused. Dates and times need
+          <code>datatypes</code> among the packages.</p>
+          <p>The results are in <code>structuredContent</code>, not in the text,
+          which is a one-line summary. Each output comes back as its kind, class,
+          rows, columns and cells row by row, with <code>NaN</code> as
+          <code>null</code>, <code>Inf</code> and <code>-Inf</code> as the strings
+          <code>"Inf"</code> and <code>"-Inf"</code>, and dates as serial numbers
+          from <code>nullDate</code>. What the function printed comes back beside
+          the outputs, and an Octave error as its message and identifier. Functions
+          that run programs or call another function by name, such as
+          <code>system</code> and <code>feval</code>, are refused.</p>
+        </article>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

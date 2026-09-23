@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Which language is this file in? devtools.dialectLint</title>
+  <meta name="description" content="Check that a package is written in Octave's own dialect, or that a file will run on MATLAB before you send it there.">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ==" crossorigin="anonymous" referrerpolicy="no-referrer">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/css/bootstrap.min.css" integrity="sha384-KyZXEAg3QhqLMpG8r+8fhAXLRk2vvoC2f3B09zVXn8CA5QIVfZOJ3BCsw2P0p/We" crossorigin="anonymous">
+  <style>
+    article p, article li { line-height: 1.65; }
+    article pre { background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: .375rem;
+                  padding: 1rem; overflow-x: auto; }
+    article code { color: #24292e; }
+    article pre code { color: inherit; }
+    article h2 { margin-top: 2.25rem; }
+    article h3 { margin-top: 1.5rem; }
+    .lead-rule { border-left: .25rem solid #6c757d; padding-left: 1rem; color: #495057; }
+  </style>
+</head>
+<body>
+  <div class="bg-dark">
+    <div class="container-xl">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+          <a class="navbar-brand" href="https://gnu-octave.github.io/packages/devtools">
+            <img src="../assets/devtools.png" alt="devtools" class="d-inline-block align-top" width="25" height="25">
+            Developer tooling for GNU Octave
+          </a>
+          <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav">
+              <li class="nav-item">
+                <a class="nav-link" href="../index.html"><i class="fas fa-book"></i> Documentation</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" href="index.html"><i class="fas fa-compass"></i> Guides</a>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </nav>
+    </div>
+  </div>
+
+  <div class="container-xl my-4">
+    <div class="row">
+      <div class="col-md-9">
+        <article>
+          <h1>Which language is this file in? <code>devtools.dialectLint</code></h1>
+          <p class="text-muted">Guide &middot; 23 September 2026</p>
+
+          <p class="lead-rule">Octave reads MATLAB's spellings as well as its own,
+          so a file can mix <code>#</code> and <code>%</code>, <code>!</code> and
+          <code>~</code>, <code>endif</code> and <code>end</code>, and Octave will
+          never complain. <code>devtools.dialectLint</code> answers two questions
+          Octave will not: is this file written in Octave's own dialect, and would
+          MATLAB accept it?</p>
+
+          <h2>Is it Octave's own dialect?</h2>
+
+          <p>Give it a file, the folder a package's source is in, or the name of an
+          installed package:</p>
+<pre><code>pkg load devtools
+devtools.dialectLint ('probe.m')
+devtools.dialectLint ('statistics')
+</code></pre>
+          <p>It reports every file that is not written in Octave's own dialect,
+          with the line that first departs from it:</p>
+<pre><code>      1  dialect-octave  probe.m
+         x = 1;  % a MATLAB comment
+
+  dialect-octave  1
+  total           1 of 1 files
+</code></pre>
+          <p>Octave's own dialect is <code>#</code> comments, <code>!</code> and
+          <code>!=</code>, and the typed block terminators, <code>endif</code>,
+          <code>endfor</code>, <code>endfunction</code> and the rest. Two spellings
+          have no Octave alternative and are accepted: <code>~</code> for an
+          ignored output, and <code>%!</code> opening a test block. A file that
+          passes is one MATLAB cannot read, which is the point.</p>
+
+          <h2>Would MATLAB accept it?</h2>
+
+          <p>Ask about MATLAB instead:</p>
+<pre><code>devtools.dialectLint ('octprobe.m', 'matlab')
+</code></pre>
+<pre><code>      2  dialect-matlab  octprobe.m
+         x += 2;  # Octave only
+
+  dialect-matlab  1
+  total           1 of 1 files
+</code></pre>
+          <p>MATLAB's dialect is <code>%</code> comments, <code>~</code> and
+          <code>~=</code>, and a bare <code>end</code>. Refused are the constructs
+          only Octave has, among them <code>do ... until</code>,
+          <code>unwind_protect</code>, compound assignment such as
+          <code>+=</code>, <code>++</code>, an index chained onto a call, and an
+          assignment used as an expression.</p>
+          <p>This is the check to run on a script before you send it to a MATLAB
+          machine, where Octave-only syntax fails with a message that names nothing
+          useful. A file that passes prints one line naming it:</p>
+<pre><code>devtools.dialectLint: probe.m is readable by MATLAB.
+</code></pre>
+
+          <h2>A broken file is not a dialect question</h2>
+
+          <p>Each file is read twice. If it does not parse at all, the finding is
+          <code>syntax</code>, a fault the file has whichever dialect you ask
+          about. Only a file that parses but uses the wrong dialect is reported
+          as <code>dialect-octave</code> or <code>dialect-matlab</code>.</p>
+
+          <h2>Findings as data</h2>
+
+          <p>With an output argument it prints nothing and returns one element per
+          file found, with <code>file</code>, <code>line</code>,
+          <code>column</code>, <code>rule</code> and <code>message</code>, the
+          message being the line that stopped the parse:</p>
+<pre><code>R = devtools.dialectLint ('octprobe.m', 'matlab');
+disp (R)
+    file = octprobe.m
+    line = 2
+    column = 3
+    rule = dialect-matlab
+    message = x += 2;  # Octave only
+</code></pre>
+          <p>Unlike <code>devtools.docLint</code>, it reads <code>private</code>
+          folders too: documentation obligations stop at a private helper, dialect
+          rules do not.</p>
+
+          <h2>What it needs</h2>
+
+          <p>A C++ compiler when the package is installed: the files are read by a
+          parser built at install time. Without one it raises an error saying so,
+          rather than reporting a file clean because nothing read it.</p>
+        </article>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

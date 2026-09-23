@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Octave in your editor: devtools.lsp</title>
+  <meta name="description" content="Set up the Octave language server in Kate, Neovim or Emacs: hover, go to definition, symbols and completion answered by your own Octave.">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ==" crossorigin="anonymous" referrerpolicy="no-referrer">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/css/bootstrap.min.css" integrity="sha384-KyZXEAg3QhqLMpG8r+8fhAXLRk2vvoC2f3B09zVXn8CA5QIVfZOJ3BCsw2P0p/We" crossorigin="anonymous">
+  <style>
+    article p, article li { line-height: 1.65; }
+    article pre { background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: .375rem;
+                  padding: 1rem; overflow-x: auto; }
+    article code { color: #24292e; }
+    article pre code { color: inherit; }
+    article h2 { margin-top: 2.25rem; }
+    article h3 { margin-top: 1.5rem; }
+    .lead-rule { border-left: .25rem solid #6c757d; padding-left: 1rem; color: #495057; }
+  </style>
+</head>
+<body>
+  <div class="bg-dark">
+    <div class="container-xl">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+          <a class="navbar-brand" href="https://gnu-octave.github.io/packages/devtools">
+            <img src="../assets/devtools.png" alt="devtools" class="d-inline-block align-top" width="25" height="25">
+            Developer tooling for GNU Octave
+          </a>
+          <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav">
+              <li class="nav-item">
+                <a class="nav-link" href="../index.html"><i class="fas fa-book"></i> Documentation</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" href="index.html"><i class="fas fa-compass"></i> Guides</a>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </nav>
+    </div>
+  </div>
+
+  <div class="container-xl my-4">
+    <div class="row">
+      <div class="col-md-9">
+        <article>
+          <h1>Octave in your editor: <code>devtools.lsp</code></h1>
+          <p class="text-muted">Guide &middot; 23 September 2026</p>
+
+          <p class="lead-rule"><code>devtools.lsp</code> is a language server: it
+          gives any editor that speaks the Language Server Protocol hover, go to
+          definition, document symbols, workspace symbols and completion for Octave
+          code. The server is an Octave interpreter, so what it tells you is what
+          your Octave, with your packages, would itself say. It evaluates no code,
+          runs no user function, and writes nothing.</p>
+
+          <h2>What you get</h2>
+
+          <table class="table table-sm">
+            <thead><tr><th>Feature</th><th>What it answers</th></tr></thead>
+            <tbody>
+              <tr><td>Hover</td><td>the help of the name under the cursor, as
+                <code>help</code> renders it</td></tr>
+              <tr><td>Go to definition</td><td>the file and line that define
+                it</td></tr>
+              <tr><td>Document symbols</td><td>the outline of a file: its class,
+                properties, methods and functions</td></tr>
+              <tr><td>Workspace symbols</td><td>the functions, classes and methods of
+                the project, found by part of their name</td></tr>
+              <tr><td>Completion</td><td>function, keyword and project names; a
+                namespace's contents after its name and a dot; a class's methods and
+                properties after an object and a dot</td></tr>
+            </tbody>
+          </table>
+
+          <h2>Install</h2>
+
+          <p>You need GNU Octave 11.1.0 or later and a C++ compiler: the server
+          reads your code through a parser that is built when the package is
+          installed. The language server is not in a release yet, so install the
+          development version, at the Octave prompt:</p>
+<pre><code>pkg install "https://github.com/pr0m1th3as/octave-devtools/archive/refs/heads/main.zip"
+</code></pre>
+          <p>Check that it is there:</p>
+<pre><code>pkg load devtools
+which devtools.lsp
+</code></pre>
+
+          <h2>The command your editor runs</h2>
+<pre><code>octave-cli -q --no-init-file --eval "pkg load devtools; devtools.lsp ()"
+</code></pre>
+          <p><strong>Do not shorten it.</strong> The server talks to the editor over
+          standard output, and <code>--no-init-file</code> keeps anything your
+          <code>~/.octaverc</code> prints off that stream. On Windows, name
+          <code>octave-cli.exe</code> in full.</p>
+          <p><strong>Load the packages your project uses.</strong> The server sees
+          the packages its command loads and no others, so hover on a
+          <code>statistics</code> function finds nothing unless you name it:</p>
+<pre><code>--eval "pkg load devtools statistics datatypes; devtools.lsp ()"
+</code></pre>
+
+          <h2>Kate</h2>
+
+          <p>Tested with Kate 25.04.</p>
+          <ol>
+            <li>In <em>Settings &rarr; Configure Kate &rarr; Plugins</em>, enable
+                <strong>LSP Client</strong>.</li>
+            <li>On the new <em>LSP Client</em> page, open <em>User Server
+                Settings</em> and add:</li>
+          </ol>
+<pre><code>{
+  "servers": {
+    "octave": {
+      "command": ["octave-cli", "-q", "--no-init-file", "--eval",
+                  "pkg load devtools statistics datatypes; devtools.lsp ()"],
+      "rootIndicationFileNames": ["DESCRIPTION", ".git"],
+      "highlightingModeRegex": "^(Octave|Matlab)$"
+    }
+  }
+}
+</code></pre>
+          <p><strong>Kate may take a <code>.m</code> file for Objective-C</strong>,
+          which uses the same extension, and start the Objective-C server instead;
+          its <em>Output</em> view then complains that <code>clangd</code> is
+          missing. Set the file's highlighting with <em>Tools &rarr; Highlighting
+          &rarr; Scientific &rarr; Octave</em>. To make that permanent, open
+          <em>Settings &rarr; Configure Kate &rarr; Open/Save &rarr; Modes &amp;
+          Filetypes</em>, choose <em>Scientific/Octave</em>, make sure its
+          extensions include <code>*.m</code>, and give it a higher priority than
+          Objective-C.</p>
+          <p>Kate starts one server per project, the folder holding
+          <code>DESCRIPTION</code> or <code>.git</code>. The <em>Output</em> view
+          shows the server's own messages; <code>devtools.lsp: listening</code>
+          means it started.</p>
+
+          <h2>Neovim and Emacs</h2>
+
+          <p>Neovim 0.11 and later, in <code>init.lua</code>:</p>
+<pre><code>vim.lsp.config ('octave', {
+  cmd = {'octave-cli', '-q', '--no-init-file', '--eval',
+         'pkg load devtools; devtools.lsp ()'},
+  filetypes = {'octave', 'matlab'},
+  root_markers = {'DESCRIPTION', '.git'},
+})
+vim.lsp.enable ('octave')
+</code></pre>
+          <p>Emacs with Eglot, in <code>init.el</code>. The first line stops Emacs
+          taking a <code>.m</code> file for Objective-C:</p>
+<pre><code>(add-to-list 'auto-mode-alist '("\\.m\\'" . octave-mode))
+(with-eval-after-load 'eglot
+  (add-to-list 'eglot-server-programs
+               '(octave-mode . ("octave-cli" "-q" "--no-init-file" "--eval"
+                                "pkg load devtools; devtools.lsp ()"))))
+</code></pre>
+          <h2>How it finds things</h2>
+
+          <h3>Your project comes first</h3>
+
+          <p>The folder your editor opens is the project. Its functions and classes
+          are read from its files and <em>never put on the load path</em>, since
+          adding a folder to the path runs its <code>PKG_ADD</code>. Where your
+          project and a loaded package define the same name, you get the project's
+          definition. That is what you want while developing a package that is also
+          installed: the installed copy is the stale one.</p>
+          <p>Within a file, a local function is found before anything else, as
+          Octave itself does.</p>
+
+          <h3>Methods: certain, or listed</h3>
+
+          <p>Many classes define methods with the same name: the
+          <code>statistics</code> classes define <code>predict</code> more than
+          forty times. Which one a call reaches depends on the class of the
+          object, which Octave only knows when the code runs. The server answers a
+          method only where the class is certain from the code itself:</p>
+          <ul>
+            <li>a call written with the class, <code>Class.method (...)</code>;</li>
+            <li>a method or property used on the object of the method you are
+                editing: <code>predict (obj, X)</code> or <code>obj.X</code> inside a
+                method whose first parameter is <code>obj</code>, or inside a
+                constructor on the object it returns.</li>
+          </ul>
+          <p>Elsewhere, hover lists every definition and go to definition offers
+          each one, rather than guessing. For the same reason there are no
+          diagnostics and no rename: both need the meaning of every name, which in
+          Octave is settled only at run time.</p>
+
+          <h2>If something does not work</h2>
+
+          <ul>
+            <li><strong>Nothing happens at all.</strong> Check that the editor started
+                the server: in Kate, the <em>Output</em> view should show
+                <code>devtools.lsp: listening</code>. If it shows another server,
+                the file type is wrong; see the Kate section above.</li>
+            <li><strong>A package's functions are not found.</strong> Add the package
+                to <code>pkg load</code> in the command.</li>
+            <li><strong>Hover, definition and symbols all fail.</strong> The
+                package was probably installed without a compiler, so the parser
+                was not built. The server's log says so. Install a C++ compiler and install the package
+                again.</li>
+            <li><strong>Warnings when the server starts</strong>, such as a package
+                reporting that it shadows a core function, come from that package's
+                own <code>PKG_ADD</code> and go to the log. They are harmless.</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

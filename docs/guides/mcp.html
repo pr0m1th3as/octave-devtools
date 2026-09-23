@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Octave in your AI assistant: devtools.mcp</title>
+  <meta name="description" content="Set up the read-only Model Context Protocol server, so that an AI assistant asks your Octave instead of guessing.">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ==" crossorigin="anonymous" referrerpolicy="no-referrer">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/css/bootstrap.min.css" integrity="sha384-KyZXEAg3QhqLMpG8r+8fhAXLRk2vvoC2f3B09zVXn8CA5QIVfZOJ3BCsw2P0p/We" crossorigin="anonymous">
+  <style>
+    article p, article li { line-height: 1.65; }
+    article pre { background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: .375rem;
+                  padding: 1rem; overflow-x: auto; }
+    article code { color: #24292e; }
+    article pre code { color: inherit; }
+    article h2 { margin-top: 2.25rem; }
+    article h3 { margin-top: 1.5rem; }
+    .lead-rule { border-left: .25rem solid #6c757d; padding-left: 1rem; color: #495057; }
+  </style>
+</head>
+<body>
+  <div class="bg-dark">
+    <div class="container-xl">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+          <a class="navbar-brand" href="https://gnu-octave.github.io/packages/devtools">
+            <img src="../assets/devtools.png" alt="devtools" class="d-inline-block align-top" width="25" height="25">
+            Developer tooling for GNU Octave
+          </a>
+          <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav">
+              <li class="nav-item">
+                <a class="nav-link" href="../index.html"><i class="fas fa-book"></i> Documentation</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" href="index.html"><i class="fas fa-compass"></i> Guides</a>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </nav>
+    </div>
+  </div>
+
+  <div class="container-xl my-4">
+    <div class="row">
+      <div class="col-md-9">
+        <article>
+          <h1>Octave in your AI assistant: <code>devtools.mcp</code></h1>
+          <p class="text-muted">Guide &middot; 23 September 2026</p>
+
+          <p class="lead-rule">An assistant writing Octave code guesses at what
+          exists: a function name, a signature, whether a package provides
+          something. <code>devtools.mcp</code> lets it ask your Octave instead,
+          over the Model Context Protocol, with your load path and your installed
+          packages. It evaluates no code, runs no user function, and writes
+          nothing, so you can allow it without being asked each time.</p>
+
+          <h2>What it is</h2>
+
+          <p>The server process <em>is</em> an Octave interpreter. There is no
+          wrapper and no second copy of the truth: when the assistant asks what
+          <code>kmeans</code> does, the answer comes from a real Octave, resolving
+          names exactly as Octave does, with the version and packages you have.</p>
+
+          <p>It serves five tools, all read-only:</p>
+
+          <table class="table table-sm">
+            <thead><tr><th>Tool</th><th>Answers</th></tr></thead>
+            <tbody>
+              <tr><td><code>octave_which</code></td><td>where a name resolves, its
+                kind, its owning package, what it shadows, and whether it is merely
+                installed rather than loaded</td></tr>
+              <tr><td><code>octave_help</code></td><td>the help text for a function,
+                class, method or operator</td></tr>
+              <tr><td><code>octave_search</code></td><td>which functions match a
+                description, when the name is not known</td></tr>
+              <tr><td><code>octave_pkg</code></td><td>which packages are installed,
+                at which versions, and which are loaded</td></tr>
+              <tr><td><code>octave_registry</code></td><td>which packages anywhere in
+                the Octave Packages index provide a name, from a dated
+                snapshot</td></tr>
+            </tbody>
+          </table>
+
+          <p>The Octave version and platform are not a tool. They are stated in the
+          server's instructions, sent once when the assistant connects, so it always
+          has them and no request pays for them. One resource is offered,
+          <code>octave://environment</code>: version, platform, load path size and
+          the packages the server loaded.</p>
+
+          <h2>Install</h2>
+
+          <p>You need GNU Octave 11.1.0 or later. At the Octave prompt:</p>
+<pre><code>pkg install devtools
+</code></pre>
+          <p>No compiler is needed for this server.</p>
+
+          <h2>Configure your assistant</h2>
+
+          <p>Most MCP hosts take a JSON block like this one. Where to put it depends
+          on the host; its documentation will say which file holds the
+          <code>mcpServers</code> entry.</p>
+<pre><code>{
+  "mcpServers": {
+    "octave": {
+      "command": "octave-cli",
+      "args": ["-q", "--no-init-file", "--eval", "pkg load devtools; devtools.mcp ()"]
+    }
+  }
+}
+</code></pre>
+          <p>The name <code>octave</code> is the one hosts use to label the tools and
+          to write permission rules. Because this server writes nothing and runs
+          nothing, it is the one to allow by default.</p>
+
+          <h3>Load the packages you want it to see</h3>
+
+          <p>The server sees the packages its own command loads, and no others. The
+          command above loads only <code>devtools</code>, so
+          <code>octave_which</code> will not find a function from
+          <code>statistics</code> unless you name it:</p>
+<pre><code>"args": ["-q", "--no-init-file", "--eval",
+         "pkg load devtools statistics datatypes; devtools.mcp ()"]
+</code></pre>
+          <p>This is deliberate. Loading every installed package would run each
+          one's <code>PKG_ADD</code>, which is other people's code running at
+          startup, and this server's whole claim is that it runs none.</p>
+
+          <h3>Do not shorten the command</h3>
+
+          <p>The server talks to the host over standard output, so anything else
+          written there corrupts the stream, and a corrupted stream usually shows up
+          in the host as an unexplained connection failure.</p>
+          <ul>
+            <li><code>--no-init-file</code> skips <code>~/.octaverc</code>, which may
+                print. Its output arrives before the server starts, so the server
+                cannot undo it. This flag is load bearing.</li>
+            <li><code>-q</code> suppresses the startup banner. Today
+                <code>--eval</code> already prevents one, so the flag changes nothing;
+                it stays because nothing else would guard that output if a future
+                release printed it.</li>
+          </ul>
+
+          <h3>On Windows, name <code>octave-cli.exe</code> in full</h3>
+
+          <p>A host starts the command without a shell, so a bare
+          <code>octave-cli</code> is found only if Octave is already on
+          <code>PATH</code>, which a Windows installation does not guarantee. When it
+          is not, the process never starts and there is nothing to diagnose it with.
+          Give the full path and change nothing else:</p>
+<pre><code>"command": "C:\\Octave\\octave-11.2.0-w64\\mingw64\\bin\\octave-cli.exe",
+</code></pre>
+
+          <h2>Check the setup</h2>
+
+          <p>Before blaming the host, run this at the Octave prompt:</p>
+<pre><code>pkg load devtools
+devtools.selftest ()
+</code></pre>
+          <p>It starts the servers as configured above, completes a handshake in both
+          protocol versions hosts use, holds the pipe open across two bursts of
+          requests the way a host does, and reports whether standard output stayed
+          clean, naming the first offending line if it did not. It also reads
+          standard error, where the server's own messages belong but an error the
+          interpreter raised about the server does not.</p>
+          <p>To check the exact command from your host's configuration rather than
+          the default one, pass it as text:</p>
+<pre><code>devtools.selftest ('octave-cli -q --no-init-file --eval "pkg load devtools statistics; devtools.mcp ()"')
+</code></pre>
+          <p>With an output argument, <code>ok = devtools.selftest ()</code> prints
+          nothing and returns true when every check passed.</p>
+
+          <h2>When you want the assistant to run code</h2>
+
+          <p>That is a different server, <code>devtools.mcpEval</code>, configured
+          under a name of its own so that the permission you give this one never
+          reaches it. See <a href="mcp-eval.html">Letting an assistant run
+          Octave</a>.</p>
+        </article>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

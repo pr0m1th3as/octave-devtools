@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Letting an assistant run Octave: devtools.mcpEval</title>
+  <meta name="description" content="Set up the evaluating Model Context Protocol server for an AI assistant: workspaces, the deadline, and what contains it.">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ==" crossorigin="anonymous" referrerpolicy="no-referrer">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/css/bootstrap.min.css" integrity="sha384-KyZXEAg3QhqLMpG8r+8fhAXLRk2vvoC2f3B09zVXn8CA5QIVfZOJ3BCsw2P0p/We" crossorigin="anonymous">
+  <style>
+    article p, article li { line-height: 1.65; }
+    article pre { background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: .375rem;
+                  padding: 1rem; overflow-x: auto; }
+    article code { color: #24292e; }
+    article pre code { color: inherit; }
+    article h2 { margin-top: 2.25rem; }
+    article h3 { margin-top: 1.5rem; }
+    .lead-rule { border-left: .25rem solid #6c757d; padding-left: 1rem; color: #495057; }
+  </style>
+</head>
+<body>
+  <div class="bg-dark">
+    <div class="container-xl">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+          <a class="navbar-brand" href="https://gnu-octave.github.io/packages/devtools">
+            <img src="../assets/devtools.png" alt="devtools" class="d-inline-block align-top" width="25" height="25">
+            Developer tooling for GNU Octave
+          </a>
+          <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav">
+              <li class="nav-item">
+                <a class="nav-link" href="../index.html"><i class="fas fa-book"></i> Documentation</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" href="index.html"><i class="fas fa-compass"></i> Guides</a>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </nav>
+    </div>
+  </div>
+
+  <div class="container-xl my-4">
+    <div class="row">
+      <div class="col-md-9">
+        <article>
+          <h1>Letting an assistant run Octave: <code>devtools.mcpEval</code></h1>
+          <p class="text-muted">Guide &middot; 23 September 2026</p>
+
+          <p class="lead-rule"><code>devtools.mcpEval</code> is
+          <a href="mcp.html"><code>devtools.mcp</code></a> plus two tools that run
+          code: <code>octave_eval</code> and <code>octave_test</code>. It is a
+          separate server on purpose, with its own command and its own name in your
+          assistant's configuration, so that the permission you give the read-only
+          one never reaches this one. Read the section on what contains it before
+          you configure it.</p>
+
+          <h2>What it adds</h2>
+
+          <table class="table table-sm">
+            <thead><tr><th>Tool</th><th>Answers</th></tr></thead>
+            <tbody>
+              <tr><td><code>octave_eval</code></td><td>what running some Octave code
+                produces, in a workspace that persists between calls</td></tr>
+              <tr><td><code>octave_test</code></td><td>how many of a function's
+                built-in tests pass, and what failed</td></tr>
+            </tbody>
+          </table>
+          <p>The five read-only tools of <code>devtools.mcp</code> are served as
+          well.</p>
+
+          <h2>Configure it under its own name</h2>
+<pre><code>{
+  "mcpServers": {
+    "octave-eval": {
+      "command": "octave-cli",
+      "args": ["-q", "--no-init-file", "--eval", "pkg load devtools; devtools.mcpEval ()"]
+    }
+  }
+}
+</code></pre>
+          <p>Configuring it beside the read-only server is fine and is the intended
+          setup: the assistant gets a set of tools it may use freely under
+          <code>octave</code>, and one it must ask about under
+          <code>octave-eval</code>. The rules of the read-only server apply
+          unchanged: do not shorten the command, name <code>octave-cli.exe</code> in
+          full on Windows, and load the packages you want it to see. See
+          <a href="mcp.html">the read-only guide</a> for why.</p>
+
+          <h2>Workspaces</h2>
+
+          <p>Code runs in a workspace named by an opaque handle. Every call names
+          one: <code>new</code> opens a workspace and the reply gives its handle,
+          and passing the handle back continues it. Variables persist,
+          <code>clear</code> works, and two workspaces cannot see each other.</p>
+          <p>The handle is required. An assistant that leaves out an argument is the
+          ordinary case, and a missing handle taken to mean "start clean" would lose
+          a workspace without a word. Eight workspaces live at once and the oldest
+          is dropped; a call naming one that is gone gets an error that says so.</p>
+          <p><code>octave_test</code> takes no workspace. Tests run in a context of
+          their own every time, so a result cannot depend on what was evaluated
+          before. It resolves the name through <code>which</code> and runs the file,
+          which is what lets it test a namespaced function or a class method.</p>
+
+          <h2>The deadline</h2>
+
+          <p>An evaluation still running after twenty seconds is stopped, and the
+          reply says so. What the code assigned before it was stopped is still in
+          the workspace, and what it printed is still returned. Where your work
+          honestly takes longer, raise it, up to six hundred seconds, in the
+          server's configuration:</p>
+<pre><code>"env": { "DEVTOOLS_EVAL_SECONDS": "120" }
+</code></pre>
+          <p>It is not a tool argument: that would cost tokens in every request, and
+          it is your decision rather than the assistant's.</p>
+          <p>The deadline does not recover everything. A call stuck inside one long
+          compiled routine, or blocked waiting on input, never reaches a point where
+          the interrupt can be noticed; then only restarting the server helps.</p>
+
+          <h2>What contains it, and what does not</h2>
+
+          <p>What evaluated code prints is captured at the file descriptors and
+          comes back in the reply, never into the stream that carries the protocol.
+          That includes what a subprocess prints and what a warning writes, in the
+          order it was written. <code>input</code> and <code>keyboard</code> are
+          disabled while a call runs, since there is no terminal for them to read
+          from.</p>
+          <p><strong>None of this is a sandbox.</strong> Evaluated code can read and
+          write your files, use the network and use memory exactly as any code in
+          your Octave can. The containment keeps the protocol intact and gets the
+          server back when code does not return; it does not defend against code
+          that means harm. Configure this server only where that is acceptable.</p>
+
+          <h3>Without a compiler</h3>
+
+          <p>The package installs without a C++ compiler, and this server still
+          works, with two guarantees weaker: there is no deadline, and a subprocess's
+          output is contained by name rather than at the descriptor.
+          <code>system</code> still runs, its output taken back and printed through
+          the interpreter, so ordinary code is unaffected. What is refused is
+          <code>popen</code> opened for writing and an asynchronous
+          <code>system</code>, whose output cannot be taken back at all.</p>
+
+          <h2>Check the setup</h2>
+
+          <p><code>devtools.selftest ()</code>, run with no argument, checks this
+          server as well as the read-only one: that it starts, answers in both
+          protocol versions, and keeps standard output clean while it runs code,
+          including a call that starts a subprocess and one that never returns.</p>
+
+          <h2>When the code comes from somewhere you do not trust</h2>
+
+          <p>Then you want the sandbox, which is a different mode of this server
+          with different tools: see <a href="sandbox.html">Octave for your
+          spreadsheet and other programs</a>.</p>
+        </article>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

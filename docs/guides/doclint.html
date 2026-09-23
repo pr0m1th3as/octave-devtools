@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Checking a package's documentation: devtools.docLint</title>
+  <meta name="description" content="Find the documentation defects no test suite can reach: wrong names, broken cross-references, wrong headings, overlong lines and INDEX mismatches.">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ==" crossorigin="anonymous" referrerpolicy="no-referrer">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/css/bootstrap.min.css" integrity="sha384-KyZXEAg3QhqLMpG8r+8fhAXLRk2vvoC2f3B09zVXn8CA5QIVfZOJ3BCsw2P0p/We" crossorigin="anonymous">
+  <style>
+    article p, article li { line-height: 1.65; }
+    article pre { background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: .375rem;
+                  padding: 1rem; overflow-x: auto; }
+    article code { color: #24292e; }
+    article pre code { color: inherit; }
+    article h2 { margin-top: 2.25rem; }
+    article h3 { margin-top: 1.5rem; }
+    .lead-rule { border-left: .25rem solid #6c757d; padding-left: 1rem; color: #495057; }
+  </style>
+</head>
+<body>
+  <div class="bg-dark">
+    <div class="container-xl">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+          <a class="navbar-brand" href="https://gnu-octave.github.io/packages/devtools">
+            <img src="../assets/devtools.png" alt="devtools" class="d-inline-block align-top" width="25" height="25">
+            Developer tooling for GNU Octave
+          </a>
+          <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav">
+              <li class="nav-item">
+                <a class="nav-link" href="../index.html"><i class="fas fa-book"></i> Documentation</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" href="index.html"><i class="fas fa-compass"></i> Guides</a>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </nav>
+    </div>
+  </div>
+
+  <div class="container-xl my-4">
+    <div class="row">
+      <div class="col-md-9">
+        <article>
+          <h1>Checking a package's documentation: <code>devtools.docLint</code></h1>
+          <p class="text-muted">Guide &middot; 23 September 2026</p>
+
+          <p class="lead-rule">Documentation is the one part of a package that
+          never runs, so no test reaches it. A function that was renamed, a
+          cross-reference to something removed, a line that grew past the margin:
+          all of them survive every test the package has.
+          <code>devtools.docLint</code> checks a package's texinfo against the code
+          it describes, and reports what it can find mechanically.</p>
+
+          <h2>Run it</h2>
+
+          <p>Give it the folder a package's source is in, or the name of an installed
+          package:</p>
+<pre><code>pkg load devtools
+devtools.docLint ('/home/me/src/csg-toolkit')
+devtools.docLint ('statistics')
+</code></pre>
+          <p>It prints what it finds, grouped by file, with a count per rule at the
+          end. A real run over a package:</p>
+<pre><code>INDEX
+      -  index-unlisted  does not list 'efd'.
+inst/LongBone.m
+     18  category        heading is 'Class'; expected 'csg-toolkit'.
+inst/simple_polygon3D.m
+     17  deftypefn-name  documents 'polygon3D' above function 'simple_polygon3D'.
+     18  deftypefn-name  documents 'polygon3D' above function 'simple_polygon3D'.
+     19  deftypefn-name  documents 'polygon3D' above function 'simple_polygon3D'.
+     20  deftypefn-name  documents 'polygon3D' above function 'simple_polygon3D'.
+
+  category        1
+  deftypefn-name  4
+  index-unlisted  1
+  total           6 in 3 files
+</code></pre>
+          <p>With an output argument it prints nothing and returns the findings, one
+          element each, with <code>file</code>, <code>line</code>,
+          <code>rule</code> and <code>message</code>:</p>
+<pre><code>R = devtools.docLint ('statistics');
+R(strcmp ({R.rule}, 'seealso-target'))
+</code></pre>
+
+          <h2>What it checks</h2>
+
+          <table class="table table-sm">
+            <thead><tr><th>Rule</th><th>Reports</th></tr></thead>
+            <tbody>
+              <tr><td><code>deftypefn-name</code></td><td>a header naming something
+                other than the function that follows it, or a function file
+                documenting a name other than its own</td></tr>
+              <tr><td><code>category</code></td><td>a heading, the first brace group
+                of a header, that is not what it should be (below)</td></tr>
+              <tr><td><code>seealso-target</code></td><td>an <code>@seealso</code>
+                naming something that is not in the package, not in core and not in
+                any package now loaded</td></tr>
+              <tr><td><code>seealso-member</code></td><td>an <code>@seealso</code>
+                naming a class member without its class: <code>help</code> finds
+                <code>ClassificationTree.margin</code> and does not find
+                <code>margin</code></td></tr>
+              <tr><td><code>width</code></td><td>a texinfo body line longer than 80
+                columns; header lines are exempt, their signatures being allowed to
+                run over</td></tr>
+              <tr><td><code>index-missing</code></td><td><code>INDEX</code> listing a
+                name the package does not supply, which breaks a documentation
+                build</td></tr>
+              <tr><td><code>index-unlisted</code></td><td>a function or class the
+                package supplies that <code>INDEX</code> does not list</td></tr>
+            </tbody>
+          </table>
+
+          <h3>The heading convention</h3>
+
+          <p>The heading is what <code>help</code> prints before a signature. The
+          rule expects:</p>
+          <ul>
+            <li>the <strong>package name</strong> from <code>DESCRIPTION</code> for a
+                function, for the block documenting a class, and for the
+                constructor of an old-style <code>@class</code>;</li>
+            <li>the <strong>class name</strong>, in full, for a classdef
+                constructor, a method and a property:
+                <code>{prob.BetaDistribution}</code>, never
+                <code>{BetaDistribution}</code>;</li>
+            <li>never a namespace: a class in <code>+datatypes/+tabular</code> is
+                headed <code>{datatypes}</code>.</li>
+          </ul>
+          <p>A private helper is headed <code>{Private Function}</code> and is not
+          checked against either.</p>
+
+          <h3>Not every finding is a defect</h3>
+
+          <p><code>index-unlisted</code> exists so that what <code>INDEX</code>
+          leaves out is left out on purpose. <code>INDEX</code> decides what is
+          cached and published, so omitting a name is how you keep it off both; if
+          the omission is deliberate, the finding simply confirms it.</p>
+
+          <h2>What it skips, and what it needs</h2>
+
+          <ul>
+            <li>Folders named <code>private</code>, <code>tests</code> and
+                <code>demos</code>, and names wrapped in double underscores, none of
+                which are a package's documented surface.</li>
+            <li>A cross-reference is resolved against what is on the load path when
+                you run it, so load the package's dependencies first. Otherwise
+                references into them are reported as unresolved.</li>
+          </ul>
+          <p>It reads files only and needs no compiler.</p>
+        </article>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
