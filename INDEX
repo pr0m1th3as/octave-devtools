@@ -2,6 +2,7 @@ devtools >> Developer tooling for GNU Octave
 Servers
  devtools.mcp
  devtools.mcpEval
+ devtools.lsp
 Diagnostics
  devtools.selftest
 Package checks
