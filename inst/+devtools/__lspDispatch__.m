@@ -1154,12 +1154,21 @@ endfunction
 %!  R = devtools.decodeRequest (jsonencode (m));
 %!endfunction
 
+%!function U = fileUri (P)
+%!  ## As a client writes it: forward slashes, and /C:/ for a drive
+%!  P = strrep (P, '\', '/');
+%!  if (numel (P) > 1 && P(2) == ':')
+%!    P = ['/' P];
+%!  endif
+%!  U = ["file://" P];
+%!endfunction
+
 %!function U = uri (D, name)
-%!  U = ["file://" fullfile(D, "inst", name)];
+%!  U = fileUri (fullfile (D, "inst", name));
 %!endfunction
 
 %!function S = session (D, enc)
-%!  p = struct ("rootUri", ["file://" D]);
+%!  p = struct ("rootUri", fileUri (D));
 %!  p.capabilities = struct ();
 %!  if (nargin > 1)
 %!    p.capabilities.general = struct ("positionEncodings", {{enc}});
