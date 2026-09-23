@@ -177,11 +177,12 @@
 ## state in a process of its own, so a workspace would carry nothing.
 ## @code{octave_call} is for programs, which read its structured result, its
 ## text being a summary without the values.  It runs no code text: it calls
-## one function by name on typed arguments, a range carrying each cell's kind
-## and value, and returns each output as typed cells row by row, dates as
-## serial numbers from the document's null date, with anything the function
-## printed beside them.  A call that crashes the interpreter comes back as an
-## error, and the server keeps serving.
+## one function by name on typed arguments, a matrix as a list of rows, a flat
+## list being a column, and a range carrying each cell's kind and value, and
+## returns each output as typed cells row by row, dates as serial numbers from
+## the document's null date, with anything the function printed beside them.
+## A call that crashes the interpreter comes back as an error, and the server
+## keeps serving.
 ##
 ## The folders it may read and the packages it loads are set in the launch
 ## environment, never in the command.  @env{DEVTOOLS_SANDBOX_FOLDERS} holds

@@ -25,7 +25,10 @@
 ## array of structures, a structure array when every argument has the same
 ## fields, a scalar structure for one argument, or an empty double for none.
 ## Each argument has a @code{type}: @qcode{"number"}, @qcode{"string"} and
-## @qcode{"logical"} carry a @code{value}, and @qcode{"range"} carries
+## @qcode{"logical"} carry a @code{value}; @qcode{"matrix"} carries a
+## @code{value} that is a list of rows, such as @code{[[1, 2], [3, 4]]}, with
+## @code{null} for @code{NaN} and the text @qcode{"Inf"} and @qcode{"-Inf"}
+## for the infinities; and @qcode{"range"} carries
 ## @code{rows}, @code{cols} and @code{cells}, listed row by row, each with a
 ## @code{kind} (@qcode{"empty"}, @qcode{"number"}, @qcode{"logical"},
 ## @qcode{"text"}, @qcode{"error"}, @qcode{"date"}, @qcode{"datetime"},
@@ -34,7 +37,15 @@
 ## the date serial number 0 stands for, written @qcode{"YYYY-MM-DD"}, and
 ## @var{DATES} is true when @code{datetime} and @code{duration} are available.
 ##
-## @var{V} is a cell array holding one value per argument.  A range becomes:
+## @var{V} is a cell array holding one value per argument.  A matrix becomes a
+## logical matrix when every element is @code{true} or @code{false}, and a
+## double matrix otherwise.  A flat list is a column: @code{jsondecode} reads
+## @code{[1, 2, 3]} and @code{[[1], [2], [3]]} alike, so a row vector is
+## written @code{[[1, 2, 3]]}.  Rows of different lengths, text other than the
+## infinities, and more than two levels of lists are refused, and the only
+## empty matrix is @code{[]}, which is 0-by-0.
+##
+## A range becomes:
 ##
 ## @itemize
 ## @item a double matrix when its cells are numbers, logical values or empty,
@@ -105,6 +116,13 @@ function [V, ERRMSG] = __callDecode__ (ARGS, NULLDATE, DATES)
           return;
         endif
         V{i} = a.value;
+      case 'matrix'
+        [x, ERRMSG] = decodeMatrix (a, i);
+        if (! isempty (ERRMSG))
+          V = {};
+          return;
+        endif
+        V{i} = x;
       case 'range'
         [x, ERRMSG] = decodeRange (a, i, NULLDATE, DATES);
         if (! isempty (ERRMSG))
@@ -119,6 +137,101 @@ function [V, ERRMSG] = __callDecode__ (ARGS, NULLDATE, DATES)
     endswitch
   endfor
 
+endfunction
+
+function [X, e] = decodeMatrix (a, i)
+
+  ## What jsondecode made of a list of rows: a numeric or logical array where
+  ## every element had one type, else a cell array, holding per row a column
+  ## vector where that row was uniform and a cell array where it was mixed.
+  X = [];
+  e = "";
+  if (! isfield (a, "value"))
+    e = sprintf ("argument %d is a matrix without a value.", i);
+    return;
+  endif
+  v = a.value;
+
+  if (isnumeric (v) || islogical (v))
+    if (ndims (v) > 2)
+      e = sprintf ("argument %d is a matrix of more than two dimensions.", i);
+      return;
+    endif
+    X = v;
+    if (isnumeric (X))
+      X = double (X);
+    endif
+    return;
+  endif
+  if (! iscell (v))
+    e = sprintf ("argument %d is a matrix whose value is not a list.", i);
+    return;
+  endif
+
+  ## A flat list is a column; otherwise each element is a row
+  v = v(:);
+  flat = all (cellfun (@(x) isItem (x), v));
+  if (flat)
+    rows = cellfun (@(x) {x}, v, "UniformOutput", false);
+  else
+    rows = cell (numel (v), 1);
+    for r = 1:numel (v)
+      x = v{r};
+      if (iscell (x))
+        rows{r} = x(:).';
+      elseif ((isnumeric (x) || islogical (x)) && isvector (x))
+        rows{r} = num2cell (x(:).');
+      elseif (isItem (x))
+        rows{r} = {x};
+      else
+        e = sprintf ("argument %d is a matrix of more than two dimensions.", i);
+        return;
+      endif
+    endfor
+  endif
+
+  n = cellfun (@numel, rows);
+  if (any (n != n(1)))
+    e = sprintf ("argument %d is a matrix whose rows differ in length.", i);
+    return;
+  endif
+  items = [rows{:}];
+  values = nan (1, numel (items));
+  logic = true;
+  for k = 1:numel (items)
+    x = items{k};
+    if (ischar (x))
+      if (strcmp (x, "Inf"))
+        values(k) = Inf;
+      elseif (strcmp (x, "-Inf"))
+        values(k) = -Inf;
+      else
+        fmt = ["argument %d is a matrix holding the text '%s', where only", ...
+               " \"Inf\" and \"-Inf\" may be text."];
+        e = sprintf (fmt, i, x);
+        return;
+      endif
+      logic = false;
+    elseif (isempty (x))
+      logic = false;                  # null, which is NaN
+    elseif ((isnumeric (x) || islogical (x)) && isscalar (x))
+      values(k) = double (x);
+      logic = logic && islogical (x);
+    else
+      e = sprintf ("argument %d is a matrix of more than two dimensions.", i);
+      return;
+    endif
+  endfor
+  X = reshape (values, n(1), numel (rows)).';
+  if (logic)
+    X = logical (X);
+  endif
+
+endfunction
+
+## One element of a matrix: a scalar, the text of an infinity, or null.
+function tf = isItem (x)
+  tf = ((isnumeric (x) || islogical (x)) && numel (x) <= 1) || ischar (x);
 endfunction
 
 function [X, e] = decodeRange (a, i, NULLDATE, DATES)
@@ -386,9 +499,9 @@ endfunction
 %! [V, E] = devtools.__callDecode__ (J ('[{"value":2}]'), "1899-12-30", false);
 %! assert_equal (E, "argument 1 has no type.");
 %!test
-%! [V, E] = devtools.__callDecode__ (J ('[{"type":"matrix"}]'), ...
+%! [V, E] = devtools.__callDecode__ (J ('[{"type":"tensor"}]'), ...
 %!                                   "1899-12-30", false);
-%! assert_equal (E, "argument 1 has the unknown type 'matrix'.");
+%! assert_equal (E, "argument 1 has the unknown type 'tensor'.");
 %!test
 %! [V, E] = devtools.__callDecode__ (J ('[{"type":"number","value":"2"}]'), ...
 %!                                   "1899-12-30", false);
@@ -435,6 +548,74 @@ endfunction
 %! [V, E] = devtools.__callDecode__ (A, "1899-12-30", false);
 %! assert_equal (E, ["argument 1: the cell in row 1, column 1 is text", ...
 %!                   " without a text value."]);
+
+%!test
+%! A = J ('{"type":"matrix","value":[[1,2,3],[4,5,6]]}');
+%! V = devtools.__callDecode__ (A, "1899-12-30", false);
+%! assert_equal (V{1}, [1, 2, 3; 4, 5, 6]);
+%!test
+%! ## A flat list is a column, as jsondecode reads it.
+%! A = J ('{"type":"matrix","value":[1,2,3]}');
+%! V = devtools.__callDecode__ (A, "1899-12-30", false);
+%! assert_equal (V{1}, [1; 2; 3]);
+%!test
+%! A = J ('{"type":"matrix","value":[[1,2,3]]}');
+%! V = devtools.__callDecode__ (A, "1899-12-30", false);
+%! assert_equal (V{1}, [1, 2, 3]);
+%!test
+%! A = J ('{"type":"matrix","value":[[1,null],[3,4]]}');
+%! V = devtools.__callDecode__ (A, "1899-12-30", false);
+%! assert_equal (V{1}, [1, NaN; 3, 4]);
+%!test
+%! A = J ('{"type":"matrix","value":[[1,"Inf"],["-Inf",null]]}');
+%! V = devtools.__callDecode__ (A, "1899-12-30", false);
+%! assert_equal (V{1}, [1, Inf; -Inf, NaN]);
+%!test
+%! A = J ('{"type":"matrix","value":[1,"Inf",null]}');
+%! V = devtools.__callDecode__ (A, "1899-12-30", false);
+%! assert_equal (V{1}, [1; Inf; NaN]);
+%!test
+%! A = J ('{"type":"matrix","value":[[true,false],[false,true]]}');
+%! V = devtools.__callDecode__ (A, "1899-12-30", false);
+%! assert_equal (V{1}, [true, false; false, true]);
+%!test
+%! ## true and false beside numbers are numbers.
+%! A = J ('{"type":"matrix","value":[[1,true],[2,false]]}');
+%! V = devtools.__callDecode__ (A, "1899-12-30", false);
+%! assert_equal (V{1}, [1, 1; 2, 0]);
+%!test
+%! A = J ('{"type":"matrix","value":[]}');
+%! V = devtools.__callDecode__ (A, "1899-12-30", false);
+%! assert_equal (V{1}, zeros (0, 0));
+%!test
+%! A = J ('{"type":"matrix","value":5}');
+%! V = devtools.__callDecode__ (A, "1899-12-30", false);
+%! assert_equal (V{1}, 5);
+%!test
+%! A = J ('{"type":"matrix","value":[[1,2],[3]]}');
+%! [V, E] = devtools.__callDecode__ (A, "1899-12-30", false);
+%! assert_equal (E, "argument 1 is a matrix whose rows differ in length.");
+%!test
+%! A = J ('{"type":"matrix","value":[[1,2],[3,"x"]]}');
+%! [V, E] = devtools.__callDecode__ (A, "1899-12-30", false);
+%! assert_equal (E, ["argument 1 is a matrix holding the text 'x', where", ...
+%!                   " only \"Inf\" and \"-Inf\" may be text."]);
+%!test
+%! A = J ('{"type":"matrix","value":[[[1,2],[3,4]],[[5,6],[7,8]]]}');
+%! [V, E] = devtools.__callDecode__ (A, "1899-12-30", false);
+%! assert_equal (E, "argument 1 is a matrix of more than two dimensions.");
+%!test
+%! A = J ('{"type":"matrix","value":[[1,[2,3]],[4,5]]}');
+%! [V, E] = devtools.__callDecode__ (A, "1899-12-30", false);
+%! assert_equal (E, "argument 1 is a matrix of more than two dimensions.");
+%!test
+%! A = J ('{"type":"matrix","value":"abc"}');
+%! [V, E] = devtools.__callDecode__ (A, "1899-12-30", false);
+%! assert_equal (E, "argument 1 is a matrix whose value is not a list.");
+%!test
+%! A = J ('{"type":"matrix"}');
+%! [V, E] = devtools.__callDecode__ (A, "1899-12-30", false);
+%! assert_equal (E, "argument 1 is a matrix without a value.");
 
 %!error <devtools\.__callDecode__: invalid number of input arguments\.> ...
 %! devtools.__callDecode__ ([], "1899-12-30")
