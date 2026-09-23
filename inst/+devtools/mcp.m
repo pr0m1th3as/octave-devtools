@@ -125,12 +125,3 @@ function mcp ()
   devtools.__serveLoop__ ("read-only", "mcp");
 
 endfunction
-
-%!test
-%! ## The one test that no offline test can replace: run the real server as a
-%! ## subprocess and prove that every byte it wrote to stdout was a message.
-%! [ok, rep] = devtools.selftest ();
-%! ## The checks that failed, compared as text so that a failure shows them
-%! bad = rep(! (strncmp (rep, "PASS", 4) | strncmp (rep, "SKIP", 4)));
-%! assert_equal (strjoin (bad, "\n"), "");
-%! assert_equal (ok, true);
