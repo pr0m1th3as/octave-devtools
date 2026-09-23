@@ -116,13 +116,16 @@
 ## @end group
 ## @end example
 ##
-## For Emacs with Eglot:
+## For Emacs with Eglot, in @file{init.el}; the first line stops Emacs taking
+## a @file{.m} file for Objective-C:
 ##
 ## @example
 ## @group
-## (add-to-list 'eglot-server-programs
-##              '(octave-mode . ("octave-cli" "-q" "--no-init-file" "--eval"
-##                               "pkg load devtools; devtools.lsp ()")))
+## (add-to-list 'auto-mode-alist '("\\.m\\'" . octave-mode))
+## (with-eval-after-load 'eglot
+##   (add-to-list 'eglot-server-programs
+##                '(octave-mode . ("octave-cli" "-q" "--no-init-file" "--eval"
+##                                 "pkg load devtools; devtools.lsp ()"))))
 ## @end group
 ## @end example
 ##
