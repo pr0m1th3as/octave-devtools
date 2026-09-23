@@ -151,9 +151,11 @@
 ## so.  A host that does not read the report below should not be given this
 ## option on a machine without a sandbox.
 ##
-## Every result states the sandbox in
-## @code{_meta["io.github.pr0m1th3as.devtools/sandbox"]}, one of three states,
-## and the @code{instructions} say the same to a model:
+## The sandbox is settled when the server starts and does not change while it
+## runs.  It is stated in @code{_meta["io.github.pr0m1th3as.devtools/sandbox"]}
+## in the reply to @code{initialize}, and, under the stateless protocol
+## revision, which has no @code{initialize}, in every reply; the
+## @code{instructions} say the same to a model.  It is one of three states:
 ##
 ## @table @asis
 ## @item @qcode{"active"}
@@ -353,7 +355,7 @@ function why = trialRun (prog, args)
 endfunction
 
 ## Serve without a sandbox, the packages and folders set up as they would be
-## inside it, and every result saying why there is none.
+## inside it, and the server saying why there is none.
 function serveOutside (state, why)
 
   packages = splitEnv ("DEVTOOLS_SANDBOX_PACKAGES", ",");
