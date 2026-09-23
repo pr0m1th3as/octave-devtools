@@ -41,9 +41,12 @@
 ## it, or a function file documents a name other than its own.
 ##
 ## @item @qcode{'category'}
-## The first brace group of a header is neither the package, which is what a
-## function and a class carry, nor the class, which is what a method and a
-## property carry.
+## The first brace group of a header is not what it should be: the package
+## for a function, for the block documenting a class and for the constructor
+## of an old-style @@class, the class for a classdef constructor, a method and
+## a property.  The package is the name in @file{DESCRIPTION}, never a
+## namespace, and the class is named in full, @code{prob.BetaDistribution}
+## rather than @code{BetaDistribution}.
 ##
 ## @item @qcode{'seealso-target'}
 ## An @code{@@seealso} names something that is not in this package, not in
@@ -189,7 +192,7 @@ function F = __checkFile__ (F, FILE, INV, PKGNAME)
       F = __checkName__ (F, FILE, idx(1), name, defname, defkind, B.kind, ...
                          own, cls, isclassdef);
       F = __checkCategory__ (F, FILE, idx(1), name, category, PKGNAME, ...
-                             cls, isclassdef, folderclass);
+                             cls, isclassdef, folderclass, B.kind);
     endfor
 
     ## Cross-references
@@ -299,7 +302,7 @@ function F = __checkName__ (F, FILE, LINE, NAME, DEFNAME, DEFKIND, KIND, ...
 endfunction
 
 function F = __checkCategory__ (F, FILE, LINE, NAME, CATEGORY, PKGNAME, ...
-                                CLS, ISCLASSDEF, FOLDERCLASS)
+                                CLS, ISCLASSDEF, FOLDERCLASS, KIND)
 
   if (isempty (CATEGORY) || strcmp (CATEGORY, "Private Function"))
     return;
@@ -310,18 +313,14 @@ function F = __checkCategory__ (F, FILE, LINE, NAME, CATEGORY, PKGNAME, ...
 
   if (! ISCLASSDEF)
     want = {PKGNAME};
-  elseif (__isClassName__ (NAME, CLS))
-    want = {PKGNAME, CLS};                     # a class and its constructor
-    parts = strsplit (CLS, ".");
-    if (numel (parts) > 1)
-      want{end+1} = strjoin (parts(1:end-1), ".");   # the namespace it sits in
-    endif
-  elseif (FOLDERCLASS)
-    want = {CLS, PKGNAME};                     # a class only extended here
+  elseif (__isClassName__ (NAME, CLS) && strcmp (KIND, 'deftp'))
+    want = {PKGNAME};                          # the class block
+  elseif (__isClassName__ (NAME, CLS) && FOLDERCLASS)
+    want = {PKGNAME};                          # an @class constructor
   else
     want = {CLS};
   endif
-  if (! any (strcmp (CATEGORY, __withTails__ (want))))
+  if (! any (strcmp (CATEGORY, want)))
     msg = sprintf ("heading is '%s'; expected %s.", CATEGORY, ...
                    __orList__ (want));
     F = __add__ (F, FILE, LINE, 'category', msg);
@@ -382,15 +381,6 @@ endfunction
 function TF = __isClassName__ (NAME, CLS)
   parts = strsplit (CLS, ".");
   TF = (strcmp (NAME, CLS) || strcmp (NAME, parts{end}));
-endfunction
-
-function WANT = __withTails__ (WANT)
-  for ii = 1:numel (WANT)
-    parts = strsplit (WANT{ii}, ".");
-    if (numel (parts) > 1)
-      WANT{end+1} = parts{end};                # the same class, spelled shorter
-    endif
-  endfor
 endfunction
 
 function TXT = __orList__ (WANT)
@@ -529,14 +519,31 @@ endfunction
 %! fputs (fid, "function bare ()\nendfunction\n");
 %! fclose (fid);
 %! fid = fopen (fullfile (D, "inst", "cls.m"), "w");
-%! fputs (fid, "classdef cls\n  methods\n    ## -*- texinfo -*-\n");
+%! fputs (fid, "## -*- texinfo -*-\n## @deftp {fixt} cls\n##\n## Text.\n##\n");
+%! fputs (fid, "## @end deftp\nclassdef cls\n  methods\n");
+%! fputs (fid, "    ## -*- texinfo -*-\n    ## @deftypefn {fixt} {} cls ()\n");
+%! fputs (fid, "    ##\n    ## Text.\n    ##\n    ## @end deftypefn\n");
+%! fputs (fid, "    function this = cls ()\n    endfunction\n");
+%! fputs (fid, "    ## -*- texinfo -*-\n");
 %! fputs (fid, "    ## @deftypefn {fixt} {} zzmember (@var{this})\n    ##\n");
 %! fputs (fid, "    ## Text.\n    ##\n    ## @end deftypefn\n");
 %! fputs (fid, "    function zzmember (this)\n    endfunction\n");
 %! fputs (fid, "  endmethods\nendclassdef\n");
 %! fclose (fid);
+%! mkdir (fullfile (D, "inst", "@oc"));
+%! fid = fopen (fullfile (D, "inst", "@oc", "oc.m"), "w");
+%! fputs (fid, "## -*- texinfo -*-\n## @deftypefn {fixt} {} oc ()\n##\n");
+%! fputs (fid, "## Text.\n##\n## @end deftypefn\n");
+%! fputs (fid, "function this = oc ()\n  this = class (struct (), 'oc');\n");
+%! fputs (fid, "endfunction\n");
+%! fclose (fid);
+%! fid = fopen (fullfile (D, "inst", "@oc", "ocm.m"), "w");
+%! fputs (fid, "## -*- texinfo -*-\n## @deftypefn {fixt} {} ocm (@var{this})\n");
+%! fputs (fid, "##\n## Text.\n##\n## @end deftypefn\n");
+%! fputs (fid, "function ocm (this)\nendfunction\n");
+%! fclose (fid);
 %! fid = fopen (fullfile (D, "INDEX"), "w");
-%! fputs (fid, "fixt >> Fixture\nFunctions\n plain slip wide dangle bare cls ghost\n");
+%! fputs (fid, "fixt >> Fixture\nFunctions\n plain slip wide dangle bare cls oc ghost\n");
 %! fclose (fid);
 
 %!test
@@ -566,8 +573,9 @@ endfunction
 %!test
 %! R = devtools.docLint (D);
 %! S = R(strcmp ({R.rule}, 'category'));
-%! assert_equal (numel (S), 1);
-%! assert_equal (S.message, "heading is 'fixt'; expected 'cls'.");
+%! assert_equal (numel (S), 3);
+%! msg = "heading is 'fixt'; expected 'cls'.";
+%! assert_equal ({S.message}, {"heading is 'fixt'; expected 'oc'.", msg, msg});
 
 %!test
 %! R = devtools.docLint (D);
