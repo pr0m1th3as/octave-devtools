@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title>Developer tooling for GNU Octave: devtools.mcp</title>
+    <title>Developer tooling for GNU Octave: devtools.lsp</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ==" crossorigin="anonymous" referrerpolicy="no-referrer">
@@ -211,9 +211,9 @@
 				</label>
 				<div class="list">
 				<ul style="list-style-type: none; padding-left: 20px;">
-					<li><a href="devtools.mcp.html" class="text-decoration-none font-monospace fw-bolder"><small>devtools.mcp</small></a></li>
+					<li><a href="devtools.mcp.html" class="text-decoration-none font-monospace"><small>devtools.mcp</small></a></li>
 					<li><a href="devtools.mcpEval.html" class="text-decoration-none font-monospace"><small>devtools.mcpEval</small></a></li>
-					<li><a href="devtools.lsp.html" class="text-decoration-none font-monospace"><small>devtools.lsp</small></a></li>
+					<li><a href="devtools.lsp.html" class="text-decoration-none font-monospace fw-bolder"><small>devtools.lsp</small></a></li>
 				</ul>
 				</div>
 			</div>
@@ -249,110 +249,119 @@
             <div class="card-header card-header-mod">
               <div class="row d-flex flex-wrap align-items-center">
                 <h3 class="d-inline-block mr-2">
-                Function&nbsp;Reference: <b><code>devtools.mcp</code></b>
+                Function&nbsp;Reference: <b><code>devtools.lsp</code></b>
                 </h3>
               </div>
             </div>
             <div class="card-body">
-<p class="h5 fs fs-last"><code>devtools: <b>devtools.mcp</b> ()</code></p>
-<p> Serve the Model Context Protocol on standard input and output.
+<p class="h5 fs fs-last"><code>devtools: <b>devtools.lsp</b> ()</code></p>
+<p> Serve the Language Server Protocol on standard input and output.
 </p>
 <div class="ms-5">
-<p> <code>devtools.mcp ()</code> reads newline-delimited JSON-RPC messages from
- standard input, answers each one, writes the answer to standard output, and
- returns only when standard input reaches end of file.  It is the entry point
- a host launches; it is not meant to be called at an interactive prompt, where
- it would take the terminal.
+<p> <code>devtools.lsp ()</code> reads Language Server Protocol messages from standard
+ input, answers each one, and writes the answer to standard output.  It
+ returns when standard input reaches end of file, and ends the process on an
+ <code>exit</code> notification, with status 0 after <code>shutdown</code> and 1
+ without, as the protocol asks.  It is the entry point an editor launches;
+ it is not meant to be called at an interactive prompt, where it would take
+ the terminal.
 </p>
-<p> Both protocol eras are served.  A client that opens with per-request metadata
- is answered under revision 2026-07-28 and statelessly; a client that opens
- with an <code>initialize</code> handshake is answered under revision 2025-11-25 for
- the life of the process.  The choice is made by the first request and the
- tools are the same in either case.
+<p> Five features are served:
 </p>
-<p> The read-only tool set is served here.  This server evaluates no code, runs
- no user function, and writes nothing, which is the property that lets a user
- grant it blanket permission.  Evaluation lives behind a separate entry point
- and a separate configuration entry, so that it cannot be reached by a host
- configured for this one.
+<dl compact="compact">
+<dt> hover</dt>
+<dd> the help of the name under the cursor, as <code>help</code> renders it;</dd>
+<dt> go to definition</dt>
+<dd> the file and line that define it;</dd>
+<dt> document symbols</dt>
+<dd> the outline of a file: its class, properties, methods and functions;</dd>
+<dt> workspace symbols</dt>
+<dd> the functions, classes and methods of the project, by part of their name;</dd>
+<dt> completion</dt>
+<dd> function, keyword and project names, a namespace&rsquo;s contents after its name
+ and a dot, and a class&rsquo;s methods and properties after an object and a dot.</dd>
+</dl>
+
+<p> The answers come from the interpreter serving them, so they are what this
+ Octave, with these packages loaded, would itself say.  The folder the editor
+ opens is the project.  Its functions and classes are read from its files and
+ never put on the load path, since adding a folder to the path runs its
+ <code>PKG_ADD</code>; where the project and a loaded package both define a name,
+ the project&rsquo;s definition is the one answered, the installed copy of a
+ package under development being the stale one.
 </p>
-<p> Configure a host to launch it with:
+<p> A method that several classes define is answered only where the class is
+ certain: a call written <code>Class.method</code>, or a method or property used on
+ the object of the method being edited, such as <code>predict (obj, X)</code> or
+ <code>obj.X</code> inside a method whose first parameter is <code>obj</code>.
+ Otherwise hover lists every definition and go to definition offers each.
+ A name&rsquo;s meaning is otherwise settled only at run time, so there are no
+ diagnostics and no rename.
 </p>
-<table><tr><td>&nbsp;</td><td><pre class="example"> octave-cli -q --no-init-file --eval &quot;pkg load devtools; devtools.mcp ()&quot;
+<p> This server evaluates no code, runs no user function, and writes nothing.
+ Configure an editor to launch it with:
+</p>
+<table><tr><td>&nbsp;</td><td><pre class="example"> octave-cli -q --no-init-file --eval &quot;pkg load devtools; devtools.lsp ()&quot;
 </pre></td></tr></table>
 
-<p> <strong>Do not shorten that command.</strong>  <code>--no-init-file</code> is the
- load-bearing flag: it skips <code>~/.octaverc</code>, whose output would arrive
- before this function exists, and a single byte written there corrupts the
- stream for the whole session.  Measured on 11.2.0, <code>--eval</code> already
- makes the run non-interactive so that no banner is written either way and
- <code>-q</code> changes nothing today; it is kept because nothing else guards that
- output if a future release prints one.  Use <code>devtools.selftest</code> to
- check a configuration before suspecting the host.
+<p> <strong>Do not shorten that command.</strong>  <code>--no-init-file</code> skips
+ <code>~/.octaverc</code>, whose output would arrive before this function exists
+ and corrupt the stream, as for <code>devtools.mcp</code>.  On Windows, name
+ <code>octave-cli.exe</code> in full.  The server sees the packages its command
+ loads and no others, so name the ones the project uses:
 </p>
-<p> <strong>On Windows, name <code>octave-cli.exe</code> in full.</strong>  A host spawns the
- command with no shell, so a bare <code>octave-cli</code> resolves only where the
- interpreter is already on <code>PATH</code>, which a Windows installation does not
- guarantee and a configuration file cannot arrange.  Where it is not, the
- process never starts and writes nothing at all, which reads exactly like the
- corrupted stream above and is nothing to do with it.
-</p>
-<p> <strong>This server sees the packages its own launch command loads, and no
- others.</strong>  The command above loads only <code>devtools</code>, so
- <code>octave_which</code> will not find a function from <code>statistics</code> unless
- it is named:
-</p>
-<table><tr><td>&nbsp;</td><td><pre class="example"> --eval &quot;pkg load devtools statistics; devtools.mcp ()&quot;
+<table><tr><td>&nbsp;</td><td><pre class="example"> --eval &quot;pkg load devtools statistics; devtools.lsp ()&quot;
 </pre></td></tr></table>
 
 <p> A package&rsquo;s dependencies need not be named: <code>pkg load</code> loads them too,
  so this also loads <code>datatypes</code>, which <code>statistics</code> depends on.
- The server loads nothing on its own.  Loading every installed package
- instead would run each one&rsquo;s <code>PKG_ADD</code>, which is other people&rsquo;s code
- executing at startup, and this server&rsquo;s whole claim is that it runs none.
 </p>
-<p>  Tools
+<p> For Kate, enable the LSP Client plugin and add to its User Server Settings:
 </p>
-<p> Five tools are served, all of them read-only:
-</p>
-<dl compact="compact">
-<dt> <code>octave_which</code></dt>
-<dd> where a name resolves, its kind, its owning package, what it shadows, and
- whether it is installed rather than loaded.</dd>
-<dt> <code>octave_help</code></dt>
-<dd> the help text for a function, class, method or operator, answered from the
- documentation caches where one holds the entry, so that a function in an
- installed package this server has not loaded is answered too.</dd>
-<dt> <code>octave_search</code></dt>
-<dd> which functions match a description, when the name is not known.</dd>
-<dt> <code>octave_pkg</code></dt>
-<dd> which packages are installed, at which versions, and which are loaded.</dd>
-<dt> <code>octave_registry</code></dt>
-<dd> which packages anywhere in the Octave Packages index provide a name, from a
- dated snapshot carried in this package.</dd>
-</dl>
+<table><tr><td>&nbsp;</td><td><pre class="example"> {
+   &quot;servers&quot;: {
+     &quot;octave&quot;: {
+       &quot;command&quot;: [&quot;octave-cli&quot;, &quot;-q&quot;, &quot;--no-init-file&quot;, &quot;--eval&quot;,
+                   &quot;pkg load devtools; devtools.lsp ()&quot;],
+       &quot;rootIndicationFileNames&quot;: [&quot;DESCRIPTION&quot;, &quot;.git&quot;],
+       &quot;highlightingModeRegex&quot;: &quot;^(Octave|Matlab)$&quot;
+     }
+   }
+ }
+</pre></td></tr></table>
 
-<p> One resource is offered, <code>octave://environment</code>: version, platform,
- load path size and the packages this server loaded.  The version and the
- platform are also stated in the server&rsquo;s <code>instructions</code>, sent once when
- a client connects, so that no request pays for them.
+<p> Kate may take a <code>.m</code> file for Objective-C and start its server for
+ that language instead; set the file&rsquo;s highlighting to Octave, or give the
+ Octave file type the higher priority for <code>*.m</code>.
 </p>
-<p> Everything diagnostic goes to standard error, which the protocol reserves for
- exactly that purpose and which a client may capture, forward or ignore.
+<p> For Neovim 0.11 and later, in <code>init.lua</code>:
 </p>
-<p> One deviation is worth stating.  This loop reads, answers and writes in one
- thread, so a <code>notifications/cancelled</code> arriving for a request already
- being answered cannot be seen until that answer has been written.  The
- protocol asks that no further message be sent for a cancelled request and
- this implementation cannot honour it.  The tools served here return in
- milliseconds, so the window is small, but it is real.
+<table><tr><td>&nbsp;</td><td><pre class="example"> vim.lsp.config ('octave', {
+   cmd = {'octave-cli', '-q', '--no-init-file', '--eval',
+          'pkg load devtools; devtools.lsp ()'},
+   filetypes = {'octave', 'matlab'},
+   root_markers = {'DESCRIPTION', '.git'},
+ })
+ vim.lsp.enable ('octave')
+</pre></td></tr></table>
+
+<p> For Emacs with Eglot, in <code>init.el</code>; the first line stops Emacs taking
+ a <code>.m</code> file for Objective-C:
+</p>
+<table><tr><td>&nbsp;</td><td><pre class="example"> (add-to-list 'auto-mode-alist '(&quot;\\.m\\'&quot; . octave-mode))
+ (with-eval-after-load 'eglot
+   (add-to-list 'eglot-server-programs
+                '(octave-mode . (&quot;octave-cli&quot; &quot;-q&quot; &quot;--no-init-file&quot; &quot;--eval&quot;
+                                 &quot;pkg load devtools; devtools.lsp ()&quot;))))
+</pre></td></tr></table>
+
+<p> Everything diagnostic goes to standard error.
 </p>
 <p> <strong>See also: </strong>
-  <a href="devtools.mcpEval.html">devtools.mcpEval</a>, 
-  <a href="devtools.selftest.html">devtools.selftest</a>
+  <a href="devtools.mcp.html">devtools.mcp</a>
 </p>
 <p><strong>Source Code: </strong>
-  <a href="https://github.com/pr0m1th3as/octave-devtools/blob/57e5a27/inst/+devtools/mcp.m">devtools.mcp</a>
+  <a href="https://github.com/pr0m1th3as/octave-devtools/blob/57e5a27/inst/+devtools/lsp.m">devtools.lsp</a>
 </p>
 </div>
 

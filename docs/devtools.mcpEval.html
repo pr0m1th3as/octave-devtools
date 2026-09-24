@@ -92,9 +92,18 @@
       });
     </script>
     <style>
-    h5.fs {
+    .fs {
     margin-top: -0.15em;
     margin-bottom: -0.15em;
+    }
+    .fs-last {
+    margin-bottom: calc(1rem - 0.15em);
+    }
+    p.description {
+    font-family: Consolas, "Courier New", monospace;
+    }
+    p.description code {
+    font-size: inherit;
     }
     h6:hover {
       color: gray;
@@ -204,6 +213,7 @@
 				<ul style="list-style-type: none; padding-left: 20px;">
 					<li><a href="devtools.mcp.html" class="text-decoration-none font-monospace"><small>devtools.mcp</small></a></li>
 					<li><a href="devtools.mcpEval.html" class="text-decoration-none font-monospace fw-bolder"><small>devtools.mcpEval</small></a></li>
+					<li><a href="devtools.lsp.html" class="text-decoration-none font-monospace"><small>devtools.lsp</small></a></li>
 				</ul>
 				</div>
 			</div>
@@ -219,6 +229,19 @@
 				</ul>
 				</div>
 			</div>
+			<div class="row">
+				<input id="togList3" type="checkbox">
+				<label for="togList3">
+					<span><h6>Package checks</h6></span>
+					<span><h6>Package checks</h6></span>
+				</label>
+				<div class="list">
+				<ul style="list-style-type: none; padding-left: 20px;">
+					<li><a href="devtools.docLint.html" class="text-decoration-none font-monospace"><small>devtools.docLint</small></a></li>
+					<li><a href="devtools.dialectLint.html" class="text-decoration-none font-monospace"><small>devtools.dialectLint</small></a></li>
+				</ul>
+				</div>
+			</div>
 
 			  </div>
 			  <div class="col-md-10">
@@ -231,10 +254,8 @@
               </div>
             </div>
             <div class="card-body">
-<dl>
-<dt><code><h5 class="fs">devtools: <b>devtools.mcpEval</b> ()</code></h5></dt>
-<dt><code><h5 class="fs">devtools: <b>devtools.mcpEval</b> (<code>&quot;Sandbox&quot;</code>)</code></h5></dt>
-</dl>
+<p class="h5 fs"><code>devtools: <b>devtools.mcpEval</b> ()</code></p>
+<p class="h5 fs fs-last"><code>devtools: <b>devtools.mcpEval</b> (<code>&quot;Sandbox&quot;</code>)</code></p>
 <p> Serve the Model Context Protocol on standard input and output, with
  evaluation.
 </p>
@@ -366,9 +387,11 @@
  so.  A host that does not read the report below should not be given this
  option on a machine without a sandbox.
 </p>
-<p> Every result states the sandbox in
- <code>_meta[&quot;io.github.pr0m1th3as.devtools/sandbox&quot;]</code>, one of three states,
- and the <code>instructions</code> say the same to a model:
+<p> The sandbox is settled when the server starts and does not change while it
+ runs.  It is stated in <code>_meta[&quot;io.github.pr0m1th3as.devtools/sandbox&quot;]</code>
+ in the reply to <code>initialize</code>, and, under the stateless protocol
+ revision, which has no <code>initialize</code>, in every reply; the
+ <code>instructions</code> say the same to a model.  It is one of three states:
 </p>
 <dl compact="compact">
 <dt> <code>&quot;active&quot;</code></dt>
@@ -390,11 +413,12 @@
  state in a process of its own, so a workspace would carry nothing.
  <code>octave_call</code> is for programs, which read its structured result, its
  text being a summary without the values.  It runs no code text: it calls
- one function by name on typed arguments, a range carrying each cell&rsquo;s kind
- and value, and returns each output as typed cells row by row, dates as
- serial numbers from the document&rsquo;s null date, with anything the function
- printed beside them.  A call that crashes the interpreter comes back as an
- error, and the server keeps serving.
+ one function by name on typed arguments, a matrix as a list of rows, a flat
+ list being a column, and a range carrying each cell&rsquo;s kind and value, and
+ returns each output as typed cells row by row, dates as serial numbers from
+ the document&rsquo;s null date, with anything the function printed beside them.
+ A call that crashes the interpreter comes back as an error, and the server
+ keeps serving.
 </p>
 <p> The folders it may read and the packages it loads are set in the launch
  environment, never in the command.  <code>DEVTOOLS_SANDBOX_FOLDERS</code> holds
@@ -471,7 +495,8 @@
 devtools.sandboxCommand
 </p>
 <p><strong>Source Code: </strong>
-  <a href="https://github.com/pr0m1th3as/octave-devtools/blob/7adc250/inst/+devtools/mcpEval.m">devtools.mcpEval</a>
+  <a href="https://github.com/pr0m1th3as/octave-devtools/blob/57e5a27/inst/+devtools/mcpEval.m">devtools.mcpEval</a>
+</p>
 </div>
 
             </div>

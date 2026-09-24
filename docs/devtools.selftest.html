@@ -92,9 +92,18 @@
       });
     </script>
     <style>
-    h5.fs {
+    .fs {
     margin-top: -0.15em;
     margin-bottom: -0.15em;
+    }
+    .fs-last {
+    margin-bottom: calc(1rem - 0.15em);
+    }
+    p.description {
+    font-family: Consolas, "Courier New", monospace;
+    }
+    p.description code {
+    font-size: inherit;
     }
     h6:hover {
       color: gray;
@@ -204,6 +213,7 @@
 				<ul style="list-style-type: none; padding-left: 20px;">
 					<li><a href="devtools.mcp.html" class="text-decoration-none font-monospace"><small>devtools.mcp</small></a></li>
 					<li><a href="devtools.mcpEval.html" class="text-decoration-none font-monospace"><small>devtools.mcpEval</small></a></li>
+					<li><a href="devtools.lsp.html" class="text-decoration-none font-monospace"><small>devtools.lsp</small></a></li>
 				</ul>
 				</div>
 			</div>
@@ -219,6 +229,19 @@
 				</ul>
 				</div>
 			</div>
+			<div class="row">
+				<input id="togList3" type="checkbox">
+				<label for="togList3">
+					<span><h6>Package checks</h6></span>
+					<span><h6>Package checks</h6></span>
+				</label>
+				<div class="list">
+				<ul style="list-style-type: none; padding-left: 20px;">
+					<li><a href="devtools.docLint.html" class="text-decoration-none font-monospace"><small>devtools.docLint</small></a></li>
+					<li><a href="devtools.dialectLint.html" class="text-decoration-none font-monospace"><small>devtools.dialectLint</small></a></li>
+				</ul>
+				</div>
+			</div>
 
 			  </div>
 			  <div class="col-md-10">
@@ -231,41 +254,38 @@
               </div>
             </div>
             <div class="card-body">
-<dl>
-<dt><code><h5 class="fs">devtools: <b>devtools.selftest</b> ()</code></h5></dt>
-<dt><code><h5 class="fs">devtools: <var>OK</var> = <b>devtools.selftest</b> ()</code></h5></dt>
-<dt><code><h5 class="fs">devtools: [<var>OK</var>, <var>REPORT</var>] = <b>devtools.selftest</b> ()</code></h5></dt>
-<dt><code><h5 class="fs">devtools: &hellip; = <b>devtools.selftest</b> (<var>CMD</var>)</code></h5></dt>
-</dl>
+<p class="h5 fs"><code>devtools: <b>devtools.selftest</b> ()</code></p>
+<p class="h5 fs"><code>devtools: <var>OK</var> = <b>devtools.selftest</b> ()</code></p>
+<p class="h5 fs"><code>devtools: [<var>OK</var>, <var>REPORT</var>] = <b>devtools.selftest</b> ()</code></p>
+<p class="h5 fs fs-last"><code>devtools: &hellip; = <b>devtools.selftest</b> (<var>CMD</var>)</code></p>
 <p> Check that a configured server starts and speaks cleanly.
 </p>
 <div class="ms-5">
-<p> <code>devtools.selftest ()</code> launches the server as a subprocess, drives a short
- session through it in <em>each</em> of the two protocol eras, and prints what
- it found.  A server that answers only one era works with only some hosts, so
- both are exercised.  The check it exists for is the
- one that cannot be made from inside: that <strong>every byte written to
- standard output was a protocol message</strong>.  A stray <code>printf</code>, an
- unsuppressed statement or a line printed by <code>~/.octaverc</code> corrupts the
- stream, and the only symptom a host can show for it is an unexplained
- failure to connect.  Standard error is read too, for the complementary
- claim: the server may write its own diagnostics there, but a diagnostic the
- <em>interpreter</em> raised about the server is a defect nothing else here
- would see.
+<p> <code>devtools.selftest ()</code> launches the server as a subprocess, drives a
+ short session through it in <em>each</em> of the two protocol eras, and prints
+ what it found.  A server that answers only one era works with only some
+ hosts, so both are exercised.  The check it exists for is the one that cannot
+ be made from inside: that <strong>every byte written to standard output was
+ a protocol message</strong>.  A stray <code>printf</code>, an unsuppressed statement or a
+ line printed by <code>~/.octaverc</code> corrupts the stream, and the only symptom
+ a host can show for it is an unexplained failure to connect.  Standard error
+ is read too, for the complementary claim: the server may write its own
+ diagnostics there, but a diagnostic the <em>interpreter</em> raised about the
+ server is a defect nothing else here would see.
 </p>
-<p> <code><var>OK</var> = devtools.selftest ()</code> returns true when every check passed and
- prints nothing, which is the form a test uses.
+<p> <code><var>OK</var> = devtools.selftest ()</code> returns true when every check passed
+ and prints nothing, which is the form a test uses.
 </p>
-<p> <code>[<var>OK</var>, <var>REPORT</var>] = devtools.selftest ()</code> also returns the cell array
- of strings that would have been printed, one per check.
+<p> <code>[<var>OK</var>, <var>REPORT</var>] = devtools.selftest ()</code> also returns the cell
+ array of strings that would have been printed, one per check.
 </p>
-<p> <code>&hellip; = devtools.selftest (<var>CMD</var>)</code> tests the shell command <var>CMD</var>
- rather than the default one.  Give it the exact command from your host
- configuration to find out whether that configuration is sound; it must launch
- a server that reads standard input and writes standard output, and nothing
- else.  The default launches the interpreter running this function against the
- package directory this file lives in, which works from a source tree as well
- as from an installed package.
+<p> <code>&hellip; = devtools.selftest (<var>CMD</var>)</code> tests the shell command
+ <var>CMD</var> rather than the default one.  Give it the exact command from your
+ host configuration to find out whether that configuration is sound; it must
+ launch a server that reads standard input and writes standard output, and
+ nothing else.  The default launches the interpreter running this function
+ against the package directory this file lives in, which works from a source
+ tree as well as from an installed package.
 </p>
 <p> With the default command the evaluating server is checked as well, and so is
  the program server, started with <code>devtools.mcpEval (&quot;Sandbox&quot;)</code>: that
@@ -278,7 +298,8 @@
   <a href="devtools.mcpEval.html">devtools.mcpEval</a>
 </p>
 <p><strong>Source Code: </strong>
-  <a href="https://github.com/pr0m1th3as/octave-devtools/blob/7adc250/inst/+devtools/selftest.m">devtools.selftest</a>
+  <a href="https://github.com/pr0m1th3as/octave-devtools/blob/57e5a27/inst/+devtools/selftest.m">devtools.selftest</a>
+</p>
 </div>
 
             </div>

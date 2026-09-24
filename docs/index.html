@@ -92,9 +92,18 @@
       });
     </script>
     <style>
-    h5.fs {
+    .fs {
     margin-top: -0.15em;
     margin-bottom: -0.15em;
+    }
+    .fs-last {
+    margin-bottom: calc(1rem - 0.15em);
+    }
+    p.description {
+    font-family: Consolas, "Courier New", monospace;
+    }
+    p.description code {
+    font-size: inherit;
     }
     h6:hover {
       color: gray;
@@ -190,7 +199,7 @@
             </div>
             <div class="col-sm-9 col-md-10">
               <h3 class="d-inline-block mr-2">devtools</h3>
-              <b>0.2.1&nbsp;2026-09-18</b>
+              <b>0.3.0&nbsp;2026-09-24</b>
               <p class="indent">
                 Tools for questions only the interpreter can answer about itself,  packaged so that an external program can ask.  This release serves that over  the Model Context Protocol (MCP), exposing Octave to any MCP-capable  assistant.  The server process is an Octave interpreter, so the interpreter  answering a question is the interpreter being asked about, with the same load  path, the same installed packages and the same version.  Two entry points, so  that the safe one can be given blanket permission and the other cannot be  reached by a host configured for it: devtools.mcp provides read-only  introspection of functions, classes, namespaces and installed packages,  evaluating no code and writing nothing, and devtools.mcpEval adds evaluation  in named workspaces and running a function's built-in tests.
               </p>
@@ -202,6 +211,7 @@
              <select name="cat" onchange="location = this.options[this.selectedIndex].value;">
              <option value="#Servers">Servers</option>
              <option value="#Diagnostics">Diagnostics</option>
+             <option value="#Package checks">Package checks</option>
              </select>
            <p>
 
@@ -226,6 +236,14 @@
                  </td>
                  <td>Serve the Model Context Protocol on standard input and output, with evaluation.</td>
                </tr>
+               <tr>
+                 <td>
+                   <b><code>
+                   <a href="devtools.lsp.html">devtools.lsp</a>
+                   </code></b>
+                 </td>
+                 <td>Serve the Language Server Protocol on standard input and output.</td>
+               </tr>
              </tbody>
            </table>
            <h3 class="category">
@@ -240,6 +258,29 @@
                    </code></b>
                  </td>
                  <td>Check that a configured server starts and speaks cleanly.</td>
+               </tr>
+             </tbody>
+           </table>
+           <h3 class="category">
+             <a name="Package checks">Package checks</a>
+           </h3>
+           <table class="table table-striped">
+             <tbody>
+               <tr>
+                 <td>
+                   <b><code>
+                   <a href="devtools.docLint.html">devtools.docLint</a>
+                   </code></b>
+                 </td>
+                 <td>Check the documentation of a package against the code it describes.</td>
+               </tr>
+               <tr>
+                 <td>
+                   <b><code>
+                   <a href="devtools.dialectLint.html">devtools.dialectLint</a>
+                   </code></b>
+                 </td>
+                 <td>Check which language a file is written in.</td>
                </tr>
              </tbody>
            </table>

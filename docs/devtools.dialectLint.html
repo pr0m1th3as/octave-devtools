@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title>Developer tooling for GNU Octave: devtools.mcp</title>
+    <title>Developer tooling for GNU Octave: devtools.dialectLint</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ==" crossorigin="anonymous" referrerpolicy="no-referrer">
@@ -173,9 +173,9 @@
             <div class="collapse navbar-collapse" id="navbarNav">
               <ul class="navbar-nav">
                 <li class="nav-item">
-                  <a class="nav-link" href="index.html#Servers">
+                  <a class="nav-link" href="index.html#Package checks">
                     <i class="fas fa-list-alt"></i>
-                    Servers
+                    Package checks
                   </a>
                 </li>
                 <li class="nav-item">
@@ -204,14 +204,14 @@
             <h4 style="color: blue">Functions List</h4>
           </div>
 			<div class="row">
-				<input id="togList1" type="checkbox" checked>
+				<input id="togList1" type="checkbox">
 				<label for="togList1">
 					<span><h6>Servers</h6></span>
 					<span><h6>Servers</h6></span>
 				</label>
 				<div class="list">
 				<ul style="list-style-type: none; padding-left: 20px;">
-					<li><a href="devtools.mcp.html" class="text-decoration-none font-monospace fw-bolder"><small>devtools.mcp</small></a></li>
+					<li><a href="devtools.mcp.html" class="text-decoration-none font-monospace"><small>devtools.mcp</small></a></li>
 					<li><a href="devtools.mcpEval.html" class="text-decoration-none font-monospace"><small>devtools.mcpEval</small></a></li>
 					<li><a href="devtools.lsp.html" class="text-decoration-none font-monospace"><small>devtools.lsp</small></a></li>
 				</ul>
@@ -230,7 +230,7 @@
 				</div>
 			</div>
 			<div class="row">
-				<input id="togList3" type="checkbox">
+				<input id="togList3" type="checkbox" checked>
 				<label for="togList3">
 					<span><h6>Package checks</h6></span>
 					<span><h6>Package checks</h6></span>
@@ -238,7 +238,7 @@
 				<div class="list">
 				<ul style="list-style-type: none; padding-left: 20px;">
 					<li><a href="devtools.docLint.html" class="text-decoration-none font-monospace"><small>devtools.docLint</small></a></li>
-					<li><a href="devtools.dialectLint.html" class="text-decoration-none font-monospace"><small>devtools.dialectLint</small></a></li>
+					<li><a href="devtools.dialectLint.html" class="text-decoration-none font-monospace fw-bolder"><small>devtools.dialectLint</small></a></li>
 				</ul>
 				</div>
 			</div>
@@ -249,110 +249,64 @@
             <div class="card-header card-header-mod">
               <div class="row d-flex flex-wrap align-items-center">
                 <h3 class="d-inline-block mr-2">
-                Function&nbsp;Reference: <b><code>devtools.mcp</code></b>
+                Function&nbsp;Reference: <b><code>devtools.dialectLint</code></b>
                 </h3>
               </div>
             </div>
             <div class="card-body">
-<p class="h5 fs fs-last"><code>devtools: <b>devtools.mcp</b> ()</code></p>
-<p> Serve the Model Context Protocol on standard input and output.
+<p class="h5 fs"><code>devtools: <b>devtools.dialectLint</b> (<var>TARGET</var>)</code></p>
+<p class="h5 fs"><code>devtools: <b>devtools.dialectLint</b> (<var>TARGET</var>, <var>DIALECT</var>)</code></p>
+<p class="h5 fs fs-last"><code>devtools: <var>R</var> = <b>devtools.dialectLint</b> (&hellip;)</code></p>
+<p> Check which language a file is written in.
 </p>
 <div class="ms-5">
-<p> <code>devtools.mcp ()</code> reads newline-delimited JSON-RPC messages from
- standard input, answers each one, writes the answer to standard output, and
- returns only when standard input reaches end of file.  It is the entry point
- a host launches; it is not meant to be called at an interactive prompt, where
- it would take the terminal.
+<p> <code>devtools.dialectLint (<var>TARGET</var>)</code> prints every file that is not
+ written in Octave&rsquo;s own dialect.  <var>TARGET</var> is one file, the folder a
+ package&rsquo;s source is in, or the name of an installed package.
 </p>
-<p> Both protocol eras are served.  A client that opens with per-request metadata
- is answered under revision 2026-07-28 and statelessly; a client that opens
- with an <code>initialize</code> handshake is answered under revision 2025-11-25 for
- the life of the process.  The choice is made by the first request and the
- tools are the same in either case.
+<p> <code>devtools.dialectLint (<var>TARGET</var>, <code>'matlab'</code>)</code> asks the other
+ question instead: whether MATLAB would accept the file.  That is the check
+ to run on a probe before it is sent to a MATLAB machine, where Octave-only
+ syntax fails with a message naming nothing useful.
 </p>
-<p> The read-only tool set is served here.  This server evaluates no code, runs
- no user function, and writes nothing, which is the property that lets a user
- grant it blanket permission.  Evaluation lives behind a separate entry point
- and a separate configuration entry, so that it cannot be reached by a host
- configured for this one.
+<p> <code><var>R</var> = devtools.dialectLint (&hellip;)</code> prints nothing and returns
+ the findings as a structure array holding <code>file</code>, <code>line</code>,
+ <code>column</code>, <code>rule</code> and <code>message</code>, empty where there is nothing
+ to report.
 </p>
-<p> Configure a host to launch it with:
+<p> A file is read twice.  Where it does not parse at all the finding is
+ <code>'syntax'</code> and names a fault the file has in any dialect; where it
+ parses but the dialect refuses it the finding is <code>'dialect-octave'</code>
+ or <code>'dialect-matlab'</code> and carries the line that stopped it.  The two
+ are kept apart because a broken file is not a dialect question.
 </p>
-<table><tr><td>&nbsp;</td><td><pre class="example"> octave-cli -q --no-init-file --eval &quot;pkg load devtools; devtools.mcp ()&quot;
-</pre></td></tr></table>
-
-<p> <strong>Do not shorten that command.</strong>  <code>--no-init-file</code> is the
- load-bearing flag: it skips <code>~/.octaverc</code>, whose output would arrive
- before this function exists, and a single byte written there corrupts the
- stream for the whole session.  Measured on 11.2.0, <code>--eval</code> already
- makes the run non-interactive so that no banner is written either way and
- <code>-q</code> changes nothing today; it is kept because nothing else guards that
- output if a future release prints one.  Use <code>devtools.selftest</code> to
- check a configuration before suspecting the host.
-</p>
-<p> <strong>On Windows, name <code>octave-cli.exe</code> in full.</strong>  A host spawns the
- command with no shell, so a bare <code>octave-cli</code> resolves only where the
- interpreter is already on <code>PATH</code>, which a Windows installation does not
- guarantee and a configuration file cannot arrange.  Where it is not, the
- process never starts and writes nothing at all, which reads exactly like the
- corrupted stream above and is nothing to do with it.
-</p>
-<p> <strong>This server sees the packages its own launch command loads, and no
- others.</strong>  The command above loads only <code>devtools</code>, so
- <code>octave_which</code> will not find a function from <code>statistics</code> unless
- it is named:
-</p>
-<table><tr><td>&nbsp;</td><td><pre class="example"> --eval &quot;pkg load devtools statistics; devtools.mcp ()&quot;
-</pre></td></tr></table>
-
-<p> A package&rsquo;s dependencies need not be named: <code>pkg load</code> loads them too,
- so this also loads <code>datatypes</code>, which <code>statistics</code> depends on.
- The server loads nothing on its own.  Loading every installed package
- instead would run each one&rsquo;s <code>PKG_ADD</code>, which is other people&rsquo;s code
- executing at startup, and this server&rsquo;s whole claim is that it runs none.
-</p>
-<p>  Tools
-</p>
-<p> Five tools are served, all of them read-only:
+<p> The two names are the two <code>devtools.__parse__</code> takes, and there is no
+ lenient mode here: whether a file parses as either language is not a
+ dialect question, and is reported as <code>'syntax'</code> instead.
 </p>
 <dl compact="compact">
-<dt> <code>octave_which</code></dt>
-<dd> where a name resolves, its kind, its owning package, what it shadows, and
- whether it is installed rather than loaded.</dd>
-<dt> <code>octave_help</code></dt>
-<dd> the help text for a function, class, method or operator, answered from the
- documentation caches where one holds the entry, so that a function in an
- installed package this server has not loaded is answered too.</dd>
-<dt> <code>octave_search</code></dt>
-<dd> which functions match a description, when the name is not known.</dd>
-<dt> <code>octave_pkg</code></dt>
-<dd> which packages are installed, at which versions, and which are loaded.</dd>
-<dt> <code>octave_registry</code></dt>
-<dd> which packages anywhere in the Octave Packages index provide a name, from a
- dated snapshot carried in this package.</dd>
+<dt> <code>'octave'</code></dt>
+<dd> Octave&rsquo;s own dialect: <code>#</code> comments, <code>!</code> and <code>!=</code>, and the
+ typed block terminators.  A file that passes is one MATLAB cannot read.
+ The two spellings Octave has no alternative for are still accepted, a
+ <code>~</code> standing for an ignored output and <code>%!</code> opening a test block.</dd>
+<dt> <code>'matlab'</code></dt>
+<dd> MATLAB&rsquo;s: <code>%</code> comments, <code>~</code> and <code>~=</code>, and a bare <code>end</code>.
+ Rejected are the constructs Octave alone has, among them
+ <code>do &hellip; until</code>, <code>unwind_protect</code>, compound assignment,
+ <code>++</code>, an index chained onto a call and an assignment used as an
+ expression.</dd>
 </dl>
 
-<p> One resource is offered, <code>octave://environment</code>: version, platform,
- load path size and the packages this server loaded.  The version and the
- platform are also stated in the server&rsquo;s <code>instructions</code>, sent once when
- a client connects, so that no request pays for them.
-</p>
-<p> Everything diagnostic goes to standard error, which the protocol reserves for
- exactly that purpose and which a client may capture, forward or ignore.
-</p>
-<p> One deviation is worth stating.  This loop reads, answers and writes in one
- thread, so a <code>notifications/cancelled</code> arriving for a request already
- being answered cannot be seen until that answer has been written.  The
- protocol asks that no further message be sent for a cancelled request and
- this implementation cannot honour it.  The tools served here return in
- milliseconds, so the window is small, but it is real.
+<p> The parser is a compiled file, so this raises where the package was
+ installed without a working compiler rather than reporting a file clean
+ because nothing read it.
 </p>
 <p> <strong>See also: </strong>
-  <a href="devtools.mcpEval.html">devtools.mcpEval</a>, 
-  <a href="devtools.selftest.html">devtools.selftest</a>
+  <a href="devtools.docLint.html">devtools.docLint</a>
 </p>
 <p><strong>Source Code: </strong>
-  <a href="https://github.com/pr0m1th3as/octave-devtools/blob/57e5a27/inst/+devtools/mcp.m">devtools.mcp</a>
+  <a href="https://github.com/pr0m1th3as/octave-devtools/blob/57e5a27/inst/+devtools/dialectLint.m">devtools.dialectLint</a>
 </p>
 </div>
 
