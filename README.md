@@ -384,10 +384,26 @@ and `feval`, are refused by name.
 
 ### Conformance
 
-`MCP_PROTOCOL.md` records what this package implements and against which
-revision, quoting the specification and naming the source page for every
-answer. Revision `2026-07-28`, with two deviations, each registered beside the
-sentence it departs from.
+Both servers implement MCP revision
+[`2026-07-28`](https://modelcontextprotocol.io/specification/2026-07-28/), and
+also answer a client that opens with the `initialize` handshake of `2025-11-25`,
+as the hosts tested so far do. Two recommendations are departed from on purpose:
+
+- **Workspaces are not created by a tool of their own.** The specification
+  suggests a creation tool for stateful tools
+  ([`server/tools`](https://modelcontextprotocol.io/specification/2026-07-28/server/tools),
+  "Stateful Tools"). `octave_eval` instead requires a `workspace` argument,
+  either a handle or `new`, so that a model which leaves it out is told so
+  rather than silently given an empty workspace.
+- **The text beside `structuredContent` is a summary, not the same JSON.**
+  The specification recommends repeating structured results as text
+  (same page, "Structured Content"). `octave_which`, `octave_search`,
+  `octave_pkg` and `octave_registry` return a shorter summary that carries
+  everything a model uses; `octave_call`, being for programs, returns a summary
+  and no values.
+
+One key of its own, `io.github.pr0m1th3as.devtools/sandbox`, reports the state
+of sandbox mode, as described under [Sandbox mode](#sandbox-mode).
 
 ## Language Server Protocol
 
