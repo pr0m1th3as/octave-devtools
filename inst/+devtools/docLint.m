@@ -179,8 +179,9 @@ function F = __checkFile__ (F, FILE, INV, PKGNAME)
 
     ## Lines that run past the margin, headers exempt
     for kk = B.body
-      if (numel (lines{kk}) > 80 && ! __urlLine__ (lines{kk}))
-        msg = sprintf ("texinfo body line is %d columns.", numel (lines{kk}));
+      ncol = __columns__ (lines{kk});
+      if (ncol > 80 && ! __urlLine__ (lines{kk}))
+        msg = sprintf ("texinfo body line is %d columns.", ncol);
         F = __add__ (F, FILE, kk, 'width', msg);
       endif
     endfor
@@ -450,6 +451,12 @@ function F = __checkIndex__ (F, ROOT, INV)
 
 endfunction
 
+## Characters, not bytes: a UTF-8 continuation byte starts no character
+function N = __columns__ (LINE)
+  b = double (LINE);
+  N = sum (b < 128 | b >= 192);
+endfunction
+
 function TF = __isInternal__ (NAME)
   TF = (numel (NAME) > 4 && strncmp (NAME, "__", 2) ...
         && strcmp (NAME(end-1:end), "__"));
@@ -520,6 +527,9 @@ endfunction
 %! fputs (fid, "## -*- texinfo -*-\n## @deftypefn {fixt} {} wide ()\n##\n");
 %! fputs (fid, ["## ", repmat("w", 1, 90), "\n##\n"]);
 %! fputs (fid, ["## See https://example.org/", repmat("u", 1, 80), "\n##\n"]);
+%! mu = char ([206, 156]);                     # U+039C, two bytes in UTF-8
+%! fputs (fid, ["## ", repmat(mu, 1, 77), "\n##\n"]);
+%! fputs (fid, ["## ", repmat(mu, 1, 78), "\n##\n"]);
 %! fputs (fid, "## @end deftypefn\n");
 %! fputs (fid, "function wide ()\nendfunction\n");
 %! fclose (fid);
@@ -576,7 +586,8 @@ endfunction
 %!test
 %! R = devtools.docLint (D);
 %! S = R(strcmp ({R.rule}, 'width'));
-%! assert_equal ([S.line], [4, 6]);
+%! assert_equal ([S.line], [4, 6, 10]);
+%! assert_equal (S(3).message, "texinfo body line is 81 columns.");
 
 %!test
 %! R = devtools.docLint (D);
