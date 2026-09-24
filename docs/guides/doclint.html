@@ -146,8 +146,11 @@ R(strcmp ({R.rule}, 'seealso-target'))
 
           <ul>
             <li>Folders named <code>private</code>, <code>tests</code> and
-                <code>demos</code>, and names wrapped in double underscores, none of
-                which are a package's documented surface.</li>
+                <code>demos</code>, none of which are a package's documented
+                surface.</li>
+            <li>Names wrapped in double underscores are internal, so
+                <code>index-unlisted</code> does not report them; every other rule
+                checks them, since <code>help</code> reads them like any other.</li>
             <li>A cross-reference is resolved against what is on the load path when
                 you run it, so load the package's dependencies first. Otherwise
                 references into them are reported as unresolved.</li>

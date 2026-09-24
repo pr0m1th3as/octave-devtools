@@ -75,10 +75,12 @@
 ## @end table
 ##
 ## Skipped throughout are @file{private}, @file{tests} and @file{demos}
-## folders, and names wrapped in double underscores, none of which are a
-## package's documented surface.  A cross-reference is resolved against what
-## is on the load path at the time, so a package whose dependencies are not
-## loaded reports references into them as unresolved.
+## folders, none of which are a package's documented surface.  Names wrapped
+## in double underscores are internal, so @qcode{'index-unlisted'} does not
+## report them; every other rule checks them, since @code{help} reads them like
+## any other.  A cross-reference is resolved against what is on the load path
+## at the time, so a package whose dependencies are not loaded reports
+## references into them as unresolved.
 ##
 ## @seealso{devtools.mcp, devtools.selftest}
 ## @end deftypefn
