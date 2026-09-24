@@ -1,38 +1,40 @@
-Summary of important user-visible changes for devtools 0.2.1:
+Summary of important user-visible changes for devtools 0.3.0:
 -------------------------------------------------------------
 
- This release serves programs on every system, sandboxed where the machine
- allows it, adds the sandbox on macOS, and fixes sandbox mode where Octave
- comes from a distribution package.
+ This release serves the Language Server Protocol to editors, adds two
+ linters for package authors, and lets a program pass an array to
+ `octave_call` in a compact form.
 
- ** `devtools.mcpEval ("Sandbox")` serves wherever Octave runs: inside a
-    sandbox where the machine can build one, unconfined where it cannot.
-    Every result states which, `"active"`, `"failed"` or `"unavailable"`, in
-    `_meta["io.github.pr0m1th3as.devtools/sandbox"]`, with the reason for the
-    last two in `.../sandboxReason`.  Each call runs in a process of its own and
-    is stopped at the deadline; on Windows this needs a compiler at
-    installation.
+ ** `devtools.lsp` serves the Language Server Protocol to an editor: hover,
+    go to definition, document symbols, workspace symbols and completion,
+    answered by the interpreter itself with the packages its launch command
+    loads.  The folder the editor opens is read as the project and never put
+    on the load path; where it and a loaded package define the same name,
+    the project's definition wins.  A method several classes define is
+    answered where the class is certain, a `Class.method` call or the object
+    of the method being edited, and listed with every definition otherwise.
 
- ** The sandbox works on macOS, using the system's `sandbox-exec`.  There
-    `/tmp` is not size-capped, and the network is shown unreachable rather
-    than proven denied.  The server prints one OpenMP warning as it starts.
+ ** `devtools.docLint` checks a package's documentation against the code it
+    describes, and reports six things a test suite cannot reach: a header
+    naming something other than the function that follows it, a heading that
+    is neither the package nor the class, an `@seealso` that resolves
+    nowhere, a class member named without its class, a texinfo body line past
+    80 columns, and `INDEX` disagreeing with the tree.  It takes a package
+    folder or the name of an installed package.
 
- ** Sandbox mode works where Octave is installed from a distribution
-    package, where it refused to serve.
+ ** `devtools.dialectLint` says which language a file is written in.  Asked
+    about Octave, the default, it reports every file not in Octave's own
+    dialect.  Asked about MATLAB it reports what MATLAB would refuse.  A file
+    that does not parse at all is reported as a syntax fault instead.
 
- ** The sandbox also checks that the root filesystem and every mounted folder
-    refuse a write.
+ ** `octave_call` in sandbox mode takes an array as `matrix`, a list of rows
+    such as `[[1, 2], [3, 4]]`, beside the spreadsheet-shaped `range`: about
+    a quarter of the size for a numeric array.  A flat list is a column,
+    `null` is `NaN`, and `"Inf"` and `"-Inf"` are the infinities, as in the
+    results.
 
- ** `pkg test devtools` passes where `bwrap` cannot build its namespaces,
-    as in an ordinary container, where eleven sandbox tests failed.
-
- ** `octave_which` names the package of a core function on Windows, and
-    `octave_help` no longer answers with `*note` cross references.
-
-
-Backwards incompatible improvements:
-
- ** `devtools.mcpEval ("Sandbox", true)` is now `devtools.mcpEval ("Sandbox")`,
-    and `("Sandbox", false)` is gone.  The sandbox key holds a state where it
-    held `true`, and a server whose sandbox fails serves unconfined instead of
-    exiting, so a program that needs the sandbox must read the state.
+ ** The tree-sitter grammar for Octave is vendored and built with the
+    package: `src/tree-sitter` holds the runtime and `src/grammar` the three
+    generated parsers, so a C compiler is all a user needs.  No system
+    `libtree-sitter` is involved.  The provenance is in
+    `src/grammar/MANIFEST.json`.

@@ -199,7 +199,7 @@ function [res, S] = initialize (P, S)
   caps.completionProvider.triggerCharacters = {'.'};
   res = struct ();
   res.capabilities = caps;
-  res.serverInfo = struct ("name", "devtools.lsp", "version", "0.2.1");
+  res.serverInfo = struct ("name", "devtools.lsp", "version", "0.3.0");
 
 endfunction
 
