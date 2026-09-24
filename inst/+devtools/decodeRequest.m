@@ -20,11 +20,12 @@
 ##
 ## Decode one line of the wire into a request structure.
 ##
-## @code{@var{R} = devtools.decodeRequest (@var{TXT})} parses the character vector
-## @var{TXT}, one newline-delimited JSON-RPC message as the stdio transport
-## frames it, and returns a scalar structure describing what was received.  It
-## never raises for anything the peer sent; a peer can only produce a structure
-## whose @code{type} is @qcode{"invalid"}.  It raises only when called wrongly.
+## @code{@var{R} = devtools.decodeRequest (@var{TXT})} parses the character
+## vector @var{TXT}, one newline-delimited JSON-RPC message as the stdio
+## transport frames it, and returns a scalar structure describing what was
+## received.  It never raises for anything the peer sent; a peer can only
+## produce a structure whose @code{type} is @qcode{"invalid"}.  It raises only
+## when called wrongly.
 ##
 ## The returned structure always carries these fields:
 ##

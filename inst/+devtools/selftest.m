@@ -23,32 +23,31 @@
 ##
 ## Check that a configured server starts and speaks cleanly.
 ##
-## @code{devtools.selftest ()} launches the server as a subprocess, drives a short
-## session through it in @emph{each} of the two protocol eras, and prints what
-## it found.  A server that answers only one era works with only some hosts, so
-## both are exercised.  The check it exists for is the
-## one that cannot be made from inside: that @strong{every byte written to
-## standard output was a protocol message}.  A stray @code{printf}, an
-## unsuppressed statement or a line printed by @file{~/.octaverc} corrupts the
-## stream, and the only symptom a host can show for it is an unexplained
-## failure to connect.  Standard error is read too, for the complementary
-## claim: the server may write its own diagnostics there, but a diagnostic the
-## @emph{interpreter} raised about the server is a defect nothing else here
-## would see.
+## @code{devtools.selftest ()} launches the server as a subprocess, drives a
+## short session through it in @emph{each} of the two protocol eras, and prints
+## what it found.  A server that answers only one era works with only some
+## hosts, so both are exercised.  The check it exists for is the one that cannot
+## be made from inside: that @strong{every byte written to standard output was
+## a protocol message}.  A stray @code{printf}, an unsuppressed statement or a
+## line printed by @file{~/.octaverc} corrupts the stream, and the only symptom
+## a host can show for it is an unexplained failure to connect.  Standard error
+## is read too, for the complementary claim: the server may write its own
+## diagnostics there, but a diagnostic the @emph{interpreter} raised about the
+## server is a defect nothing else here would see.
 ##
-## @code{@var{OK} = devtools.selftest ()} returns true when every check passed and
-## prints nothing, which is the form a test uses.
+## @code{@var{OK} = devtools.selftest ()} returns true when every check passed
+## and prints nothing, which is the form a test uses.
 ##
-## @code{[@var{OK}, @var{REPORT}] = devtools.selftest ()} also returns the cell array
-## of strings that would have been printed, one per check.
+## @code{[@var{OK}, @var{REPORT}] = devtools.selftest ()} also returns the cell
+## array of strings that would have been printed, one per check.
 ##
-## @code{@dots{} = devtools.selftest (@var{CMD})} tests the shell command @var{CMD}
-## rather than the default one.  Give it the exact command from your host
-## configuration to find out whether that configuration is sound; it must launch
-## a server that reads standard input and writes standard output, and nothing
-## else.  The default launches the interpreter running this function against the
-## package directory this file lives in, which works from a source tree as well
-## as from an installed package.
+## @code{@dots{} = devtools.selftest (@var{CMD})} tests the shell command
+## @var{CMD} rather than the default one.  Give it the exact command from your
+## host configuration to find out whether that configuration is sound; it must
+## launch a server that reads standard input and writes standard output, and
+## nothing else.  The default launches the interpreter running this function
+## against the package directory this file lives in, which works from a source
+## tree as well as from an installed package.
 ##
 ## With the default command the evaluating server is checked as well, and so is
 ## the program server, started with @code{devtools.mcpEval ("Sandbox")}: that

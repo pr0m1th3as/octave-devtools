@@ -28,10 +28,10 @@
 ##
 ## The double underscore is core Octave's convention for a function that is
 ## reachable but unsupported, and it is used here because @emph{a namespace has
-## no private directory}: measured on 11.2.0, neither @file{+devtools/private/} nor a
-## @file{private/} directory beside @file{+devtools/} is visible to a function in
-## the namespace, so a helper shared by two entry points has nowhere to live
-## except the namespace itself.
+## no private directory}: measured on 11.2.0, neither @file{+devtools/private/}
+## nor a @file{private/} directory beside @file{+devtools/} is visible to a
+## function in the namespace, so a helper shared by two entry points has
+## nowhere to live except the namespace itself.
 ##
 ## @end deftypefn
 

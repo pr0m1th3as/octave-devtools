@@ -20,10 +20,10 @@
 ##
 ## Encode a response structure into the line that goes on the wire.
 ##
-## @code{@var{TXT} = devtools.encodeResponse (@var{R})} returns the character vector
-## carrying the scalar structure @var{R} as one newline-delimited JSON-RPC
-## message.  The newline itself is not included: the caller appends it, because
-## the caller is what knows it is writing to a stream.
+## @code{@var{TXT} = devtools.encodeResponse (@var{R})} returns the character
+## vector carrying the scalar structure @var{R} as one newline-delimited
+## JSON-RPC message.  The newline itself is not included: the caller appends it,
+## because the caller is what knows it is writing to a stream.
 ##
 ## Two things happen here that @code{jsonencode} alone does not do.
 ##

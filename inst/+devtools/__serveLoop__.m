@@ -22,18 +22,18 @@
 ## Read, dispatch and answer until standard input reaches end of file.
 ## Internal; not a supported entry point.
 ##
-## @var{surface} is passed to @code{devtools.__newSession__} and decides which tool
-## set the session offers; @var{name} is the entry point's name and appears in
-## every line this writes to standard error.  @var{sandbox}, given only by
+## @var{surface} is passed to @code{devtools.__newSession__} and decides which
+## tool set the session offers; @var{name} is the entry point's name and appears
+## in every line this writes to standard error.  @var{sandbox}, given only by
 ## @code{devtools.mcpEval ("Sandbox")}, is a structure whose @code{state} is
 ## @qcode{"active"}, @qcode{"failed"} or @qcode{"unavailable"} and whose
 ## @code{reason} says why for the last two; every result then reports both.
 ##
 ## Both entry points share this loop rather than a flag: @code{devtools.mcp} and
-## @code{devtools.mcpEval} are separate functions, separate commands and separate
-## configuration entries, so that the evaluating server cannot be reached by a
-## host configured for the read-only one.  What they must not have is two
-## copies of the protocol loop.
+## @code{devtools.mcpEval} are separate functions, separate commands and
+## separate configuration entries, so that the evaluating server cannot be
+## reached by a host configured for the read-only one.  What they must not have
+## is two copies of the protocol loop.
 ##
 ## @end deftypefn
 

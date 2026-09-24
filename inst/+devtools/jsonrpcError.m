@@ -21,17 +21,17 @@
 ##
 ## Build a JSON-RPC error response.
 ##
-## @code{@var{R} = devtools.jsonrpcError (@var{ID}, @var{CODE}, @var{MSG})} returns
-## the scalar structure of an error response carrying the integer @var{CODE} and
-## the character vector @var{MSG}.  @var{ID} is the identifier of the request
-## being answered, either a character vector or a numeric scalar.  Pass an empty
-## value to omit the field, which is correct only when the identifier could not
-## be read from a malformed request.
+## @code{@var{R} = devtools.jsonrpcError (@var{ID}, @var{CODE}, @var{MSG})}
+## returns the scalar structure of an error response carrying the integer
+## @var{CODE} and the character vector @var{MSG}.  @var{ID} is the identifier of
+## the request being answered, either a character vector or a numeric scalar.
+## Pass an empty value to omit the field, which is correct only when the
+## identifier could not be read from a malformed request.
 ##
-## @code{@var{R} = devtools.jsonrpcError (@dots{}, @var{DATA})} adds a @code{data}
-## member.  @var{DATA} may be any value @code{jsonencode} accepts, and carries
-## the machine-readable part of the failure: the versions a server supports, the
-## name of a missing field, and so on.
+## @code{@var{R} = devtools.jsonrpcError (@dots{}, @var{DATA})} adds a
+## @code{data} member.  @var{DATA} may be any value @code{jsonencode} accepts,
+## and carries the machine-readable part of the failure: the versions a server
+## supports, the name of a missing field, and so on.
 ##
 ## The fields are inserted in wire order, @code{jsonrpc} then @code{id} then
 ## @code{error}, because @code{jsonencode} preserves the order in which the

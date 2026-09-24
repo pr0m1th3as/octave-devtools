@@ -21,15 +21,15 @@
 ##
 ## Answer one decoded request.
 ##
-## @code{@var{RESP} = devtools.dispatch (@var{R})} takes the structure returned by
-## @code{devtools.decodeRequest} and returns the response structure to send, or the
-## empty matrix when nothing is to be sent.  A notification and a blank line are
-## the two cases that produce no response, and a notification producing one
-## would be a protocol violation rather than a nuisance.
+## @code{@var{RESP} = devtools.dispatch (@var{R})} takes the structure returned
+## by @code{devtools.decodeRequest} and returns the response structure to send,
+## or the empty matrix when nothing is to be sent.  A notification and a blank
+## line are the two cases that produce no response, and a notification producing
+## one would be a protocol violation rather than a nuisance.
 ##
-## @code{[@var{RESP}, @var{S}] = devtools.dispatch (@var{R}, @var{S})} threads the
-## session structure @var{S} through the call and returns it updated.  Pass the
-## empty matrix for the first request of a connection.
+## @code{[@var{RESP}, @var{S}] = devtools.dispatch (@var{R}, @var{S})} threads
+## the session structure @var{S} through the call and returns it updated.  Pass
+## the empty matrix for the first request of a connection.
 ##
 ## This function touches no stream.  Every method, every error path and every
 ## tool result can be obtained by handing it a structure and reading what comes
