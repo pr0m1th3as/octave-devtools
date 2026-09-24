@@ -66,12 +66,14 @@
 ## it is named:
 ##
 ## @example
-## --eval "pkg load devtools statistics datatypes; devtools.mcp ()"
+## --eval "pkg load devtools statistics; devtools.mcp ()"
 ## @end example
 ##
-## Loading every installed package instead would run each one's @file{PKG_ADD},
-## which is other people's code executing at startup, and this server's whole
-## claim is that it runs none.
+## A package's dependencies need not be named: @code{pkg load} loads them too,
+## so this also loads @code{datatypes}, which @code{statistics} depends on.
+## The server loads nothing on its own.  Loading every installed package
+## instead would run each one's @file{PKG_ADD}, which is other people's code
+## executing at startup, and this server's whole claim is that it runs none.
 ##
 ## @subsubheading Tools
 ##

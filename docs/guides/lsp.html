@@ -98,8 +98,11 @@ which devtools.lsp
           <p><strong>Load the packages your project uses.</strong> The server sees
           the packages its command loads and no others, so hover on a
           <code>statistics</code> function finds nothing unless you name it:</p>
-<pre><code>--eval "pkg load devtools statistics datatypes; devtools.lsp ()"
+<pre><code>--eval "pkg load devtools statistics; devtools.lsp ()"
 </code></pre>
+          <p>A package's dependencies need not be named: <code>pkg load</code>
+          loads them too, so this also loads <code>datatypes</code>, which
+          <code>statistics</code> depends on.</p>
 
           <h2>Kate</h2>
 
@@ -114,7 +117,7 @@ which devtools.lsp
   "servers": {
     "octave": {
       "command": ["octave-cli", "-q", "--no-init-file", "--eval",
-                  "pkg load devtools statistics datatypes; devtools.lsp ()"],
+                  "pkg load devtools statistics; devtools.lsp ()"],
       "rootIndicationFileNames": ["DESCRIPTION", ".git"],
       "highlightingModeRegex": "^(Octave|Matlab)$"
     }

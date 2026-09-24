@@ -121,10 +121,14 @@
           <code>octave_which</code> will not find a function from
           <code>statistics</code> unless you name it:</p>
 <pre><code>"args": ["-q", "--no-init-file", "--eval",
-         "pkg load devtools statistics datatypes; devtools.mcp ()"]
+         "pkg load devtools statistics; devtools.mcp ()"]
 </code></pre>
-          <p>This is deliberate. Loading every installed package would run each
-          one's <code>PKG_ADD</code>, which is other people's code running at
+          <p>A package's dependencies need not be named: <code>pkg load</code>
+          loads them too, so this also loads <code>datatypes</code>, which
+          <code>statistics</code> depends on.</p>
+          <p>The server loads nothing on its own, and this is deliberate. Loading
+          every installed package would run each one's <code>PKG_ADD</code>,
+          which is other people's code running at
           startup, and this server's whole claim is that it runs none.</p>
 
           <h3>Do not shorten the command</h3>

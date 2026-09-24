@@ -78,8 +78,11 @@
 ## loads and no others, so name the ones the project uses:
 ##
 ## @example
-## --eval "pkg load devtools statistics datatypes; devtools.lsp ()"
+## --eval "pkg load devtools statistics; devtools.lsp ()"
 ## @end example
+##
+## A package's dependencies need not be named: @code{pkg load} loads them too,
+## so this also loads @code{datatypes}, which @code{statistics} depends on.
 ##
 ## For Kate, enable the LSP Client plugin and add to its User Server Settings:
 ##

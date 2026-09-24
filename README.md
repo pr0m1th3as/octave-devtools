@@ -83,12 +83,16 @@ commands below load only `devtools` itself, so `octave_which` will not find a
 function from `statistics` unless you say so. Load what you want it to see:
 
 ```
---eval "pkg load devtools statistics datatypes; devtools.mcp ()"
+--eval "pkg load devtools statistics; devtools.mcp ()"
 ```
 
-That is a deliberate choice rather than an oversight: loading every installed
-package would execute each one's `PKG_ADD`, which is other people's code running
-at startup, and the read-only server's whole claim is that it runs none.
+A package's dependencies need not be named: `pkg load` loads them too, so this
+also loads `datatypes`, which `statistics` depends on.
+
+The server loads nothing on its own, and that is a deliberate choice rather
+than an oversight: loading every installed package would execute each one's
+`PKG_ADD`, which is other people's code running at startup, and the read-only
+server's whole claim is that it runs none.
 
 ### Two servers, and why they are separate
 
@@ -150,7 +154,7 @@ What it may read and load is set in `env`, never in the command:
       "args": ["-q", "--no-init-file", "--eval", "pkg load devtools; devtools.mcpEval ('Sandbox')"],
       "env": {
         "DEVTOOLS_SANDBOX_FOLDERS": "/home/me/analysis",
-        "DEVTOOLS_SANDBOX_PACKAGES": "statistics,datatypes"
+        "DEVTOOLS_SANDBOX_PACKAGES": "statistics"
       }
     }
   }
@@ -405,8 +409,11 @@ octave-cli -q --no-init-file --eval "pkg load devtools; devtools.lsp ()"
 name `octave-cli.exe` in full. Load the packages the project uses:
 
 ```
---eval "pkg load devtools statistics datatypes; devtools.lsp ()"
+--eval "pkg load devtools statistics; devtools.lsp ()"
 ```
+
+As for the MCP servers, `pkg load` brings in each package's dependencies, so
+`datatypes` need not be named.
 
 The folder the editor opens is the project. Its functions and classes are read
 from its files and never put on the load path, since adding a folder to the
