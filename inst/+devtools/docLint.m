@@ -354,7 +354,7 @@ function F = __checkSeealso__ (F, FILE, LINE, NAME, INV)
     return;
   endif
 
-  members = INV(strcmp ({INV.kind}, 'method'));
+  members = INV(ismember ({INV.kind}, {'method', 'property'}));
   owners = {};
   for ii = 1:numel (members)
     pp = strsplit (members(ii).name, ".");
@@ -495,7 +495,7 @@ endfunction
 %! fclose (fid);
 %! fid = fopen (fullfile (D, "inst", "plain.m"), "w");
 %! fputs (fid, "## -*- texinfo -*-\n## @deftypefn {fixt} {} plain ()\n##\n");
-%! fputs (fid, "## Clean.\n##\n## @seealso{sin}\n## @end deftypefn\n");
+%! fputs (fid, "## Clean.\n##\n## @seealso{sin, cls.zzprop}\n## @end deftypefn\n");
 %! fputs (fid, "function plain ()\nendfunction\n");
 %! fclose (fid);
 %! fid = fopen (fullfile (D, "inst", "slip.m"), "w");
@@ -518,9 +518,15 @@ endfunction
 %! fputs (fid, "## Text.\n##\n## @seealso{zzmember}\n## @end deftypefn\n");
 %! fputs (fid, "function bare ()\nendfunction\n");
 %! fclose (fid);
+%! fid = fopen (fullfile (D, "inst", "bareprop.m"), "w");
+%! fputs (fid, "## -*- texinfo -*-\n## @deftypefn {fixt} {} bareprop ()\n##\n");
+%! fputs (fid, "## Text.\n##\n## @seealso{zzprop}\n## @end deftypefn\n");
+%! fputs (fid, "function bareprop ()\nendfunction\n");
+%! fclose (fid);
 %! fid = fopen (fullfile (D, "inst", "cls.m"), "w");
 %! fputs (fid, "## -*- texinfo -*-\n## @deftp {fixt} cls\n##\n## Text.\n##\n");
-%! fputs (fid, "## @end deftp\nclassdef cls\n  methods\n");
+%! fputs (fid, "## @end deftp\nclassdef cls\n  properties\n    zzprop\n");
+%! fputs (fid, "  endproperties\n  methods\n");
 %! fputs (fid, "    ## -*- texinfo -*-\n    ## @deftypefn {fixt} {} cls ()\n");
 %! fputs (fid, "    ##\n    ## Text.\n    ##\n    ## @end deftypefn\n");
 %! fputs (fid, "    function this = cls ()\n    endfunction\n");
@@ -543,7 +549,7 @@ endfunction
 %! fputs (fid, "function ocm (this)\nendfunction\n");
 %! fclose (fid);
 %! fid = fopen (fullfile (D, "INDEX"), "w");
-%! fputs (fid, "fixt >> Fixture\nFunctions\n plain slip wide dangle bare cls oc ghost\n");
+%! fputs (fid, "fixt >> Fixture\nFunctions\n plain slip wide dangle bare bareprop cls oc ghost\n");
 %! fclose (fid);
 
 %!test
@@ -567,8 +573,9 @@ endfunction
 %!test
 %! R = devtools.docLint (D);
 %! S = R(strcmp ({R.rule}, 'seealso-member'));
-%! assert_equal (numel (S), 1);
-%! assert_equal (S.message, "'zzmember' is a member of cls; write it qualified.");
+%! msg = {"'zzmember' is a member of cls; write it qualified.", ...
+%!        "'zzprop' is a member of cls; write it qualified."};
+%! assert_equal ({S.message}, msg);
 
 %!test
 %! R = devtools.docLint (D);

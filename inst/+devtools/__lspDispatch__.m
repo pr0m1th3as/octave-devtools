@@ -207,10 +207,15 @@ function S = reindex (S)
   S.project = emptyInventory ();
   if (! isempty (S.root))
     try
-      S.project = devtools.__pkgInventory__ (S.root);
+      S.project = noProperties (devtools.__pkgInventory__ (S.root));
     catch
     end_try_catch
   endif
+endfunction
+
+function I = noProperties (I)
+  ## Members here are methods; properties are read from the class file
+  I = I(! strcmp ({I.kind}, 'property'));
 endfunction
 
 function I = loadedInventory ()
@@ -224,7 +229,7 @@ function I = loadedInventory ()
   for ii = 1:numel (L)
     if (L{ii}.loaded && isfolder (L{ii}.dir))
       try
-        I = [I, devtools.__pkgInventory__(L{ii}.dir)];
+        I = [I, noProperties(devtools.__pkgInventory__(L{ii}.dir))];
       catch
       end_try_catch
     endif
