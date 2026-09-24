@@ -59,7 +59,10 @@
 ##
 ## @item @qcode{'width'}
 ## A texinfo body line is longer than 80 columns.  Header lines are exempt,
-## their signatures being allowed to run over.
+## their signatures being allowed to run over, and so is a line holding
+## nothing but a URL, bare or in @code{@@url} or @code{@@uref}, and trailing
+## punctuation, a URL having nowhere to break.  A URL sharing its line with
+## text is still reported: it moves to a line of its own.
 ##
 ## @item @qcode{'index-missing'}
 ## @file{INDEX} lists a name the package does not supply.
@@ -174,7 +177,7 @@ function F = __checkFile__ (F, FILE, INV, PKGNAME)
 
     ## Lines that run past the margin, headers exempt
     for kk = B.body
-      if (numel (lines{kk}) > 80)
+      if (numel (lines{kk}) > 80 && ! __urlLine__ (lines{kk}))
         msg = sprintf ("texinfo body line is %d columns.", numel (lines{kk}));
         F = __add__ (F, FILE, kk, 'width', msg);
       endif
@@ -374,6 +377,12 @@ function F = __checkSeealso__ (F, FILE, LINE, NAME, INV)
 
 endfunction
 
+function TF = __urlLine__ (LINE)
+  pat = strcat ('^\s*[#%]+\s*(?:@(?:url|uref)\{)?', ...
+                '[A-Za-z][\w+.-]*://[^\s{}]+\}?[.,;:)]*\s*$');
+  TF = ! isempty (regexp (LINE, pat, 'once'));
+endfunction
+
 function F = __add__ (F, FILE, LINE, RULE, MSG)
   F(end+1) = struct ("file", FILE, "line", LINE, "rule", RULE, "message", MSG);
 endfunction
@@ -495,7 +504,9 @@ endfunction
 %! fclose (fid);
 %! fid = fopen (fullfile (D, "inst", "plain.m"), "w");
 %! fputs (fid, "## -*- texinfo -*-\n## @deftypefn {fixt} {} plain ()\n##\n");
-%! fputs (fid, "## Clean.\n##\n## @seealso{sin, cls.zzprop}\n## @end deftypefn\n");
+%! fputs (fid, ["## Clean.\n##\n## @url{https://example.org/", ...
+%!              repmat("u", 1, 80), "}.\n##\n"]);
+%! fputs (fid, "## @seealso{sin, cls.zzprop}\n## @end deftypefn\n");
 %! fputs (fid, "function plain ()\nendfunction\n");
 %! fclose (fid);
 %! fid = fopen (fullfile (D, "inst", "slip.m"), "w");
@@ -505,7 +516,9 @@ endfunction
 %! fclose (fid);
 %! fid = fopen (fullfile (D, "inst", "wide.m"), "w");
 %! fputs (fid, "## -*- texinfo -*-\n## @deftypefn {fixt} {} wide ()\n##\n");
-%! fputs (fid, ["## ", repmat("w", 1, 90), "\n##\n## @end deftypefn\n"]);
+%! fputs (fid, ["## ", repmat("w", 1, 90), "\n##\n"]);
+%! fputs (fid, ["## See https://example.org/", repmat("u", 1, 80), "\n##\n"]);
+%! fputs (fid, "## @end deftypefn\n");
 %! fputs (fid, "function wide ()\nendfunction\n");
 %! fclose (fid);
 %! fid = fopen (fullfile (D, "inst", "dangle.m"), "w");
@@ -561,8 +574,7 @@ endfunction
 %!test
 %! R = devtools.docLint (D);
 %! S = R(strcmp ({R.rule}, 'width'));
-%! assert_equal (numel (S), 1);
-%! assert_equal (S.line, 4);
+%! assert_equal ([S.line], [4, 6]);
 
 %!test
 %! R = devtools.docLint (D);

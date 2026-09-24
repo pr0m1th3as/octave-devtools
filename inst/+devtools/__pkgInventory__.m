@@ -28,8 +28,10 @@
 ## in, and @code{cls}, the class a method or a property belongs to and empty
 ## otherwise.
 ##
-## Walked are @file{inst} and, for the names an oct-file supplies, the base
-## names of the @file{.cc} files in @file{src}.  A @file{+name} folder
+## Walked are @file{inst} and, for the names an oct-file supplies, the
+## @file{.cc} and @file{.cpp} files in @file{src}, each contributing every
+## name it declares with @code{DEFUN_DLD}, so that a helper source compiled
+## into an oct-file contributes none.  A @file{+name} folder
 ## qualifies what is under it, an @file{@@name} folder declares a class whose
 ## files are its methods, and a file declaring a @code{classdef} contributes
 ## the class and every method it declares before @code{endclassdef}, so that a
@@ -63,11 +65,14 @@ function INV = __pkgInventory__ (ROOT)
   ## The names the compiled sources supply, which no .m file declares
   srcdir = fullfile (ROOT, "src");
   if (isfolder (srcdir))
-    cc = dir (fullfile (srcdir, "*.cc"));
+    cc = [dir(fullfile (srcdir, "*.cc")); dir(fullfile (srcdir, "*.cpp"))];
     for ii = 1:numel (cc)
-      [~, base] = fileparts (cc(ii).name);
-      INV(end+1) = struct ("name", base, "kind", 'function', ...
-                           "file", fullfile (srcdir, cc(ii).name), "cls", '');
+      file = fullfile (srcdir, cc(ii).name);
+      m = regexp (fileread (file), 'DEFUN_DLD\s*\(\s*(\w+)', 'tokens');
+      for kk = 1:numel (m)
+        INV(end+1) = struct ("name", m{kk}{1}, "kind", 'function', ...
+                             "file", file, "cls", '');
+      endfor
     endfor
   endif
 
@@ -247,6 +252,14 @@ endfunction
 %! fid = fopen (fullfile (D, "inst", "+ns", "inside.m"), "w");
 %! fputs (fid, "function inside ()\nendfunction\n");
 %! fclose (fid);
+%! mkdir (fullfile (D, "src"));
+%! fid = fopen (fullfile (D, "src", "pair.cc"), "w");
+%! fputs (fid, "DEFUN_DLD (first, args, ,\n  \"\")\n{\n}\n");
+%! fputs (fid, "DEFUN_DLD(second, args, ,\n  \"\")\n{\n}\n");
+%! fclose (fid);
+%! fid = fopen (fullfile (D, "src", "helper.cc"), "w");
+%! fputs (fid, "static int helper (void)\n{\n  return 0;\n}\n");
+%! fclose (fid);
 %! fid = fopen (fullfile (D, "inst", "private", "hidden.m"), "w");
 %! fputs (fid, "function hidden ()\nendfunction\n");
 %! fclose (fid);
@@ -294,6 +307,22 @@ endfunction
 %!test
 %! I = devtools.__pkgInventory__ (D);
 %! assert_equal (any (strcmp ({I.name}, 'cls.Gamma')), false);
+
+%!test
+%! I = devtools.__pkgInventory__ (D);
+%! assert_equal (I(strcmp ({I.name}, 'first')).kind, 'function');
+
+%!test
+%! I = devtools.__pkgInventory__ (D);
+%! assert_equal (any (strcmp ({I.name}, 'second')), true);
+
+%!test
+%! I = devtools.__pkgInventory__ (D);
+%! assert_equal (any (strcmp ({I.name}, 'pair')), false);
+
+%!test
+%! I = devtools.__pkgInventory__ (D);
+%! assert_equal (any (strcmp ({I.name}, 'helper')), false);
 
 %!error<devtools.__pkgInventory__: invalid number of input arguments.> ...
 %! devtools.__pkgInventory__ ()

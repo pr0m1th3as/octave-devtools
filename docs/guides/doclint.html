@@ -107,7 +107,8 @@ R(strcmp ({R.rule}, 'seealso-target'))
                 <code>margin</code></td></tr>
               <tr><td><code>width</code></td><td>a texinfo body line longer than 80
                 columns; header lines are exempt, their signatures being allowed to
-                run over</td></tr>
+                run over, and so is a line holding a URL alone, which has nowhere
+                to break</td></tr>
               <tr><td><code>index-missing</code></td><td><code>INDEX</code> listing a
                 name the package does not supply, which breaks a documentation
                 build</td></tr>
@@ -150,6 +151,10 @@ R(strcmp ({R.rule}, 'seealso-target'))
             <li>A cross-reference is resolved against what is on the load path when
                 you run it, so load the package's dependencies first. Otherwise
                 references into them are reported as unresolved.</li>
+            <li>A compiled function is found by its <code>DEFUN_DLD</code> in a
+                <code>.cc</code> or <code>.cpp</code> file under <code>src</code>,
+                not by the file's name, so a helper source is not taken for a
+                function.</li>
           </ul>
           <p>It reads files only and needs no compiler.</p>
         </article>
