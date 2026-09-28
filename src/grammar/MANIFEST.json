@@ -2,13 +2,14 @@
   "grammar": {
     "source": "tree-sitter-octave",
     "sourceUrl": "https://github.com/pr0m1th3as/tree-sitter-octave",
-    "commit": "2a1d0479967d0b8024b4f9907cf79d8fe8e3e374",
+    "tag": "v0.1.0",
+    "commit": "fa61a3f9ac4549a5b8c3a0ed63bdb17aa6f13418",
     "variant": [
       "octave (lenient, the unnamed default)",
       "octave-strict (the call names this one octave)",
       "matlab"
     ],
-    "note": "Generated parsers and the shared scanner, copied from the grammar repository.  One oct-file links all three: the parsers export distinct symbols and the generated headers are identical across variants."
+    "note": "Generated parsers and the shared scanner, copied from the grammar repository.  One oct-file links all three: the parsers export distinct symbols and the generated headers are identical across variants.  The strict MATLAB wrapper defines TS_MATLAB, as the grammar repository's does."
   },
   "runtime": {
     "source": "tree-sitter",
