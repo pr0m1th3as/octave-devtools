@@ -4,10 +4,11 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * One job: decide whether a newline ends a statement.  At the top level it
- * does.  Inside parentheses it is whitespace, which is what lets an
- * expression break after an operator with no continuation marker.  Inside
- * brackets and braces it separates the rows of a matrix or a cell, so it
- * still carries meaning and is emitted.
+ * does.  Inside parentheses and the braces of a cell index it is
+ * whitespace, which is what lets an expression break after an operator with
+ * no continuation marker.  Inside brackets and the braces of a cell it
+ * separates the rows of a matrix or a cell, so it still carries meaning and
+ * is emitted.
  *
  * The parse state cannot answer this: tree-sitter reports an external token
  * as valid in every state that could recover with one, so a newline reads as
@@ -43,6 +44,13 @@ enum TokenType {
   LBRACE,
   RBRACE,
   IDENTIFIER,
+  ELEMENT_LPAREN,
+  ELEMENT_LBRACE,
+  ANONYMOUS_LPAREN,
+  COMMA,
+  SEMICOLON,
+  SPACED_LPAREN,
+  INDEX_LBRACE,
 };
 
 /* Octave's own reserved words, from `iskeyword ()` on 11.3.0.  `__FILE__`
@@ -126,6 +134,24 @@ static void pop (Scanner *s)
 {
   if (s->depth > 0)
     s->depth--;
+}
+
+/* The stack holds the open delimiters, plus 'a' for the parentheses around
+   an anonymous function's parameters, 'b' for the body of an anonymous
+   function written directly inside brackets, and 'i' for the braces of a
+   cell index, inside which a space separates nothing. */
+static char top (Scanner *s)
+{
+  return (s->depth > 0 ? s->stack[s->depth - 1] : 0);
+}
+
+/* Octave ends an anonymous function's body at a comma, a semicolon, a line
+   break or a closing delimiter.  Until then a space inside brackets
+   separates nothing: `{@(t) abs (t), 2}` holds two elements. */
+static void end_bodies (Scanner *s)
+{
+  while (top (s) == 'b')
+    pop (s);
 }
 
 static bool command_argument_starts (int32_t c)
@@ -294,40 +320,89 @@ bool TS_FN (_external_scanner_scan) (void *payload, TSLexer *lexer,
           return true;
         }
 
+      bool in_matrix = (top (s) == '[' || top (s) == '{');
+
       if (lexer->lookahead == '\'' && valid_symbols[TRANSPOSE])
         {
           /* Octave tells a transpose from a string by the space before the
              quote, and only inside brackets, where `[a 'txt']` concatenates
              and `[a' b']` transposes.  Outside them nothing can follow an
              expression, so the quote is a transpose however it is spaced. */
-          bool in_matrix = (s->depth > 0
-                            && (s->stack[s->depth - 1] == '['
-                                || s->stack[s->depth - 1] == '{'));
           if (! (spaced && in_matrix))
             return emit (lexer, TRANSPOSE);
           return false;
         }
 
+      /* Inside brackets a space before a delimiter starts a new element:
+         `[v (w)]` is `[v, (w)]` and `{c {2}}` is `{c, {2}}`.  The element
+         token is one an index cannot take. */
+      bool element = (spaced && in_matrix);
+
+      /* Only an anonymous function's parameters can follow `@`, so no parse
+         state takes both of these; error recovery offers every token. */
+      bool recovering = (valid_symbols[ANONYMOUS_LPAREN]
+                         && valid_symbols[LPAREN]);
+
       switch (lexer->lookahead)
         {
         case '(':
+          if (valid_symbols[ANONYMOUS_LPAREN] && ! valid_symbols[LPAREN])
+            {
+              push (s, 'a');
+              return emit (lexer, ANONYMOUS_LPAREN);
+            }
           push (s, '(');
+          if (element && valid_symbols[ELEMENT_LPAREN])
+            return emit (lexer, ELEMENT_LPAREN);
+          /* Octave's style writes a call with a space before its
+             parenthesis and an index without one, `max (2, 5)` against
+             `x(2)`.  The token carries the space into the tree and changes
+             nothing about the parse. */
+          if (spaced && ! in_matrix && ! recovering
+              && valid_symbols[SPACED_LPAREN])
+            return emit (lexer, SPACED_LPAREN);
           return emit (lexer, LPAREN);
         case '[':
           push (s, '[');
           return emit (lexer, LBRACKET);
         case '{':
+          if (element && valid_symbols[ELEMENT_LBRACE])
+            {
+              push (s, '{');
+              return emit (lexer, ELEMENT_LBRACE);
+            }
+          /* A brace after an expression indexes it, as in Octave, however
+             it is spaced outside brackets and when unspaced inside them. */
+          if (! recovering && valid_symbols[INDEX_LBRACE])
+            {
+              push (s, 'i');
+              return emit (lexer, INDEX_LBRACE);
+            }
           push (s, '{');
           return emit (lexer, LBRACE);
         case ')':
-          pop (s);
-          return emit (lexer, RPAREN);
+          {
+            end_bodies (s);
+            bool parameters = (top (s) == 'a');
+            pop (s);
+            if (parameters && (top (s) == '[' || top (s) == '{'))
+              push (s, 'b');
+            return emit (lexer, RPAREN);
+          }
         case ']':
+          end_bodies (s);
           pop (s);
           return emit (lexer, RBRACKET);
         case '}':
+          end_bodies (s);
           pop (s);
           return emit (lexer, RBRACE);
+        case ',':
+          end_bodies (s);
+          return emit (lexer, COMMA);
+        case ';':
+          end_bodies (s);
+          return emit (lexer, SEMICOLON);
         default:
           break;
         }
@@ -335,7 +410,8 @@ bool TS_FN (_external_scanner_scan) (void *payload, TSLexer *lexer,
       if (lexer->lookahead != '\n' && lexer->lookahead != '\r')
         return false;
 
-      if (! (s->depth > 0 && s->stack[s->depth - 1] == '('))
+      end_bodies (s);
+      if (! (top (s) == '(' || top (s) == 'a' || top (s) == 'i'))
         {
           if (! valid_symbols[NEWLINE])
             return false;

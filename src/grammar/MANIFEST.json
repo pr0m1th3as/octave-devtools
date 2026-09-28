@@ -2,7 +2,7 @@
   "grammar": {
     "source": "tree-sitter-octave",
     "sourceUrl": "https://github.com/pr0m1th3as/tree-sitter-octave",
-    "commit": "81923444677a36aa7189cf414869c4f799848440",
+    "commit": "2a1d0479967d0b8024b4f9907cf79d8fe8e3e374",
     "variant": [
       "octave (lenient, the unnamed default)",
       "octave-strict (the call names this one octave)",
@@ -16,5 +16,5 @@
     "origin": "Debian source package, matching the tree-sitter-cli that generated the parser",
     "note": "Vendored whole: pkg cannot express a dependency on a system libtree-sitter."
   },
-  "captured": "2026-09-22"
+  "captured": "2026-09-28"
 }
