@@ -206,8 +206,11 @@ function [OK, REPORT] = selftest (CMD)
     ##
     ## popen2 leaves standard error on the terminal, so the shell discards it,
     ## as every other check sends it to a file.  exec keeps the server on the
-    ## shell's pid for the kill; on Windows taskkill takes cmd.exe's tree, and
-    ## cmd.exe strips the outer quotes popen2 puts round its argument.
+    ## shell's pid for the kill; on Windows taskkill takes cmd.exe's tree.
+    ## popen2 quotes each argument on Windows, and cmd.exe strips the first
+    ## quote after /c and the last on the line, so the switch and the command
+    ## travel as one argument with a quote of their own after /c: a quoted
+    ## "/c" alone leaves its closing quote to be stripped instead.
     if (! OK)
       REPORT = skipped (REPORT, ...
         "answers before the input stream closes", ...
@@ -215,7 +218,7 @@ function [OK, REPORT] = selftest (CMD)
     else
       if (ispc () && ! isunix ())
         pexe = "cmd";
-        pargv = {"/c", [CMD " 2> NUL"]};
+        pargv = {['/c "' CMD ' 2> NUL']};
       else
         pexe = "/bin/sh";
         pargv = {"-c", ["exec " CMD " 2> /dev/null"]};
