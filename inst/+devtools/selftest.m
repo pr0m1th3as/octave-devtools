@@ -70,7 +70,7 @@ function [OK, REPORT] = selftest (CMD)
 
   REPORT = {};
   if (nargin < 1)
-    [CMD, dexe, dargv] = defaultCommand ();
+    CMD = defaultCommand ();
   endif
 
   ## Two sessions, one per protocol era, because a client may open either way
@@ -203,20 +203,22 @@ function [OK, REPORT] = selftest (CMD)
     ## have.  Nothing is read until after the kill, since a read before it
     ## would block for ever against exactly the server being looked for; what
     ## the child wrote stays in the pipe.
+    ##
+    ## popen2 leaves standard error on the terminal, so the shell discards it,
+    ## as every other check sends it to a file.  exec keeps the server on the
+    ## shell's pid for the kill; on Windows taskkill takes cmd.exe's tree, and
+    ## cmd.exe strips the outer quotes popen2 puts round its argument.
     if (! OK)
       REPORT = skipped (REPORT, ...
         "answers before the input stream closes", ...
         "an earlier check failed, so this one was not attempted");
     else
-      if (nargin < 1)
-        pexe = dexe;
-        pargv = dargv;
-      elseif (ispc () && ! isunix ())
+      if (ispc () && ! isunix ())
         pexe = "cmd";
-        pargv = {"/c", CMD};
+        pargv = {"/c", [CMD " 2> NUL"]};
       else
         pexe = "/bin/sh";
-        pargv = {"-c", CMD};
+        pargv = {"-c", ["exec " CMD " 2> /dev/null"]};
       endif
 
       ## Two small replies on purpose.  Nothing is read until the kill, and a
@@ -501,14 +503,11 @@ function [OK, REPORT] = selftest (CMD)
 
 endfunction
 
-function [CMD, exe, argv] = defaultCommand ()
+function CMD = defaultCommand ()
 
-  ## The command string and the argument array describe one launch: a shell
-  ## takes the first, popen2 takes the second, and they must not drift apart.
   exe = octaveExe ();
   instdir = fileparts (fileparts (mfilename ("fullpath")));
   code = sprintf ("addpath ('%s'); devtools.mcp ()", instdir);
-  argv = {"-q", "--no-init-file", "--eval", code};
   CMD = sprintf ('"%s" -q --no-init-file --eval "%s"', exe, code);
 
 endfunction
@@ -634,7 +633,7 @@ function killPid (pid)
   ## The bound on the run.  Windows has no timeout that limits another program,
   ## its timeout.exe waiting rather than limiting, so the deadline is this kill
   ## rather than the launch.  /T takes the whole tree, cmd.exe having spawned a
-  ## child of its own where a caller supplied a command line.
+  ## child of its own.
   if (ispc () && ! isunix ())
     [~, ~] = system (sprintf ("taskkill /PID %d /F /T 2>&1", pid));
   else
