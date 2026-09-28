@@ -25,7 +25,7 @@
 ##
 ## @code{devtools.selftest ()} launches the server as a subprocess, drives a
 ## short session through it in @emph{each} of the two protocol eras, and prints
-## what it found.  A server that answers only one era works with only some
+## each finding as its check ends.  A server that answers only one era works with only some
 ## hosts, so both are exercised.  The check it exists for is the one that cannot
 ## be made from inside: that @strong{every byte written to standard output was
 ## a protocol message}.  A stray @code{printf}, an unsuppressed statement or a
@@ -69,6 +69,7 @@ function [OK, REPORT] = selftest (CMD)
   endif
 
   REPORT = {};
+  live (nargout == 0);
   if (nargin < 1)
     CMD = defaultCommand ();
   endif
@@ -499,7 +500,6 @@ function [OK, REPORT] = selftest (CMD)
   end_unwind_protect
 
   if (nargout == 0)
-    printf ("%s\n", REPORT{:});
     printf ("\n%s\n", merge (OK, "SELFTEST PASSED", "SELFTEST FAILED"));
     clear OK;
   endif
@@ -589,12 +589,34 @@ function [REPORT, OK] = check (REPORT, what, passed, detail, OK)
     REPORT{end+1} = sprintf ("FAIL  %s: %s", what, detail);
     OK = false;
   endif
+  show (REPORT{end});
 endfunction
 
 function REPORT = skipped (REPORT, what, why)
   ## A check this installation cannot run, named rather than dropped.  It
   ## leaves OK alone: a skip is not a failure and must not read as a pass.
   REPORT{end+1} = sprintf ("SKIP  %s: %s", what, why);
+  show (REPORT{end});
+endfunction
+
+function tf = live (on)
+  ## Whether results print as each check ends: only for a call with no
+  ## outputs, since a call with one prints nothing.  Every call sets it, so
+  ## a call that raised cannot leave it on for the next.
+  persistent state = false;
+  if (nargin > 0)
+    state = on;
+  endif
+  tf = state;
+endfunction
+
+function show (line)
+  ## Printed at once rather than at the end, so that a run which hangs has
+  ## already named every check before the one it hangs in.
+  if (live ())
+    printf ("%s\n", line);
+    fflush (stdout);
+  endif
 endfunction
 
 function txt = burstPipe (exe, argv, bursts)

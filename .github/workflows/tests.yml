@@ -58,8 +58,11 @@ jobs:
                    "devtools.__sandboxCheck__", "devtools.__sandboxLists__", ...
                    "devtools.__sweepCheck__", "devtools.__sweepCall__", ...
                    "devtools.__sandboxUsable__", "devtools.mcpEval"};
+          ## Each step is named before it runs, so a run that hangs shows where.
           bad = {};
           for i = 1:numel (names)
+            printf ("--- test %s\n", names{i});
+            fflush (stdout);
             if (! test (which (names{i}), "quiet"))
               bad{end+1} = names{i};
             endif
@@ -73,8 +76,16 @@ jobs:
             exit (1);
           endif
 
-          [ok, report] = devtools.selftest ();
-          printf ("%s\n", report{:});
+          ## Without outputs, selftest prints each result as its check ends;
+          ## the diary keeps a copy to judge the run by.
+          printf ("--- devtools.selftest\n");
+          fflush (stdout);
+          logfile = [tempname() ".log"];
+          diary (logfile);
+          devtools.selftest ();
+          diary off;
+          report = strsplit (fileread (logfile), "\n");
+          delete (logfile);
 
           ## A program server serves without a sandbox too, saying why, so a
           ## run that passed is proof only if it reported the sandbox active.
@@ -86,8 +97,7 @@ jobs:
             printf ("\nfailed: %s\n", strjoin (bad, ", "));
             exit (1);
           endif
-          if (! ok)
-            printf ("\nSELFTEST FAILED\n");
+          if (! any (strcmp (report, "SELFTEST PASSED")))
             exit (1);
           endif
           printf ("\nthe sandbox ran and every check passed\n");
@@ -135,15 +145,26 @@ jobs:
                    "devtools.__sandboxCheck__", "devtools.__sandboxLists__", ...
                    "devtools.__sweepCheck__", "devtools.__sweepCall__", ...
                    "devtools.mcpEval"};
+          ## Each step is named before it runs, so a run that hangs shows where.
           bad = {};
           for i = 1:numel (names)
+            printf ("--- test %s\n", names{i});
+            fflush (stdout);
             if (! test (which (names{i}), "quiet"))
               bad{end+1} = names{i};
             endif
           endfor
 
-          [ok, report] = devtools.selftest ();
-          printf ("%s\n", report{:});
+          ## Without outputs, selftest prints each result as its check ends;
+          ## the diary keeps a copy to judge the run by.
+          printf ("--- devtools.selftest\n");
+          fflush (stdout);
+          logfile = [tempname() ".log"];
+          diary (logfile);
+          devtools.selftest ();
+          diary off;
+          report = strsplit (fileread (logfile), "\n");
+          delete (logfile);
 
           ## A program server serves without a sandbox too, saying why, so a
           ## run that passed is proof only if it reported the sandbox active.
@@ -155,8 +176,7 @@ jobs:
             printf ("\nfailed: %s\n", strjoin (bad, ", "));
             exit (1);
           endif
-          if (! ok)
-            printf ("\nSELFTEST FAILED\n");
+          if (! any (strcmp (report, "SELFTEST PASSED")))
             exit (1);
           endif
           printf ("\nthe sandbox ran and every check passed\n");
