@@ -25,15 +25,16 @@
 ##
 ## @code{devtools.selftest ()} launches the server as a subprocess, drives a
 ## short session through it in @emph{each} of the two protocol eras, and prints
-## each finding as its check ends.  A server that answers only one era works with only some
-## hosts, so both are exercised.  The check it exists for is the one that cannot
-## be made from inside: that @strong{every byte written to standard output was
-## a protocol message}.  A stray @code{printf}, an unsuppressed statement or a
-## line printed by @file{~/.octaverc} corrupts the stream, and the only symptom
-## a host can show for it is an unexplained failure to connect.  Standard error
-## is read too, for the complementary claim: the server may write its own
-## diagnostics there, but a diagnostic the @emph{interpreter} raised about the
-## server is a defect nothing else here would see.
+## each finding as its check ends.  A server that answers only one era works
+## with only some hosts, so both are exercised.  The check it exists for is the
+## one that cannot be made from inside: that @strong{every byte written to
+## standard output was a protocol message}.  A stray @code{printf}, an
+## unsuppressed statement or a line printed by @file{~/.octaverc} corrupts the
+## stream, and the only symptom a host can show for it is an unexplained failure
+## to connect.  Standard error is read too, for the complementary claim: the
+## server may write its own diagnostics there, but a diagnostic the
+## @emph{interpreter} raised about the server is a defect nothing else here
+## would see.
 ##
 ## @code{@var{OK} = devtools.selftest ()} returns true when every check passed
 ## and prints nothing, which is the form a test uses.

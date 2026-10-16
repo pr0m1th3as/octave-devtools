@@ -690,3 +690,7 @@ endfunction
 %! devtools.styleLint (pwd (), {})
 %!error<devtools.styleLint: unknown rule: 'klingon'> ...
 %! devtools.styleLint (pwd (), {'klingon'})
+
+%!test
+%! confirm_recursive_rmdir (false, 'local');
+%! assert_equal (rmdir (SLD, 's'), true);

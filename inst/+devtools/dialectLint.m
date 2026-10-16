@@ -155,7 +155,7 @@ function __report__ (F, ROOT, DIALECT, FILES)
   for ii = 1:numel (rules)
     printf ("  %-15s %d\n", rules{ii}, sum (strcmp ({F.rule}, rules{ii})));
   endfor
-  printf ("  %-15s %d of %d files\n", "total", numel (F), numel (F));
+  printf ("  %-15s %d of %d files\n", "total", numel (F), numel (FILES));
 
 endfunction
 
@@ -217,6 +217,11 @@ endfunction
 %! assert_equal (R.line, 1);
 
 %!test
+%! out = evalc ('devtools.dialectLint (D)');
+%! total = regexp (out, 'total +(\d+ of \d+) files', 'tokens', 'once');
+%! assert_equal (total, {'2 of 3'});
+
+%!test
 %! f = fullfile (D, "octave_dialect.m");
 %! out = evalc ("devtools.dialectLint (f)");
 %! assert_equal (out, sprintf (["devtools.dialectLint: %s is in Octave's", ...
@@ -228,3 +233,7 @@ endfunction
 %! devtools.dialectLint (5)
 %!error<devtools.dialectLint: DIALECT must be 'octave' or 'matlab'.> ...
 %! devtools.dialectLint (pwd (), 'klingon')
+
+%!test
+%! confirm_recursive_rmdir (false, 'local');
+%! assert_equal (rmdir (D, 's'), true);
