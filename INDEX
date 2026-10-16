@@ -8,3 +8,4 @@ Diagnostics
 Package checks
  devtools.docLint
  devtools.dialectLint
+ devtools.styleLint

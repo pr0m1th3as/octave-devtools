@@ -335,6 +335,106 @@ collect_defs (const std::string& text, TSNode node, double parent,
     }
 }
 
+static const char *
+query_error_name (TSQueryError e)
+{
+  switch (e)
+    {
+    case TSQueryErrorSyntax:
+      return "a syntax error";
+    case TSQueryErrorNodeType:
+      return "an unknown node type";
+    case TSQueryErrorField:
+      return "an unknown field";
+    case TSQueryErrorCapture:
+      return "an unknown capture";
+    case TSQueryErrorStructure:
+      return "a pattern no tree can match";
+    default:
+      return "an error";
+    }
+}
+
+/* Every capture of every match of a query, one row each.  Columns rather
+   than a structure array: a query over a large file captures tens of
+   thousands of nodes, and a caller wants them as vectors. */
+static octave_scalar_map
+run_query (TSNode root, const TSLanguage *language, const std::string& source)
+{
+  uint32_t offset = 0;
+  TSQueryError err = TSQueryErrorNone;
+  TSQuery *query = ts_query_new (language, source.c_str (),
+                                 static_cast<uint32_t> (source.size ()),
+                                 &offset, &err);
+  if (query == nullptr)
+    error ("__devtools_parse__: QUERY has %s at byte %u.",
+           query_error_name (err), offset + 1);
+
+  std::vector<double> pattern, match, srow, scol, erow, ecol, sbyte, ebyte;
+  std::vector<std::string> capture, type;
+
+  TSQueryCursor *cursor = ts_query_cursor_new ();
+  ts_query_cursor_exec (cursor, query, root);
+  TSQueryMatch m;
+  double count = 0;
+  while (ts_query_cursor_next_match (cursor, &m))
+    {
+      count++;
+      for (uint16_t i = 0; i < m.capture_count; i++)
+        {
+          TSNode node = m.captures[i].node;
+          uint32_t len = 0;
+          const char *name = ts_query_capture_name_for_id (query,
+                                                           m.captures[i].index,
+                                                           &len);
+          TSPoint s = ts_node_start_point (node);
+          TSPoint e = ts_node_end_point (node);
+          pattern.push_back (m.pattern_index + 1);
+          match.push_back (count);
+          capture.push_back (std::string (name, len));
+          type.push_back (ts_node_type (node));
+          srow.push_back (s.row);
+          scol.push_back (s.column);
+          erow.push_back (e.row);
+          ecol.push_back (e.column);
+          sbyte.push_back (ts_node_start_byte (node));
+          ebyte.push_back (ts_node_end_byte (node));
+        }
+    }
+  ts_query_cursor_delete (cursor);
+  ts_query_delete (query);
+
+  octave_idx_type n = static_cast<octave_idx_type> (pattern.size ());
+  auto column = [n] (const std::vector<double>& v)
+  {
+    ColumnVector c (n);
+    for (octave_idx_type i = 0; i < n; i++)
+      c(i) = v[i];
+    return octave_value (c);
+  };
+  auto names = [n] (const std::vector<std::string>& v)
+  {
+    Cell c (dim_vector (n, 1));
+    for (octave_idx_type i = 0; i < n; i++)
+      c(i) = octave_value (v[i]);
+    return octave_value (c);
+  };
+
+  octave_scalar_map q;
+  q.setfield ("ok", octave_value (! ts_node_has_error (root)));
+  q.setfield ("pattern", column (pattern));
+  q.setfield ("match", column (match));
+  q.setfield ("capture", names (capture));
+  q.setfield ("type", names (type));
+  q.setfield ("srow", column (srow));
+  q.setfield ("scol", column (scol));
+  q.setfield ("erow", column (erow));
+  q.setfield ("ecol", column (ecol));
+  q.setfield ("sbyte", column (sbyte));
+  q.setfield ("ebyte", column (ebyte));
+  return q;
+}
+
 DEFUN_DLD (__devtools_parse__, args, ,
            "-*- texinfo -*-\n\
 @deftypefn  {devtools} {@var{R} =} __devtools_parse__ (@var{TEXT})\n\
@@ -367,6 +467,14 @@ byte column, innermost first, and @code{__devtools_parse__ (@var{TEXT},\n\
 the text.  Both return a structure array; positions are zero-based and\n\
 columns count bytes.\n\
 \n\
+@code{__devtools_parse__ (@var{TEXT}, @var{DIALECT}, 'query', @var{QUERY})}\n\
+runs a tree-sitter query and returns a scalar structure holding @code{ok},\n\
+true where the grammar completed the parse, and column vectors with one row\n\
+per capture of every match: @code{pattern} and @code{match},\n\
+one-based, the cellstr columns @code{capture} and @code{type}, and the\n\
+zero-based @code{srow}, @code{scol}, @code{erow}, @code{ecol}, @code{sbyte}\n\
+and @code{ebyte}.  Predicates are not evaluated.\n\
+\n\
 @end deftypefn")
 {
   int nargs = args.length ();
@@ -390,7 +498,7 @@ columns count bytes.\n\
         }
     }
 
-  std::string mode;
+  std::string mode, query;
   uint32_t row = 0, col = 0;
   if (nargs >= 3)
     {
@@ -413,6 +521,12 @@ columns count bytes.\n\
           if (nargs != 3)
             error ("__devtools_parse__: 'defs' takes no further argument.");
         }
+      else if (mode == "query")
+        {
+          if (nargs != 4 || ! args(3).is_string ())
+            error ("__devtools_parse__: 'query' needs a QUERY.");
+          query = args(3).string_value ();
+        }
       else
         error ("__devtools_parse__: unknown mode: '%s'", mode.c_str ());
     }
@@ -430,6 +544,24 @@ columns count bytes.\n\
     }
 
   TSNode root = ts_tree_root_node (tree);
+
+  if (mode == "query")
+    {
+      octave_scalar_map q;
+      try
+        {
+          q = run_query (root, language, query);
+        }
+      catch (...)
+        {
+          ts_tree_delete (tree);
+          ts_parser_delete (parser);
+          throw;
+        }
+      ts_tree_delete (tree);
+      ts_parser_delete (parser);
+      return ovl (octave_value (q));
+    }
 
   if (! mode.empty ())
     {
