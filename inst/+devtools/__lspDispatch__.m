@@ -41,9 +41,10 @@
 ## of the enclosing method, which is the first parameter of a method that is
 ## not static and the output of a constructor; or a call on a variable, its
 ## fields and its members, where every assignment to it in its scope calls a
-## constructor, or where it is a parameter its @code{arguments} block gives a
-## class.  A variable several constructors assign answers each class.
-## Otherwise every candidate is listed.  @code{@var{S}.exit} becomes true on
+## constructor or a function or method whose own body returns known classes,
+## or where it is a parameter its @code{arguments} block gives a class.  A
+## variable that may hold several classes answers each.  Otherwise every
+## candidate is listed.  @code{@var{S}.exit} becomes true on
 ## @code{exit}, with @code{@var{S}.exitCode} 0 after @code{shutdown} and 1
 ## without.
 ##
@@ -438,7 +439,7 @@ function [T, C, L] = targetsAt (S, P)
       else
         T = resolveDotted (S, dotted);
         if (isempty (T) && numel (segs) == 2)
-          for c = variableClasses (S, text, C, row, b, segs{1})
+          for c = variableClasses (S, uri, text, C, row, b, segs{1})
             t = memberTargets (S, c{1}, segs{2}, false);
             T = [T, t(! ismember ({t.name}, {T.name}))];
           endfor
@@ -474,12 +475,12 @@ function [T, C, L] = targetsAt (S, P)
   ## A call whose first argument a constructor or an arguments block settles
   if (numel (T) > 1 && strcmp (parent.type, 'index_expression')
       && strcmp (C(1).field, 'value') && ! isempty (parent.arg1))
-    cls = variableClasses (S, text, C, row, b, parent.arg1);
+    cls = variableClasses (S, uri, text, C, row, b, parent.arg1);
     if (! isempty (cls))
       T = classCall (S, cls, name, T);
     endif
   elseif (isempty (T))
-    cls = variableClasses (S, text, C, row, b, name);
+    cls = variableClasses (S, uri, text, C, row, b, name);
     if (numel (cls) == 1)
       T = resolveDotted (S, cls{1});
     endif
@@ -712,20 +713,393 @@ function T = classCall (S, cls, name, T0)
   endif
 endfunction
 
-function cls = variableClasses (S, text, C, row, col, var)
-  ## The classes a variable may hold at a point: those its assignments in its
-  ## scope construct, with the class an arguments block gives a parameter.
-  ## Empty where any other write, a lambda parameter, or a call to eval or
-  ## load leaves the class open.
+function cls = variableClasses (S, uri, text, C, row, col, var)
+  ## The classes a variable may hold at a point: the class of each constructor
+  ## assigned to it in its scope, or what the function or method assigned
+  ## returns, read from its body, with the class an arguments block gives a
+  ## parameter.  Empty where any assignment leaves the class open.
+  cls = {};
+  Q = parsedFile (uriToPath (uri), text);
+  if (isempty (Q))
+    return;
+  endif
+  nl = [0, find(text == "\n")];
+
+  ## A parameter of an enclosing lambda is another variable
+  lam = named (Q, var);
+  lam = lam(strcmp (Q.capture(lam), 'lambda'));
+  for A = C(strcmp ({C.type}, 'anonymous_function'))'
+    s = nl(A.srow+1) + A.scol;
+    e = nl(A.erow+1) + A.ecol;
+    if (any (Q.sbyte(lam) >= s & Q.ebyte(lam) <= e))
+      return;
+    endif
+  endfor
+
+  sc = scopeOf (Q, owner (Q.fs, Q.fe, nl(row+1) + col), '');
+  [c, ok] = classesIn (S, Q, sc, var, 0, {});
+  if (ok)
+    cls = c;
+  endif
+endfunction
+
+function [cls, ok] = classesIn (S, Q, sc, var, depth, busy)
+  ## The classes VAR may hold in scope SC of a parsed file.  OK is false where
+  ## another write, an assignment that cannot be read, or a call to eval or
+  ## load leaves them open.
+  cls = {};
+  ok = false;
+  if (depth > 8 || any (Q.evals == sc.k))
+    return;
+  endif
+  cap = Q.capture;
+  mine = named (Q, var);
+  mine = mine(owner (Q.fs, Q.fe, Q.sbyte(mine)) == sc.k);
+  if (any (strcmp (cap(mine), 'write')))
+    return;
+  endif
+
+  if (any (strcmp (sc.params, var)))
+    if (! isempty (sc.obj) && strcmp (sc.params{1}, var))
+      cls = {sc.obj};
+    else
+      a = mine(strcmp (cap(mine), 'arg'));
+      out = find (strcmp (cap, 'attrs'));
+      out = out(! cellfun (@isempty, regexp (capText (Q, out), ...
+                                              '\<Output\>', 'once')));
+      for k = out(:)'                 # an empty column would run once
+        b = find (strcmp (cap, 'block') & Q.match == Q.match(k));
+        a = a(! (Q.sbyte(a) >= Q.sbyte(b) & Q.ebyte(a) <= Q.ebyte(b)));
+      endfor
+      if (isempty (a))
+        return;
+      endif
+      nm = capText (Q, find (strcmp (cap, 'class') & Q.match == Q.match(a(1))));
+      nm = regexprep (nm{1}, '\s', '');
+      if (! isClassName (S, nm))
+        return;
+      endif
+      cls = {nm};
+    endif
+  endif
+
+  ## What each assignment calls, and the first argument where that is a name
+  sets = mine(strcmp (cap(mine), 'set'));
+  callee = cell (numel (sets), 1);
+  arg1 = repmat ({''}, numel (sets), 1);
+  self = false (numel (sets), 1);
+  for ii = 1:numel (sets)
+    k = sets(ii);
+    switch (Q.type{k+1})
+      case {'identifier', 'field_expression'}
+        callee(ii) = capText (Q, k+1);
+      case 'index_expression'
+        j = find (strcmp (cap, 'cset') & Q.sbyte == Q.sbyte(k));
+        callee(ii) = capText (Q, j+1);
+        j = find (strcmp (cap, 'aset') & Q.sbyte == Q.sbyte(k));
+        if (! isempty (j) && strcmp (Q.type{j+1}, 'identifier'))
+          arg1(ii) = capText (Q, j+1);
+        endif
+      otherwise
+        return;
+    endswitch
+    callee{ii} = regexprep (callee{ii}, '\s', '');
+    if (isempty (regexp (callee{ii}, '^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$',
+                         'once')))
+      return;
+    endif
+    self(ii) = (strcmp (arg1{ii}, var) ...
+                || strncmp (callee{ii}, [var '.'], numel (var) + 1));
+  endfor
+
+  ## Assignments not reading VAR first, so that a method called on it, as in
+  ## mdl = crossval (mdl), is looked up on the classes it held before
+  base = {};
+  for ii = [find(! self); find(self)]'
+    recv = {};
+    if (self(ii))
+      if (isempty (base))
+        base = cls;
+      endif
+      if (isempty (base))
+        cls = {};
+        return;
+      endif
+      recv = base;
+    endif
+    [c, okc] = callClasses (S, Q, sc, callee{ii}, arg1{ii}, recv, depth, busy);
+    if (! okc)
+      cls = {};
+      return;
+    endif
+    cls = [cls, c];
+  endfor
+  cls = reshape (unique (cls, 'stable'), 1, []);
+  ok = ! isempty (cls);
+endfunction
+
+function [cls, ok] = callClasses (S, Q, sc, callee, arg1, recv, depth, busy)
+  ## The classes an assigned name or call yields: a constructor's class, or
+  ## what the body of the function or method it calls returns.  RECV, where
+  ## not empty, holds the classes of the object a method is called on.
+  cls = {};
+  ok = false;
+  dot = find (callee == '.', 1, 'last');
+  isobj = @(nm) ! isempty (sc.obj) && strcmp (nm, sc.params{1});
+  if (isempty (dot))
+    i = find (Q.ftop & strcmp (Q.fname, callee) ...
+              & cellfun (@isempty, Q.fcls), 1);
+    if (isobj (callee))
+      cls = {sc.obj};
+      ok = true;
+    elseif (isVariable (Q, sc, callee))
+      return;
+    elseif (! isempty (i))
+      ## A local function of the file
+      [cls, ok] = functionClasses (S, Q, i, '', depth, busy);
+    elseif (isClassName (S, callee))
+      cls = {callee};
+      ok = true;
+    elseif (isMethodName (S, callee))
+      ## The object's classes decide.  A class without the method calls the
+      ## plain function, and with none the call raises, adding nothing.
+      if (isempty (recv))
+        if (isempty (arg1))
+          return;
+        endif
+        [recv, okr] = classesIn (S, Q, sc, arg1, depth + 1, busy);
+        if (! okr)
+          return;
+        endif
+      endif
+      plain = ! isempty (plainTarget (S, callee));
+      for c = recv
+        r = {};
+        okc = true;
+        if (! isempty (memberTargets (S, c{1}, callee, true)))
+          [r, okc] = methodClasses (S, c{1}, callee, depth, busy);
+        elseif (plain)
+          [r, okc] = plainClasses (S, callee, depth, busy);
+        endif
+        if (! okc)
+          cls = {};
+          return;
+        endif
+        cls = [cls, r];
+      endfor
+      ok = true;
+    else
+      [cls, ok] = plainClasses (S, callee, depth, busy);
+    endif
+    return;
+  endif
+
+  head = callee(1:dot-1);
+  tail = callee(dot+1:end);
+  if (isClassName (S, callee))
+    cls = {callee};
+    ok = true;
+  elseif (! any (head == '.') && (isobj (head) || isVariable (Q, sc, head)))
+    ## A method called on an object, obj.method (...); a property gives
+    ## its value, and a class with neither raises
+    if (isempty (recv))
+      [recv, okr] = classesIn (S, Q, sc, head, depth + 1, busy);
+      if (! okr)
+        return;
+      endif
+    endif
+    for c = recv
+      t = memberTargets (S, c{1}, tail, false);
+      r = {};
+      okc = isempty (t);
+      if (! okc && strcmp (t.kind, 'method'))
+        [r, okc] = methodClasses (S, c{1}, tail, depth, busy);
+      endif
+      if (! okc)
+        cls = {};
+        return;
+      endif
+      cls = [cls, r];
+    endfor
+    ok = true;
+  elseif (isClassName (S, head))
+    [cls, ok] = methodClasses (S, head, tail, depth, busy);
+  else
+    [cls, ok] = plainClasses (S, callee, depth, busy);
+  endif
+endfunction
+
+function [cls, ok] = plainClasses (S, name, depth, busy)
+  ## What a function returns, read from its file's main function
+  cls = {};
+  ok = false;
+  T = plainTarget (S, name);
+  if (isempty (T) || ! isfile (T.file))
+    return;
+  endif
+  Q = parsedFile (T.file);
+  if (isempty (Q))
+    return;
+  endif
+  [~, base] = fileparts (T.file);
+  i = find (Q.ftop & strcmp (Q.fname, base) & cellfun (@isempty, Q.fcls), 1);
+  if (! isempty (i))
+    [cls, ok] = functionClasses (S, Q, i, '', depth, busy);
+  endif
+endfunction
+
+function T = plainTarget (S, name)
+  ## The function file a name resolves to, in resolvePlain's order; empty for
+  ## a class, a method or a built-in
+  T = inventoryTargets (S.project, name);
+  if (isempty (T))
+    T = pathTarget (name);
+    if (isempty (T))
+      T = inventoryTargets (S.loaded, name);
+    endif
+  endif
+  if (! isempty (T) && ! strcmp (T.kind, 'function'))
+    T = noTargets ();
+  endif
+endfunction
+
+function [cls, ok] = methodClasses (S, c, m, depth, busy)
+  ## What method M returns for an object of class C, looked up the chain
+  cls = {};
+  ok = false;
+  t = memberTargets (S, c, m, true);
+  if (isempty (t) || isempty (t.file) || ! isfile (t.file))
+    return;
+  endif
+  Q = parsedFile (t.file);
+  if (isempty (Q))
+    return;
+  endif
+  i = find (strcmp (Q.fname, m) ...
+            & strcmp (Q.fcls, regexprep (t.name, '\.[^.]*$', '')), 1);
+  if (! isempty (i))
+    [cls, ok] = functionClasses (S, Q, i, c, depth, busy);
+  endif
+endfunction
+
+function [cls, ok] = functionClasses (S, Q, i, obj, depth, busy)
+  ## What function I of a parsed file returns in its first output; a call
+  ## back into a function being read adds nothing
+  cls = {};
+  ok = false;
+  key = sprintf ("%s:%d:%s", Q.file, i, obj);
+  if (any (strcmp (busy, key)))
+    ok = true;
+  elseif (! isempty (Q.fout{i}))
+    [cls, ok] = classesIn (S, Q, scopeOf (Q, i, obj), Q.fout{i}{1}, ...
+                           depth + 1, [busy, {key}]);
+  endif
+endfunction
+
+function sc = scopeOf (Q, k, obj)
+  ## Function K of a parsed file, its top level for 0, with the class of its
+  ## object where it is a method that has one: OBJ, or else its own class
+  sc = struct ("k", k, "obj", '', "params", {{}});
+  if (k > 0)
+    sc.params = Q.fparams{k};
+    if (Q.fobj(k) && ! isempty (sc.params))
+      sc.obj = obj;
+      if (isempty (obj))
+        sc.obj = Q.fcls{k};
+      endif
+    endif
+  endif
+endfunction
+
+function tf = isVariable (Q, sc, name)
+  ## True where a scope assigns NAME or takes it as a parameter
+  k = named (Q, name);
+  k = k(ismember (Q.capture(k), {'set', 'write'}));
+  tf = (any (strcmp (sc.params, name)) ...
+        || any (owner (Q.fs, Q.fe, Q.sbyte(k)) == sc.k));
+endfunction
+
+function tf = isMethodName (S, name)
+  ## True where a class in either inventory defines a method NAME
+  tf = false;
+  for I = {S.project, S.loaded}
+    m = strcmp ({I{1}.kind}, 'method');
+    if (any (strcmp (regexprep ({I{1}(m).name}, '^.*\.', ''), name)))
+      tf = true;
+      return;
+    endif
+  endfor
+endfunction
+
+function k = named (Q, name)
+  ## The captures whose source is NAME
+  k = find (Q.ebyte - Q.sbyte == numel (name));
+  k = k(strcmp (capText (Q, k), name));
+endfunction
+
+function t = capText (Q, k)
+  t = arrayfun (@(j) Q.text(Q.sbyte(j)+1:Q.ebyte(j)), k(:)', ...
+                "UniformOutput", false);
+endfunction
+
+function Q = parsedFile (file, text)
+  ## The captures of the class query over a file and its functions, kept while
+  ## a file on disk is unchanged.  TEXT, where given, is read instead and not
+  ## kept.
+  persistent keys = {};
+  persistent vals = {};
+  persistent stamps = [];
+  Q = [];
+  k = [];
+  if (nargin < 2)
+    info = dir (file);
+    if (isempty (info))
+      return;
+    endif
+    k = find (strcmp (keys, file), 1);
+    if (! isempty (k) && stamps(k) == info(1).datenum)
+      Q = vals{k};
+      return;
+    endif
+    try
+      text = fileread (file);
+    catch
+      return;
+    end_try_catch
+  endif
+  try
+    Q = devtools.__parseQuery__ (text, classQuery ());
+  catch
+    Q = [];
+    return;
+  end_try_catch
+  Q = describeFunctions (Q, text, file);
+  if (nargin < 2)
+    if (isempty (k))
+      k = numel (keys) + 1;
+    endif
+    keys{k} = file;
+    vals{k} = Q;
+    stamps(k) = info(1).datenum;
+  endif
+endfunction
+
+function q = classQuery ()
+  ## Assignments, writes, declarations and functions, for reading classes
   persistent query = '';
   if (isempty (query))
     query = ['(assignment left: (identifier) @set !operator', ...
              ' right: (_) @rhs)', ...
              '(assignment left: (identifier) @cset !operator', ...
              ' right: (index_expression value: (_) @callee))', ...
+             '(assignment left: (identifier) @aset !operator', ...
+             ' right: (index_expression value: (_) . (_) @arg1))', ...
              '(assignment left: (identifier) @write operator: _)', ...
-             '(multi_assignment_target (identifier) @write)', ...
+             '(assignment left: (multi_assignment_target', ...
+             ' (identifier) @write))', ...
              '(for_statement variable: (identifier) @write)', ...
+             '(for_statement variable: (multi_assignment_target', ...
+             ' (identifier) @write))', ...
              '(declaration (identifier) @write)', ...
              '(catch_clause error: (identifier) @write)', ...
              '(argument_declaration name: (identifier) @arg', ...
@@ -737,113 +1111,81 @@ function cls = variableClasses (S, text, C, row, col, var)
              '(expression_statement (identifier) @stmt)', ...
              '(anonymous_function parameters: (parameter_list', ...
              ' (identifier) @lambda))', ...
-             '(source_file (function_definition', ...
-             ' name: (identifier) @local))', ...
-             '(function_definition) @fn'];
+             '(function_definition) @fn', ...
+             '(function_definition name: (_) @fname)', ...
+             '(function_definition parameters: (parameter_list', ...
+             ' (identifier) @fparam))', ...
+             '(function_definition output: (identifier) @fout)', ...
+             '(function_definition output: (multi_assignment_target', ...
+             ' (identifier) @fout))', ...
+             '(classdef_definition name: (_) @cname) @classdef', ...
+             '(methods_block attributes: (_) @mattrs) @mblock'];
   endif
-  cls = {};
-  try
-    Q = devtools.__parseQuery__ (text, query);
-  catch
-    return;
-  end_try_catch
+  q = query;
+endfunction
+
+function Q = describeFunctions (Q, text, file)
+  ## Each function's name, parameters and outputs, whether it is at the top
+  ## level, its class where it is a method, and whether it has an object
+  Q.text = text;
+  Q.file = file;
   cap = Q.capture;
-  src = @(k) arrayfun (@(j) text(Q.sbyte(j)+1:Q.ebyte(j)), k(:)', ...
-                       "UniformOutput", false);
-  nl = [0, find(text == "\n")];
-  fn = strcmp (cap, 'fn');
-  fs = Q.sbyte(fn);
-  fe = Q.ebyte(fn);
-  scope = owner (fs, fe, nl(row+1) + col);
-  kf = find (strcmp ({C.type}, 'function_definition'), 1);
-  params = {};
-  if (! isempty (kf))
-    params = C(kf).params;
-  endif
+  f = find (strcmp (cap, 'fn'));
+  Q.fs = Q.sbyte(f);
+  Q.fe = Q.ebyte(f);
+  n = numel (f);
+  Q.fname = repmat ({''}, n, 1);
+  Q.fparams = repmat ({{}}, n, 1);
+  Q.fout = repmat ({{}}, n, 1);
+  Q.fcls = repmat ({''}, n, 1);
+  for tag = {'fname', 'fparam', 'fout'}
+    j = find (strcmp (cap, tag{1}));
+    o = owner (Q.fs, Q.fe, Q.sbyte(j));
+    t = capText (Q, j);
+    for ii = find (o' > 0)
+      switch (tag{1})
+        case 'fname'
+          Q.fname{o(ii)} = t{ii};
+        case 'fparam'
+          Q.fparams{o(ii)}{end+1} = t{ii};
+        otherwise
+          Q.fout{o(ii)}{end+1} = t{ii};
+      endswitch
+    endfor
+  endfor
+  Q.ftop = ! any ((Q.fs' < Q.fs) & (Q.fe' >= Q.fe), 2);
 
-  ## The captures naming VAR in its scope
-  named = find (Q.ebyte - Q.sbyte == numel (var));
-  named = named(strcmp (src (named), var));
-  mine = named(owner (fs, fe, Q.sbyte(named)) == scope);
-
-  ## A parameter of an enclosing lambda is another variable
-  lam = named(strcmp (cap(named), 'lambda'));
-  for A = C(strcmp ({C.type}, 'anonymous_function'))'
-    s = nl(A.srow+1) + A.scol;
-    e = nl(A.erow+1) + A.ecol;
-    if (any (Q.sbyte(lam) >= s & Q.ebyte(lam) <= e))
-      return;
+  ## Methods: inside a classdef, or the main function of an @class file
+  ns = namespaceOf (file);
+  ctor = false (n, 1);
+  static = false (n, 1);
+  for c = find (strcmp (cap, 'classdef'))'
+    nm = capText (Q, find (strcmp (cap, 'cname') & Q.match == Q.match(c)));
+    in = (Q.fs >= Q.sbyte(c) & Q.fe <= Q.ebyte(c));
+    Q.fcls(in) = {[ns nm{1}]};
+    ctor |= in & strcmp (Q.fname, nm{1});
+  endfor
+  for m = find (strcmp (cap, 'mblock'))'
+    a = capText (Q, find (strcmp (cap, 'mattrs') & Q.match == Q.match(m)));
+    if (! isempty (regexp (a{1}, '\<Static\>(?!\s*=\s*false)', 'once')))
+      static |= (Q.fs >= Q.sbyte(m) & Q.fe <= Q.ebyte(m));
     endif
   endfor
-
-  if (any (strcmp (cap(mine), 'write')))
-    return;
+  [folder, base] = fileparts (file);
+  [~, cdir] = fileparts (folder);
+  if (! isempty (cdir) && cdir(1) == '@')
+    i = find (Q.ftop & strcmp (Q.fname, base), 1);
+    Q.fcls(i) = {[ns cdir(2:end)]};
+    ctor(i) = strcmp (base, cdir(2:end));
   endif
+  Q.fobj = (! cellfun (@isempty, Q.fcls) & ! static & ! ctor);
+
+  ## Calls that may assign any variable of their scope
   st = find (strcmp (cap, 'stmt') & Q.ebyte - Q.sbyte >= 4 ...
              & Q.ebyte - Q.sbyte <= 8);
-  st = st(ismember (src (st), {'eval', 'evalc', 'evalin', 'assignin', 'load'}));
-  if (any (owner (fs, fe, Q.sbyte(st)) == scope))
-    return;
-  endif
-
-  if (any (strcmp (params, var)))
-    a = mine(strcmp (cap(mine), 'arg'));
-    out = find (strcmp (cap, 'attrs'));
-    out = out(! cellfun (@isempty, regexp (src (out), '\<Output\>', 'once')));
-    for k = out(:)'                   # an empty column would run once
-      a = a(! (Q.sbyte(a) >= Q.sbyte(k-1) & Q.ebyte(a) <= Q.ebyte(k-1)));
-    endfor
-    if (isempty (a))
-      return;
-    endif
-    cls = src (find (strcmp (cap, 'class') & Q.match == Q.match(a(1))));
-  endif
-
-  cset = find (strcmp (cap, 'cset'));
-  for k = mine(strcmp (cap(mine), 'set'))'
-    switch (Q.type{k+1})
-      case {'identifier', 'field_expression'}
-        nm = src (k+1);
-      case 'index_expression'
-        nm = src (cset(Q.sbyte(cset) == Q.sbyte(k)) + 1);
-      otherwise
-        cls = {};
-        return;
-    endswitch
-    if (isempty (nm))
-      cls = {};
-      return;
-    endif
-    cls(end+1) = regexprep (nm, '\s', '');
-  endfor
-
-  for ii = 1:numel (cls)
-    nm = cls{ii};
-    if (isempty (regexp (nm, '^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$', 'once')))
-      cls = {};
-      return;
-    endif
-    if (! any (nm == '.'))
-      ## A variable or a local function of that name is not the class
-      if (any (strcmp (params, nm)))
-        cls = {};
-        return;
-      endif
-      j = find (Q.ebyte - Q.sbyte == numel (nm) ...
-                & ismember (cap, {'set', 'write', 'local'}));
-      j = j(strcmp (src (j), nm));
-      j = j(strcmp (cap(j), 'local') | owner (fs, fe, Q.sbyte(j)) == scope);
-      if (! isempty (j))
-        cls = {};
-        return;
-      endif
-    endif
-    if (! isClassName (S, nm))
-      cls = {};
-      return;
-    endif
-  endfor
-  cls = unique (cls, 'stable');
+  st = st(ismember (capText (Q, st), ...
+                    {'eval', 'evalc', 'evalin', 'assignin', 'load'}));
+  Q.evals = owner (Q.fs, Q.fe, Q.sbyte(st));
 endfunction
 
 function k = owner (fs, fe, b)
@@ -1237,7 +1579,7 @@ function res = completion (S, P)
     else
       items = [memberItems(S, head), namespaceItems(S, head)];
       if (isempty (items) && ! any (head == '.'))
-        for c = variableClasses (S, text, C, row, b - numel (word), head)
+        for c = variableClasses (S, uri, text, C, row, b - numel (word), head)
           items = [items, memberItems(S, c{1})];
         endfor
       endif
@@ -1391,6 +1733,18 @@ endfunction
 %! fclose (fid);
 %! fid = fopen (fullfile (D, "inst", "q.m"), "w");
 %! fputs (fid, "function z = q (x)\n  z = x;\nendfunction\n");
+%! fclose (fid);
+%! fid = fopen (fullfile (D, "inst", "N.m"), "w");
+%! fputs (fid, ["classdef N < K\n  methods\n    function y = w (obj)\n", ...
+%!              "      y = M ();\n    endfunction\n", ...
+%!              "    function obj = v (obj)\n    endfunction\n", ...
+%!              "  endmethods\nendclassdef\n"]);
+%! fclose (fid);
+%! fid = fopen (fullfile (D, "inst", "mk.m"), "w");
+%! fputs (fid, "function k = mk ()\n  k = K ();\nendfunction\n");
+%! fclose (fid);
+%! fid = fopen (fullfile (D, "inst", "mk2.m"), "w");
+%! fputs (fid, "function r = mk2 ()\n  r = N ();\n  r = v (r);\nendfunction\n");
 %! fclose (fid);
 
 %!function R = msg (id, method, params)
@@ -1720,6 +2074,55 @@ endfunction
 %! res = script (D, "k = K ();\nk.P\n", "textDocument/completion", 1, "P");
 %! got = cellfun (@(s) s.label, res.items, "UniformOutput", false);
 %! assert_equal (sort (got), {"P", "g", "s"});
+
+%!test
+%! res = script (D, ["function [a, b] = f ()\n  a = K ();\n", ...
+%!                   "  g (a, 1);\nend\n"], ...
+%!               "textDocument/definition", 2, "g (a");
+%! assert_equal (res.uri, uri (D, "K.m"));
+
+%!test
+%! res = script (D, "k = mk ();\ny = g (k, 1);\n", ...
+%!               "textDocument/definition", 1, "g (k");
+%! assert_equal (res.uri, uri (D, "K.m"));
+
+%!test
+%! res = script (D, "r = mk2 ();\ny = g (r, 1);\n", ...
+%!               "textDocument/definition", 1, "g (r");
+%! assert_equal (res.uri, uri (D, "K.m"));
+
+%!test
+%! res = script (D, ["k = f ();\ng (k, 1);\n", ...
+%!                   "function k = f ()\n  k = K ();\nend\n"], ...
+%!               "textDocument/definition", 1, "g (k");
+%! assert_equal (res.uri, uri (D, "K.m"));
+
+%!test
+%! res = script (D, ["k = f (3);\ng (k, 1);\nfunction k = f (n)\n", ...
+%!                   "  if (n > 0)\n    k = f (n - 1);\n  else\n", ...
+%!                   "    k = K ();\n  endif\nend\n"], ...
+%!               "textDocument/definition", 1, "g (k");
+%! assert_equal (res.uri, uri (D, "K.m"));
+
+%!test
+%! res = script (D, "k = trace (1);\ng (k, 1);\n", ...
+%!               "textDocument/definition", 1, "g (k");
+%! assert_equal (numel (res), 2);
+
+%!test
+%! res = script (D, "n = N ();\nm = w (n);\nz = q (m);\n", ...
+%!               "textDocument/definition", 2, "q (m");
+%! assert_equal (res.uri, uri (D, "M.m"));
+
+%!test
+%! res = script (D, "n = N ();\nm = n.w ();\nz = q (m);\n", ...
+%!               "textDocument/definition", 2, "q (m");
+%! assert_equal (res.uri, uri (D, "M.m"));
+
+%!test
+%! res = script (D, "x = K ();\nx = N ();\nm = w (x);\nz = q (m);\n", ...
+%!               "textDocument/definition", 3, "q (m");
+%! assert_equal (res.uri, uri (D, "M.m"));
 
 %!test
 %! confirm_recursive_rmdir (false, "local");
