@@ -335,7 +335,11 @@ function U = pathToUri (P)
 endfunction
 
 function L = splitLines (T)
-  L = strsplit (T, "\n", "CollapseDelimiters", false);
+  ## ostrsplit keeps empty lines too and is several times faster than strsplit
+  L = ostrsplit (T, "\n");
+  if (isempty (L))
+    L = {''};
+  endif
 endfunction
 
 function B = byteCol (line, ch, enc)
