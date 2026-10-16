@@ -37,11 +37,15 @@
 ## installed copy of a package under development being the stale one.
 ##
 ## A method name several classes define is answered only where the class is
-## certain: a call to @code{Class.method}, or a method or property of the
-## object of the enclosing method, which is the first parameter of a method
-## that is not static and the output of a constructor.  Otherwise every
-## candidate is listed.  @code{@var{S}.exit} becomes true on @code{exit}, with
-## @code{@var{S}.exitCode} 0 after @code{shutdown} and 1 without.
+## certain: a call to @code{Class.method}; a method or property of the object
+## of the enclosing method, which is the first parameter of a method that is
+## not static and the output of a constructor; or a call on a variable, its
+## fields and its members, where every assignment to it in its scope calls a
+## constructor, or where it is a parameter its @code{arguments} block gives a
+## class.  A variable several constructors assign answers each class.
+## Otherwise every candidate is listed.  @code{@var{S}.exit} becomes true on
+## @code{exit}, with @code{@var{S}.exitCode} 0 after @code{shutdown} and 1
+## without.
 ##
 ## @end deftypefn
 
@@ -402,8 +406,8 @@ function [T, C, L] = targetsAt (S, P)
   if (row + 1 <= numel (L))
     line = L{row+1};
   endif
-  C = devtools.__parseAt__ (text, row, byteCol (line, P.position.character, ...
-                                                S.encoding));
+  b = byteCol (line, P.position.character, S.encoding);
+  C = devtools.__parseAt__ (text, row, b);
   if (isempty (C) || ! strcmp (C(1).type, 'identifier'))
     return;
   endif
@@ -433,6 +437,12 @@ function [T, C, L] = targetsAt (S, P)
         T = memberTargets (S, X.cls, segs{2}, false);
       else
         T = resolveDotted (S, dotted);
+        if (isempty (T) && numel (segs) == 2)
+          for c = variableClasses (S, text, C, row, b, segs{1})
+            t = memberTargets (S, c{1}, segs{2}, false);
+            T = [T, t(! ismember ({t.name}, {T.name}))];
+          endfor
+        endif
       endif
       return;
     endif
@@ -460,6 +470,20 @@ function [T, C, L] = targetsAt (S, P)
     return;                           # an assignment's target is a variable
   endif
   T = resolvePlain (S, name, uri);
+
+  ## A call whose first argument a constructor or an arguments block settles
+  if (numel (T) > 1 && strcmp (parent.type, 'index_expression')
+      && strcmp (C(1).field, 'value') && ! isempty (parent.arg1))
+    cls = variableClasses (S, text, C, row, b, parent.arg1);
+    if (! isempty (cls))
+      T = classCall (S, cls, name, T);
+    endif
+  elseif (isempty (T))
+    cls = variableClasses (S, text, C, row, b, name);
+    if (numel (cls) == 1)
+      T = resolveDotted (S, cls{1});
+    endif
+  endif
 endfunction
 
 function X = context (C, file)
@@ -669,6 +693,193 @@ function T = memberTargets (S, cls, member, methodsOnly)
     endif
     queue = [queue, D(kc).supers];
   endwhile
+endfunction
+
+function T = classCall (S, cls, name, T0)
+  ## What a call runs for each class its object may hold: that class's
+  ## method, or else the plain function
+  own = T0(! strcmp ({T0.kind}, 'method'));
+  T = noTargets ();
+  for ii = 1:numel (cls)
+    t = memberTargets (S, cls{ii}, name, true);
+    if (isempty (t))
+      t = own;
+    endif
+    T = [T, t(! ismember ({t.name}, {T.name}))];
+  endfor
+  if (isempty (T))
+    T = T0;
+  endif
+endfunction
+
+function cls = variableClasses (S, text, C, row, col, var)
+  ## The classes a variable may hold at a point: those its assignments in its
+  ## scope construct, with the class an arguments block gives a parameter.
+  ## Empty where any other write, a lambda parameter, or a call to eval or
+  ## load leaves the class open.
+  persistent query = '';
+  if (isempty (query))
+    query = ['(assignment left: (identifier) @set !operator', ...
+             ' right: (_) @rhs)', ...
+             '(assignment left: (identifier) @cset !operator', ...
+             ' right: (index_expression value: (_) @callee))', ...
+             '(assignment left: (identifier) @write operator: _)', ...
+             '(multi_assignment_target (identifier) @write)', ...
+             '(for_statement variable: (identifier) @write)', ...
+             '(declaration (identifier) @write)', ...
+             '(catch_clause error: (identifier) @write)', ...
+             '(argument_declaration name: (identifier) @arg', ...
+             ' class: (_) @class)', ...
+             '(arguments_block attributes: (_) @attrs) @block', ...
+             '(command_statement name: (identifier) @stmt)', ...
+             '(expression_statement (index_expression', ...
+             ' value: (identifier) @stmt))', ...
+             '(expression_statement (identifier) @stmt)', ...
+             '(anonymous_function parameters: (parameter_list', ...
+             ' (identifier) @lambda))', ...
+             '(source_file (function_definition', ...
+             ' name: (identifier) @local))', ...
+             '(function_definition) @fn'];
+  endif
+  cls = {};
+  try
+    Q = devtools.__parseQuery__ (text, query);
+  catch
+    return;
+  end_try_catch
+  cap = Q.capture;
+  src = @(k) arrayfun (@(j) text(Q.sbyte(j)+1:Q.ebyte(j)), k(:)', ...
+                       "UniformOutput", false);
+  nl = [0, find(text == "\n")];
+  fn = strcmp (cap, 'fn');
+  fs = Q.sbyte(fn);
+  fe = Q.ebyte(fn);
+  scope = owner (fs, fe, nl(row+1) + col);
+  kf = find (strcmp ({C.type}, 'function_definition'), 1);
+  params = {};
+  if (! isempty (kf))
+    params = C(kf).params;
+  endif
+
+  ## The captures naming VAR in its scope
+  named = find (Q.ebyte - Q.sbyte == numel (var));
+  named = named(strcmp (src (named), var));
+  mine = named(owner (fs, fe, Q.sbyte(named)) == scope);
+
+  ## A parameter of an enclosing lambda is another variable
+  lam = named(strcmp (cap(named), 'lambda'));
+  for A = C(strcmp ({C.type}, 'anonymous_function'))'
+    s = nl(A.srow+1) + A.scol;
+    e = nl(A.erow+1) + A.ecol;
+    if (any (Q.sbyte(lam) >= s & Q.ebyte(lam) <= e))
+      return;
+    endif
+  endfor
+
+  if (any (strcmp (cap(mine), 'write')))
+    return;
+  endif
+  st = find (strcmp (cap, 'stmt') & Q.ebyte - Q.sbyte >= 4 ...
+             & Q.ebyte - Q.sbyte <= 8);
+  st = st(ismember (src (st), {'eval', 'evalc', 'evalin', 'assignin', 'load'}));
+  if (any (owner (fs, fe, Q.sbyte(st)) == scope))
+    return;
+  endif
+
+  if (any (strcmp (params, var)))
+    a = mine(strcmp (cap(mine), 'arg'));
+    out = find (strcmp (cap, 'attrs'));
+    out = out(! cellfun (@isempty, regexp (src (out), '\<Output\>', 'once')));
+    for k = out(:)'                   # an empty column would run once
+      a = a(! (Q.sbyte(a) >= Q.sbyte(k-1) & Q.ebyte(a) <= Q.ebyte(k-1)));
+    endfor
+    if (isempty (a))
+      return;
+    endif
+    cls = src (find (strcmp (cap, 'class') & Q.match == Q.match(a(1))));
+  endif
+
+  cset = find (strcmp (cap, 'cset'));
+  for k = mine(strcmp (cap(mine), 'set'))'
+    switch (Q.type{k+1})
+      case {'identifier', 'field_expression'}
+        nm = src (k+1);
+      case 'index_expression'
+        nm = src (cset(Q.sbyte(cset) == Q.sbyte(k)) + 1);
+      otherwise
+        cls = {};
+        return;
+    endswitch
+    if (isempty (nm))
+      cls = {};
+      return;
+    endif
+    cls(end+1) = regexprep (nm, '\s', '');
+  endfor
+
+  for ii = 1:numel (cls)
+    nm = cls{ii};
+    if (isempty (regexp (nm, '^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$', 'once')))
+      cls = {};
+      return;
+    endif
+    if (! any (nm == '.'))
+      ## A variable or a local function of that name is not the class
+      if (any (strcmp (params, nm)))
+        cls = {};
+        return;
+      endif
+      j = find (Q.ebyte - Q.sbyte == numel (nm) ...
+                & ismember (cap, {'set', 'write', 'local'}));
+      j = j(strcmp (src (j), nm));
+      j = j(strcmp (cap(j), 'local') | owner (fs, fe, Q.sbyte(j)) == scope);
+      if (! isempty (j))
+        cls = {};
+        return;
+      endif
+    endif
+    if (! isClassName (S, nm))
+      cls = {};
+      return;
+    endif
+  endfor
+  cls = unique (cls, 'stable');
+endfunction
+
+function k = owner (fs, fe, b)
+  ## The innermost function holding each byte, as an index into FS; 0 for none
+  b = b(:);
+  k = zeros (numel (b), 1);
+  if (isempty (fs) || isempty (b))
+    return;
+  endif
+  M = (fs(:)' <= b) & (b < fe(:)');
+  [m, k] = max (M .* (fs(:)' + 1), [], 2);
+  k(m == 0) = 0;
+endfunction
+
+function tf = isClassName (S, name)
+  ## True where a name resolves to a class, in resolvePlain's order
+  tf = false;
+  T = inventoryTargets (S.project, name);
+  if (isempty (T))
+    T = pathTarget (name);
+    if (isempty (T))
+      T = inventoryTargets (S.loaded, name);
+    endif
+  endif
+  if (isempty (T))
+    return;
+  endif
+  if (strcmp (T.kind, 'class'))
+    tf = true;
+  elseif (strcmp (T.kind, 'function') && isfile (T.file))
+    [folder, base] = fileparts (T.file);
+    [~, cdir] = fileparts (folder);
+    D = fileDefs (T.file);
+    tf = (any (strcmp ({D.type}, 'classdef_definition')) ...
+          || strcmp (cdir, ['@' base]));
+  endif
 endfunction
 
 function [file, D, kc] = classFile (S, cls)
@@ -1025,6 +1236,11 @@ function res = completion (S, P)
       items = memberItems (S, X.cls);
     else
       items = [memberItems(S, head), namespaceItems(S, head)];
+      if (isempty (items) && ! any (head == '.'))
+        for c = variableClasses (S, text, C, row, b - numel (word), head)
+          items = [items, memberItems(S, c{1})];
+        endfor
+      endif
     endif
     items = reshape (items(strncmp ({items.label}, part, numel (part))), 1, []);
   elseif (! isempty (word))
@@ -1169,6 +1385,13 @@ endfunction
 %! fid = fopen (fullfile (D, "inst", "+ns", "h.m"), "w");
 %! fputs (fid, "function y = h (x)\n  y = x;\nendfunction\n");
 %! fclose (fid);
+%! fid = fopen (fullfile (D, "inst", "M.m"), "w");
+%! fputs (fid, ["classdef M\n  methods\n    function z = q (obj)\n", ...
+%!              "    endfunction\n  endmethods\nendclassdef\n"]);
+%! fclose (fid);
+%! fid = fopen (fullfile (D, "inst", "q.m"), "w");
+%! fputs (fid, "function z = q (x)\n  z = x;\nendfunction\n");
+%! fclose (fid);
 
 %!function R = msg (id, method, params)
 %!  m = struct ("jsonrpc", "2.0", "method", method);
@@ -1211,6 +1434,17 @@ endfunction
 %!function res = ask (S, method, P)
 %!  REP = devtools.__lspDispatch__ (msg (2, method, P), S);
 %!  res = REP{1}.result;
+%!endfunction
+
+%!function res = script (D, text, method, row, needle)
+%!  ## Ask about NEEDLE on ROW of TEXT, opened as an unsaved document
+%!  S = session (D);
+%!  p = struct ("textDocument", struct ("uri", uri (D, "U.m"), "version", 1, ...
+%!                                      "text", text));
+%!  [~, S] = devtools.__lspDispatch__ (msg ([], "textDocument/didOpen", p), S);
+%!  L = strsplit (text, "\n");
+%!  k = strfind (L{row+1}, needle)(1) - 1;
+%!  res = ask (S, method, at (uri (D, "U.m"), row, k));
 %!endfunction
 
 %!function k = col (D, name, row, needle)
@@ -1407,6 +1641,85 @@ endfunction
 %! [~, S] = devtools.__lspDispatch__ (msg ([], "textDocument/didOpen", p), S);
 %! res = ask (S, "textDocument/hover", at (uri (D, "U.m"), 0, 16));
 %! assert_equal (res.range.start.character, 16);
+
+%!test
+%! res = script (D, "k = K ();\ny = g (k, 1);\n", ...
+%!               "textDocument/definition", 1, "g (k");
+%! assert_equal (res.uri, uri (D, "K.m"));
+
+%!test
+%! res = script (D, "k = K;\ny = g (k, 1);\n", ...
+%!               "textDocument/definition", 1, "g (k");
+%! assert_equal (res.uri, uri (D, "K.m"));
+
+%!test
+%! res = script (D, "m = K ();\nm = J ();\ny = g (m, 1);\n", ...
+%!               "textDocument/definition", 2, "g (m");
+%! assert_equal (sort (cellfun (@(r) r.uri, res, "UniformOutput", false)), ...
+%!               {uri(D, "J.m"), uri(D, "K.m")});
+
+%!test
+%! res = script (D, "k = K ();\nk += 1;\ny = g (k, 1);\n", ...
+%!               "textDocument/definition", 2, "g (k");
+%! assert_equal (numel (res), 2);
+
+%!test
+%! res = script (D, "k = K ();\nh = @(k) g (k, 1);\n", ...
+%!               "textDocument/definition", 1, "g (k");
+%! assert_equal (numel (res), 2);
+
+%!test
+%! res = script (D, "k = K ();\nload f.mat\ny = g (k, 1);\n", ...
+%!               "textDocument/definition", 2, "g (k");
+%! assert_equal (numel (res), 2);
+
+%!test
+%! res = script (D, "J = K ();\nj = J ();\ng (j, 1);\n", ...
+%!               "textDocument/definition", 2, "g (j");
+%! assert_equal (numel (res), 2);
+
+%!test
+%! res = script (D, ["function a ()\n  k = K ();\nend\n", ...
+%!                   "function b ()\n  g (k, 1);\nend\n"], ...
+%!               "textDocument/definition", 4, "g (k");
+%! assert_equal (numel (res), 2);
+
+%!test
+%! res = script (D, ["function f (k)\n  arguments\n    k K\n", ...
+%!                   "  end\n  g (k, 1);\nend\n"], ...
+%!               "textDocument/definition", 4, "g (k");
+%! assert_equal (res.uri, uri (D, "K.m"));
+
+%!test
+%! res = script (D, "function f (k)\n  g (k, 1);\nend\n", ...
+%!               "textDocument/definition", 1, "g (k");
+%! assert_equal (numel (res), 2);
+
+%!test
+%! res = script (D, ["function k = f (k)\n  arguments (Output)\n    k K\n", ...
+%!                   "  end\n  g (k, 1);\nend\n"], ...
+%!               "textDocument/definition", 4, "g (k");
+%! assert_equal (numel (res), 2);
+
+%!test
+%! res = script (D, "k = K ();\nz = q (k);\n", ...
+%!               "textDocument/definition", 1, "q (k");
+%! assert_equal (res.uri, uri (D, "q.m"));
+
+%!test
+%! res = script (D, "k = K ();\nv = k.P;\n", ...
+%!               "textDocument/definition", 1, "P;");
+%! assert_equal (res.range.start.line, 6);
+
+%!test
+%! res = script (D, "k = K ();\nv = numel (k);\n", ...
+%!               "textDocument/definition", 1, "k)");
+%! assert_equal (res.uri, uri (D, "K.m"));
+
+%!test
+%! res = script (D, "k = K ();\nk.P\n", "textDocument/completion", 1, "P");
+%! got = cellfun (@(s) s.label, res.items, "UniformOutput", false);
+%! assert_equal (sort (got), {"P", "g", "s"});
 
 %!test
 %! confirm_recursive_rmdir (false, "local");
