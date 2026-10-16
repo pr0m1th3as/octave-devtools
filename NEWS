@@ -1,21 +1,30 @@
-Summary of important user-visible changes for devtools 0.3.1:
+Summary of important user-visible changes for devtools 0.3.2:
 -------------------------------------------------------------
 
- This release brings the parser to tree-sitter-octave 0.1.0 and fixes two
- faults in `devtools.selftest`.
+ This release adds a style checker for package authors and teaches
+ `devtools.lsp` which class a method call reaches in scripts and test blocks.
 
- ** The parser reads spaces inside brackets as Octave's own lexer does:
-    `[1 -2]` is two elements where `[1 - 2]` is one, `[v (w)]` is `v` and
-    `(w)`, and `[1:2:end]` is one range.  A line ending in an operator, a
-    backslash continuing a line outside a string, and `{@(t) t (1) 2}` are
-    syntax errors, as in Octave.  Asked about MATLAB, `devtools.dialectLint`
-    reads brackets as MATLAB does.  `devtools.lsp` and
-    `devtools.dialectLint` both read the corrected tree.
+ ** `devtools.styleLint` checks code against the packages' coding style:
+    tabs, two-space indentation, single quotes by default and double quotes
+    for message text, lines of at most 80 columns, and conditions in
+    parentheses with no `...`.  Test blocks are checked as code, and `RULES`
+    picks which rules run.
 
- ** `devtools.selftest (CMD)` on Windows no longer fails its check that a
-    server answers requests arriving in bursts, which it did for every
-    command given.
+ ** `devtools.lsp` answers a method call from what its object was assigned:
+    after `mdl = fitcknn (X, Y)`, hover and definition on `predict (mdl, X)`
+    give `ClassificationKNN.predict` instead of every class's `predict`.
+    Constructors, `arguments` blocks, nested calls and the return classes of
+    functions and methods, read from their bodies, all count.  A method only
+    one class defines answers any call to it.
 
- ** `devtools.selftest` no longer prints the server's startup line among its
-    results, and called without outputs it prints each result as its check
-    ends rather than all at the end.
+ ** `devtools.lsp` answers hover, definition and completion in test blocks.
+
+ ** `devtools.lsp` no longer answers "Internal error" to a definition request
+    on a local variable, or to completion after a variable and a dot.  A
+    definition with many candidates comes about twice as fast.
+
+ ** The servers report their own version in `serverInfo`; 0.3.1 reported
+    0.3.0.
+
+ ** `devtools.dialectLint`'s summary counts the files checked; it repeated
+    the number of findings, as in "3 of 3 files".
