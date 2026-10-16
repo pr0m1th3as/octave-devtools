@@ -121,8 +121,14 @@ function R = styleLint (TARGET, RULES)
   for ii = 1:numel (files)
     per{ii} = __lintFile__ (files{ii}, RULES);
   endfor
-  F = [struct('file', {}, 'line', {}, 'column', {}, 'rule', {}, ...
-              'message', {}), per{:}];
+  ## An empty structure in brackets loses its fields
+  per = per(! cellfun (@isempty, per));
+  if (isempty (per))
+    F = struct ('file', {}, 'line', {}, 'column', {}, 'rule', {}, ...
+                'message', {});
+  else
+    F = [per{:}];
+  endif
 
   if (nargout > 0)
     R = F;
@@ -162,7 +168,11 @@ function F = __lintFile__ (FILE, RULES)
     L = [L; l];  C = [C; c];  K = [K; k];  M = [M; m];
     ## The test blocks, everything else blank
     if (any (istest))
-      [S, base, check] = __testStream__ (lines, istest);
+      [S, head] = devtools.__testStream__ (lines);
+      ## Body lines are checked, at column 3 or 2 inside a %!function
+      check = istest(:) & cellfun (@isempty, head);
+      infn = cumsum (strcmp (head, 'function') - strcmp (head, 'endfunction'));
+      base = check .* (3 - (infn > 0));
       [l, c, k, m] = __treeRules__ (S, lines, base, check, tree);
       L = [L; l];  C = [C; c];  K = [K; k];  M = [M; m];
     endif
@@ -213,52 +223,6 @@ endfunction
 ## The test blocks as code: same rows and byte columns as the file, every
 ## other line blank, and each block's header reduced to the code it holds:
 ## none for 'testif' and 'shared', whose headers hold none
-function [S, BASE, CHECK] = __testStream__ (LINES, ISTEST)
-
-  kw = {'test', 'xtest', 'testif', 'shared', 'function', 'endfunction', ...
-        'assert', 'fail', 'error', 'warning', 'demo'};
-  n = numel (LINES);
-  S = repmat ({''}, n, 1);
-  BASE = zeros (n, 1);
-  CHECK = false (n, 1);
-  infn = false;
-  for r = find (ISTEST(:))'
-    s = LINES{r};
-    w = regexp (s, '^%!([a-z]+)', 'tokens', 'once');
-    if (isempty (w) || ! any (strcmp (w{1}, kw)))
-      ## A body line, checked after its prefix
-      S{r} = ['  ', s(3:end)];
-      CHECK(r) = true;
-      BASE(r) = 3 - infn;
-      continue;
-    endif
-    switch (w{1})
-      case 'function'
-        infn = true;
-        S{r} = ['  ', s(3:end)];
-      case 'endfunction'
-        infn = false;
-        S{r} = ['  ', s(3:end)];
-      case {'assert', 'fail'}
-        S{r} = ['  ', s(3:end)];
-      case {'test', 'xtest', 'demo', 'error', 'warning'}
-        ## A bug number or an expected message runs to the first '>', as
-        ## test reads it, and the code follows
-        k = 2 + numel (w{1});
-        rest = s(k+1:end);
-        e = regexp (rest, '^\s*<[^>]*>', 'end', 'once');
-        if (isempty (e) && any (strcmp (w{1}, {'error', 'warning'})))
-          e = regexp (rest, '^\s*id=\S*', 'end', 'once');
-        endif
-        if (isempty (e))
-          e = 0;
-        endif
-        S{r} = [blanks(k + e), rest(e+1:end)];
-    endswitch
-  endfor
-
-endfunction
-
 function [L, C, K, M] = __treeRules__ (LINES, ORIG, BASE, CHECK, RULES)
 
   L = zeros (0, 1);
@@ -608,6 +572,11 @@ endfunction
 %!test
 %! R = devtools.styleLint (fullfile (SLD, 'clean.m'));
 %! assert_equal (isempty (R), true);
+
+%!test
+%! R = devtools.styleLint (fullfile (SLD, 'clean.m'));
+%! assert_equal (fieldnames (R)', ...
+%!               {'file', 'line', 'column', 'rule', 'message'});
 
 %!test
 %! R = devtools.styleLint (fullfile (SLD, 'tab.m'));
