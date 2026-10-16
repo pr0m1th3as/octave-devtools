@@ -43,8 +43,10 @@
 ## fields and its members, where every assignment to it in its scope calls a
 ## constructor or a function or method whose own body returns known classes,
 ## or where it is a parameter its @code{arguments} block gives a class.  A
-## variable that may hold several classes answers each.  Otherwise every
-## candidate is listed.  @code{@var{S}.exit} becomes true on
+## variable that may hold several classes answers each class that defines the
+## method.  Otherwise every candidate is listed.  A method only one class
+## defines, where no function and none of core's classes shares its name, is
+## the one definition a call can reach.  @code{@var{S}.exit} becomes true on
 ## @code{exit}, with @code{@var{S}.exitCode} 0 after @code{shutdown} and 1
 ## without.
 ##
@@ -441,7 +443,9 @@ function [T, C, L] = targetsAt (S, P)
         if (isempty (T) && numel (segs) == 2)
           for c = variableClasses (S, uri, text, C, row, b, segs{1})
             t = memberTargets (S, c{1}, segs{2}, false);
-            T = [T, t(! ismember ({t.name}, {T.name}))];
+            if (! isempty (t))
+              T = [T, t(! ismember ({t.name}, {T.name}))];
+            endif
           endfor
         endif
       endif
@@ -570,7 +574,10 @@ function T = resolvePlain (S, name, uri)
       own = inventoryTargets (S.loaded, name);
     endif
   endif
-  T = [own, methodTargets(S, name, own)];
+  T = methodTargets (S, name, own);
+  if (! isempty (own))
+    T = [own, T];                     # two empty structures lose their fields
+  endif
 endfunction
 
 function T = resolveDotted (S, dotted)
@@ -641,9 +648,27 @@ function T = methodTargets (S, name, own)
     endfor
   endfor
   T = T(! ismember ({T.name}, {own.name}));
-  if (numel (T) + numel (own) < 2)
-    T = noTargets ();                 # one definition is not a candidate list
+  ## One method and nothing else is what the call reaches, or it raises,
+  ## unless one of core's classes defines the name too
+  if (numel (T) + numel (own) < 2 && ! (isscalar (T) && ! coreDefines (name)))
+    T = noTargets ();
   endif
+endfunction
+
+function tf = coreDefines (name)
+  ## True where one of core's own classes defines a method NAME; core's
+  ## folder is read once, on the first question
+  persistent names = [];
+  if (isnumeric (names))
+    names = {};
+    try
+      I = devtools.__pkgInventory__ (__octave_config_info__ ("fcnfiledir"));
+      m = strcmp ({I.kind}, 'method');
+      names = unique (regexprep ({I(m).name}, '^.*\.', ''));
+    catch
+    end_try_catch
+  endif
+  tf = any (strcmp (names, name));
 endfunction
 
 function T = memberTargets (S, cls, member, methodsOnly)
@@ -706,7 +731,9 @@ function T = classCall (S, cls, name, T0)
     if (isempty (t))
       t = own;
     endif
-    T = [T, t(! ismember ({t.name}, {T.name}))];
+    if (! isempty (t))                # empty structures concatenate fieldless
+      T = [T, t(! ismember ({t.name}, {T.name}))];
+    endif
   endfor
   if (isempty (T))
     T = T0;
@@ -1577,10 +1604,18 @@ function res = completion (S, P)
     if (! isempty (X.obj) && strcmp (head, X.obj))
       items = memberItems (S, X.cls);
     else
-      items = [memberItems(S, head), namespaceItems(S, head)];
+      ## Two empty structures concatenate without their fields
+      items = memberItems (S, head);
+      more = namespaceItems (S, head);
+      if (! isempty (more))
+        items = [items, more];
+      endif
       if (isempty (items) && ! any (head == '.'))
         for c = variableClasses (S, uri, text, C, row, b - numel (word), head)
-          items = [items, memberItems(S, c{1})];
+          more = memberItems (S, c{1});
+          if (! isempty (more))
+            items = [items, more];
+          endif
         endfor
       endif
     endif
@@ -1738,6 +1773,7 @@ endfunction
 %! fputs (fid, ["classdef N < K\n  methods\n    function y = w (obj)\n", ...
 %!              "      y = M ();\n    endfunction\n", ...
 %!              "    function obj = v (obj)\n    endfunction\n", ...
+%!              "    function k = keys (obj)\n    endfunction\n", ...
 %!              "  endmethods\nendclassdef\n"]);
 %! fclose (fid);
 %! fid = fopen (fullfile (D, "inst", "mk.m"), "w");
@@ -2123,6 +2159,27 @@ endfunction
 %! res = script (D, "x = K ();\nx = N ();\nm = w (x);\nz = q (m);\n", ...
 %!               "textDocument/definition", 3, "q (m");
 %! assert_equal (res.uri, uri (D, "M.m"));
+
+%!test
+%! res = script (D, "zz = 1;\nzz.a\n", "textDocument/completion", 1, "a");
+%! assert_equal (isempty (res.items), true);
+
+%!test
+%! res = script (D, "x = 1;\ny = x;\n", "textDocument/definition", 1, "x");
+%! assert_equal (isnan (res), true);
+
+%!test
+%! res = script (D, "x = M ();\nx = K ();\ny = g (x, 1);\n", ...
+%!               "textDocument/definition", 2, "g (x");
+%! assert_equal (res.uri, uri (D, "K.m"));
+
+%!test
+%! res = script (D, "m = w (x);\n", "textDocument/definition", 0, "w (x");
+%! assert_equal (res.uri, uri (D, "N.m"));
+
+%!test
+%! res = script (D, "k = keys (x);\n", "textDocument/definition", 0, "keys");
+%! assert_equal (isnan (res), true);
 
 %!test
 %! confirm_recursive_rmdir (false, "local");
