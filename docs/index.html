@@ -199,9 +199,9 @@
             </div>
             <div class="col-sm-9 col-md-10">
               <h3 class="d-inline-block mr-2">devtools</h3>
-              <b>0.3.0&nbsp;2026-09-24</b>
+              <b>0.3.2&nbsp;2026-10-16</b>
               <p class="indent">
-                Tools for questions only the interpreter can answer about itself,  packaged so that an external program can ask.  This release serves that over  the Model Context Protocol (MCP), exposing Octave to any MCP-capable  assistant.  The server process is an Octave interpreter, so the interpreter  answering a question is the interpreter being asked about, with the same load  path, the same installed packages and the same version.  Two entry points, so  that the safe one can be given blanket permission and the other cannot be  reached by a host configured for it: devtools.mcp provides read-only  introspection of functions, classes, namespaces and installed packages,  evaluating no code and writing nothing, and devtools.mcpEval adds evaluation  in named workspaces and running a function's built-in tests.
+                Tools for questions only the interpreter can answer about  itself, packaged so that an external program can ask.  devtools.mcp and  devtools.mcpEval serve Octave to AI assistants over the Model Context  Protocol, the first read-only, the second adding evaluation, optionally in a  sandbox.  devtools.lsp serves editors over the Language Server Protocol.  devtools.docLint checks a package's documentation against its code, and  devtools.dialectLint checks whether code is written in Octave's own dialect  or in MATLAB's.
               </p>
             </div>
           </div>
@@ -281,6 +281,14 @@
                    </code></b>
                  </td>
                  <td>Check which language a file is written in.</td>
+               </tr>
+               <tr>
+                 <td>
+                   <b><code>
+                   <a href="devtools.styleLint.html">devtools.styleLint</a>
+                   </code></b>
+                 </td>
+                 <td>Check code against the layout rules of the Octave packages' coding style.</td>
                </tr>
              </tbody>
            </table>

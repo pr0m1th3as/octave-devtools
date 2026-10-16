@@ -239,6 +239,7 @@
 				<ul style="list-style-type: none; padding-left: 20px;">
 					<li><a href="devtools.docLint.html" class="text-decoration-none font-monospace"><small>devtools.docLint</small></a></li>
 					<li><a href="devtools.dialectLint.html" class="text-decoration-none font-monospace"><small>devtools.dialectLint</small></a></li>
+					<li><a href="devtools.styleLint.html" class="text-decoration-none font-monospace"><small>devtools.styleLint</small></a></li>
 				</ul>
 				</div>
 			</div>
@@ -263,15 +264,16 @@
 <div class="ms-5">
 <p> <code>devtools.selftest ()</code> launches the server as a subprocess, drives a
  short session through it in <em>each</em> of the two protocol eras, and prints
- what it found.  A server that answers only one era works with only some
- hosts, so both are exercised.  The check it exists for is the one that cannot
- be made from inside: that <strong>every byte written to standard output was
- a protocol message</strong>.  A stray <code>printf</code>, an unsuppressed statement or a
- line printed by <code>~/.octaverc</code> corrupts the stream, and the only symptom
- a host can show for it is an unexplained failure to connect.  Standard error
- is read too, for the complementary claim: the server may write its own
- diagnostics there, but a diagnostic the <em>interpreter</em> raised about the
- server is a defect nothing else here would see.
+ each finding as its check ends.  A server that answers only one era works
+ with only some hosts, so both are exercised.  The check it exists for is the
+ one that cannot be made from inside: that <strong>every byte written to
+ standard output was a protocol message</strong>.  A stray <code>printf</code>, an
+ unsuppressed statement or a line printed by <code>~/.octaverc</code> corrupts the
+ stream, and the only symptom a host can show for it is an unexplained failure
+ to connect.  Standard error is read too, for the complementary claim: the
+ server may write its own diagnostics there, but a diagnostic the
+ <em>interpreter</em> raised about the server is a defect nothing else here
+ would see.
 </p>
 <p> <code><var>OK</var> = devtools.selftest ()</code> returns true when every check passed
  and prints nothing, which is the form a test uses.
@@ -298,7 +300,7 @@
   <a href="devtools.mcpEval.html">devtools.mcpEval</a>
 </p>
 <p><strong>Source Code: </strong>
-  <a href="https://github.com/pr0m1th3as/octave-devtools/blob/57e5a27/inst/+devtools/selftest.m">devtools.selftest</a>
+  <a href="https://github.com/pr0m1th3as/octave-devtools/blob/bb52c14/inst/+devtools/selftest.m">devtools.selftest</a>
 </p>
 </div>
 

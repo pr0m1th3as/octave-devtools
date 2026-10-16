@@ -1,0 +1,790 @@
+# doc-cache created by Octave 11.3.0
+# name: cache
+# type: cell
+# rows: 3
+# columns: 7
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 20
+devtools.dialectLint
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 2016
+devtools: devtools.dialectLint (TARGET)
+devtools: devtools.dialectLint (TARGET, DIALECT)
+devtools: R = devtools.dialectLint (...)
+Check which language a file is written in.
+
+devtools.dialectLint (TARGET) prints every file that is not
+written in Octave's own dialect. TARGET is one file, the folder a
+package's source is in, or the name of an installed package.
+
+devtools.dialectLint (TARGET, 'matlab') asks the other
+question instead: whether MATLAB would accept the file. That is the check
+to run on a probe before it is sent to a MATLAB machine, where Octave-only
+syntax fails with a message naming nothing useful.
+
+R = devtools.dialectLint (...) prints nothing and returns
+the findings as a structure array holding file, line,
+column, rule and message, empty where there is nothing
+to report.
+
+A file is read twice. Where it does not parse at all the finding is
+'syntax' and names a fault the file has in any dialect; where it
+parses but the dialect refuses it the finding is 'dialect-octave'
+or 'dialect-matlab' and carries the line that stopped it. The two
+are kept apart because a broken file is not a dialect question.
+
+The two names are the two devtools.__parse__ takes, and there is no
+lenient mode here: whether a file parses as either language is not a
+dialect question, and is reported as 'syntax' instead.
+
+'octave'
+Octave's own dialect: # comments, ! and !=, and the
+typed block terminators. A file that passes is one MATLAB cannot read.
+The two spellings Octave has no alternative for are still accepted, a
+~ standing for an ignored output and %! opening a test block.
+'matlab'
+MATLAB's: % comments, ~ and ~=, and a bare end.
+Rejected are the constructs Octave alone has, among them
+do ... until, unwind_protect, compound assignment,
+++, an index chained onto a call and an assignment used as an
+expression.
+
+The parser is a compiled file, so this raises where the package was
+installed without a working compiler rather than reporting a file clean
+because nothing read it.
+
+See also:
+devtools.docLint
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 42
+Check which language a file is written in.
+
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 16
+devtools.docLint
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 2839
+devtools: devtools.docLint (TARGET)
+devtools: R = devtools.docLint (TARGET)
+Check the documentation of a package against the code it describes.
+
+devtools.docLint (TARGET) prints every disagreement it finds
+between a package's texinfo blocks and the package itself. TARGET is
+either the folder a package's source is in or the name of an installed
+package, which is looked up with pkg ("list").
+
+R = devtools.docLint (TARGET) prints nothing and returns
+the findings as a structure array holding file, line,
+rule and message, empty where there is nothing to report.
+
+Documentation is the one part of a package that never runs, so no test
+suite reaches it: a name that changed, a cross-reference to something that
+was removed and a line that grew past the margin all survive every test the
+package has. These are the checks that can be made mechanically.
+
+'deftypefn-name'
+The name a header documents is not the name of the function that follows
+it, or a function file documents a name other than its own.
+'category'
+The first brace group of a header is not what it should be: the package
+for a function, for the block documenting a class and for the constructor
+of an old-style @class, the class for a classdef constructor, a method and
+a property. The package is the name in DESCRIPTION, never a
+namespace, and the class is named in full, prob.BetaDistribution
+rather than BetaDistribution.
+'seealso-target'
+An @seealso names something that is not in this package, not in
+core and not in any package now loaded.
+'seealso-member'
+An @seealso names a class member without its class. help
+finds ClassificationTree.margin and does not find margin, so
+a bare member tells the reader to type something that does not work.
+'width'
+A texinfo body line is longer than 80 columns. Header lines are exempt,
+their signatures being allowed to run over, and so is a line holding
+nothing but a URL, bare or in @url or @uref, and trailing
+punctuation, a URL having nowhere to break. A URL sharing its line with
+text is still reported: it moves to a line of its own.
+'index-missing'
+INDEX lists a name the package does not supply.
+'index-unlisted'
+The package supplies a function or a class that INDEX does not
+list. INDEX gates what is cached and published, so an omission is
+how a name is kept off both; this rule reports them so that the omissions
+are the ones that were meant.
+
+Skipped throughout are private, tests and demos
+folders, none of which are a package's documented surface. Names wrapped
+in double underscores are internal, so 'index-unlisted' does not
+report them; every other rule checks them, since help reads them like
+any other. A cross-reference is resolved against what is on the load path
+at the time, so a package whose dependencies are not loaded reports
+references into them as unresolved.
+
+See also:
+devtools.mcp,
+devtools.selftest
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 67
+Check the documentation of a package against the code it describes.
+
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 12
+devtools.lsp
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 3751
+devtools: devtools.lsp ()
+Serve the Language Server Protocol on standard input and output.
+
+devtools.lsp () reads Language Server Protocol messages from standard
+input, answers each one, and writes the answer to standard output. It
+returns when standard input reaches end of file, and ends the process on an
+exit notification, with status 0 after shutdown and 1
+without, as the protocol asks. It is the entry point an editor launches;
+it is not meant to be called at an interactive prompt, where it would take
+the terminal.
+
+Five features are served:
+
+hover
+the help of the name under the cursor, as help renders it;
+go to definition
+the file and line that define it;
+document symbols
+the outline of a file: its class, properties, methods and functions;
+workspace symbols
+the functions, classes and methods of the project, by part of their name;
+completion
+function, keyword and project names, a namespace's contents after its name
+and a dot, and a class's methods and properties after an object and a dot.
+
+The answers come from the interpreter serving them, so they are what this
+Octave, with these packages loaded, would itself say. The folder the editor
+opens is the project. Its functions and classes are read from its files and
+never put on the load path, since adding a folder to the path runs its
+PKG_ADD; where the project and a loaded package both define a name,
+the project's definition is the one answered, the installed copy of a
+package under development being the stale one.
+
+A method that several classes define is answered only where the class is
+certain: a call written Class.method, or a method or property used on
+the object of the method being edited, such as predict (obj, X) or
+obj.X inside a method whose first parameter is obj.
+Otherwise hover lists every definition and go to definition offers each.
+A name's meaning is otherwise settled only at run time, so there are no
+diagnostics and no rename.
+
+This server evaluates no code, runs no user function, and writes nothing.
+Configure an editor to launch it with:
+
+octave-cli -q --no-init-file --eval "pkg load devtools; devtools.lsp ()"
+
+Do not shorten that command. --no-init-file skips
+~/.octaverc, whose output would arrive before this function exists
+and corrupt the stream, as for devtools.mcp. On Windows, name
+octave-cli.exe in full. The server sees the packages its command
+loads and no others, so name the ones the project uses:
+
+--eval "pkg load devtools statistics; devtools.lsp ()"
+
+A package's dependencies need not be named: pkg load loads them too,
+so this also loads datatypes, which statistics depends on.
+
+For Kate, enable the LSP Client plugin and add to its User Server Settings:
+
+{
+"servers": {
+"octave": {
+"command": ["octave-cli", "-q", "--no-init-file", "--eval",
+"pkg load devtools; devtools.lsp ()"],
+"rootIndicationFileNames": ["DESCRIPTION", ".git"],
+"highlightingModeRegex": "^(Octave|Matlab)$"
+}
+}
+}
+
+Kate may take a .m file for Objective-C and start its server for
+that language instead; set the file's highlighting to Octave, or give the
+Octave file type the higher priority for *.m.
+
+For Neovim 0.11 and later, in init.lua:
+
+vim.lsp.config ('octave', {
+cmd = {'octave-cli', '-q', '--no-init-file', '--eval',
+'pkg load devtools; devtools.lsp ()'},
+filetypes = {'octave', 'matlab'},
+root_markers = {'DESCRIPTION', '.git'},
+})
+vim.lsp.enable ('octave')
+
+For Emacs with Eglot, in init.el; the first line stops Emacs taking
+a .m file for Objective-C:
+
+(add-to-list 'auto-mode-alist '("\\.m\\'" . octave-mode))
+(with-eval-after-load 'eglot
+(add-to-list 'eglot-server-programs
+'(octave-mode . ("octave-cli" "-q" "--no-init-file" "--eval"
+"pkg load devtools; devtools.lsp ()"))))
+
+Everything diagnostic goes to standard error.
+
+See also:
+devtools.mcp
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 64
+Serve the Language Server Protocol on standard input and output.
+
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 12
+devtools.mcp
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 4258
+devtools: devtools.mcp ()
+Serve the Model Context Protocol on standard input and output.
+
+devtools.mcp () reads newline-delimited JSON-RPC messages from
+standard input, answers each one, writes the answer to standard output, and
+returns only when standard input reaches end of file. It is the entry point
+a host launches; it is not meant to be called at an interactive prompt, where
+it would take the terminal.
+
+Both protocol eras are served. A client that opens with per-request metadata
+is answered under revision 2026-07-28 and statelessly; a client that opens
+with an initialize handshake is answered under revision 2025-11-25 for
+the life of the process. The choice is made by the first request and the
+tools are the same in either case.
+
+The read-only tool set is served here. This server evaluates no code, runs
+no user function, and writes nothing, which is the property that lets a user
+grant it blanket permission. Evaluation lives behind a separate entry point
+and a separate configuration entry, so that it cannot be reached by a host
+configured for this one.
+
+Configure a host to launch it with:
+
+octave-cli -q --no-init-file --eval "pkg load devtools; devtools.mcp ()"
+
+Do not shorten that command. --no-init-file is the
+load-bearing flag: it skips ~/.octaverc, whose output would arrive
+before this function exists, and a single byte written there corrupts the
+stream for the whole session. Measured on 11.2.0, --eval already
+makes the run non-interactive so that no banner is written either way and
+-q changes nothing today; it is kept because nothing else guards that
+output if a future release prints one. Use devtools.selftest to
+check a configuration before suspecting the host.
+
+On Windows, name octave-cli.exe in full. A host spawns the
+command with no shell, so a bare octave-cli resolves only where the
+interpreter is already on PATH, which a Windows installation does not
+guarantee and a configuration file cannot arrange. Where it is not, the
+process never starts and writes nothing at all, which reads exactly like the
+corrupted stream above and is nothing to do with it.
+
+This server sees the packages its own launch command loads, and no
+others. The command above loads only devtools, so
+octave_which will not find a function from statistics unless
+it is named:
+
+--eval "pkg load devtools statistics; devtools.mcp ()"
+
+A package's dependencies need not be named: pkg load loads them too,
+so this also loads datatypes, which statistics depends on.
+The server loads nothing on its own. Loading every installed package
+instead would run each one's PKG_ADD, which is other people's code
+executing at startup, and this server's whole claim is that it runs none.
+
+Tools
+
+Five tools are served, all of them read-only:
+
+octave_which
+where a name resolves, its kind, its owning package, what it shadows, and
+whether it is installed rather than loaded.
+octave_help
+the help text for a function, class, method or operator, answered from the
+documentation caches where one holds the entry, so that a function in an
+installed package this server has not loaded is answered too.
+octave_search
+which functions match a description, when the name is not known.
+octave_pkg
+which packages are installed, at which versions, and which are loaded.
+octave_registry
+which packages anywhere in the Octave Packages index provide a name, from a
+dated snapshot carried in this package.
+
+One resource is offered, octave://environment: version, platform,
+load path size and the packages this server loaded. The version and the
+platform are also stated in the server's instructions, sent once when
+a client connects, so that no request pays for them.
+
+Everything diagnostic goes to standard error, which the protocol reserves for
+exactly that purpose and which a client may capture, forward or ignore.
+
+One deviation is worth stating. This loop reads, answers and writes in one
+thread, so a notifications/cancelled arriving for a request already
+being answered cannot be seen until that answer has been written. The
+protocol asks that no further message be sent for a cancelled request and
+this implementation cannot honour it. The tools served here return in
+milliseconds, so the window is small, but it is real.
+
+See also:
+devtools.mcpEval,
+devtools.selftest
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 62
+Serve the Model Context Protocol on standard input and output.
+
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 16
+devtools.mcpEval
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 11071
+devtools: devtools.mcpEval ()
+devtools: devtools.mcpEval ("Sandbox")
+Serve the Model Context Protocol on standard input and output, with
+evaluation.
+
+devtools.mcpEval () is devtools.mcp plus the two tools that run
+code, octave_eval and octave_test.
+It reads newline-delimited JSON-RPC messages from standard input, answers
+each one, writes the answer to standard output, and returns only when
+standard input reaches end of file.
+
+This is a separate entry point on purpose. It is a separate
+function, a separate launch command and a separate entry in a host's
+configuration, so that a host configured for devtools.mcp cannot reach
+these tools however a model asks. The read-only server evaluates no code,
+runs no user function and writes nothing, which is what lets a user grant it
+blanket permission; this one does all three, and is meant to be configured
+under its own name, conventionally "octave-eval", so that the
+permission rules for the two can differ.
+
+Configuration
+
+Configure a host to launch it under its own name with:
+
+octave-cli -q --no-init-file --eval "pkg load devtools; devtools.mcpEval ()"
+
+The rules are those of devtools.mcp and they matter as much here: do
+not shorten the command, name octave-cli.exe in full on Windows, and
+load whatever packages this server is meant to see, since it sees the ones
+its own launch command loads and no others.
+
+Tools
+
+The five read-only tools of devtools.mcp are served here as well,
+plus two that run code:
+
+octave_eval
+what running some Octave code produces, in a workspace that persists between
+calls.
+octave_test
+how many of a function's built-in tests pass, and what failed.
+
+Testing
+
+octave_test runs the built-in tests of one function or file and
+reports how many passed, with the assertion behind each failure. It
+resolves a name through which and then runs the file, which is
+what lets it test a namespaced function or a class method: core's
+test cannot resolve devtools.jsonrpcError and answers
+"does not exist in path" with a count of zero, and a count of zero
+reads as "no tests" rather than as a name it could not resolve.
+
+It takes no workspace. Tests run in a context of their own every time, so
+that what passed cannot depend on what was evaluated before.
+
+Workspaces
+
+Evaluation state is held in a workspace, named by an opaque handle.
+Every call names one: "new" opens a workspace and the reply gives
+its handle, and that handle passed back continues it. This is what the
+protocol requires, state that spans requests being referenced by an explicit
+identifier rather than by the connection it arrived on. A handle lives
+until the process ends or until it is the oldest of more than eight, and a
+call naming one that is gone is a tool error that says so rather than a
+fresh workspace that says nothing.
+
+The handle is required rather than optional, and that is a deliberate
+departure from the specification's suggested shape of a separate creation
+tool: a model that omits an argument is the measured case, and an omitted
+handle read as "start clean" would lose a workspace in silence.
+
+What contains it, and what does not
+
+Output is captured twice over, and the two halves catch different things.
+evalc takes every route to standard output that stays inside the
+interpreter, and __devtools_capture__ holds descriptor 1 over a file
+for the length of the call, which is the only thing that catches a
+subprocess: a child inherits the descriptor and writes past
+evalc entirely, into the stream that carries the protocol. What a
+child printed comes back labelled in the reply.
+
+Because that containment is at the descriptor and not at a name,
+builtin ("system", ...) does not get around it. Where the
+package was installed without a compiler and __devtools_capture__
+could not be built, the containment moves to the two forms that let a child
+inherit descriptor 1: system is shadowed by one that asks for the
+output back and prints it through the interpreter, where evalc takes
+it, and popen by one that refuses its write mode, whose output
+nothing there could read. That is weaker in one way, since a shadow at a
+name is defeated by builtin, and it costs an asynchronous
+system, whose output core will not return at all.
+
+input and keyboard are shadowed in either case, since there is
+no terminal for them to read from.
+
+The deadline
+
+An evaluation that is still running after twenty seconds is stopped, and the
+reply says so. What the code assigned before it was stopped is still in the
+workspace and what it printed is still returned, which is the difference
+between this and letting the host restart the process.
+
+The stopping is the interpreter's own interrupt, the mechanism Ctrl-C uses,
+raised from a thread and caught in __devtools_guard__. It cannot be
+done in Octave: measured on 11.2.0, an interrupt raised this way unwinds
+straight through try and takes the process with it, honouring
+unwind_protect on the way but never being caught.
+
+Set DEVTOOLS_EVAL_SECONDS in the launch command for an installation
+whose work honestly takes longer, up to six hundred. It is not a tool
+argument, since that would cost tokens in every request and is a decision for
+whoever configures the server rather than for the model.
+
+The deadline does not recover everything. A call wedged inside one long
+native call, or blocked on a read, reaches no checkpoint at which the
+interrupt can be noticed, and the host restarting the process is what
+remains. Where the oct-files could not be built there is no deadline at
+all.
+
+Sandbox
+
+devtools.mcpEval ("Sandbox") serves a program rather than a model,
+inside a sandbox where this machine can build one: on GNU/Linux
+with bwrap from the bubblewrap package and
+prlimit installed, and on macOS with the system's own
+sandbox-exec. Where it cannot, it serves without one and says
+so. A host that does not read the report below should not be given this
+option on a machine without a sandbox.
+
+The sandbox is settled when the server starts and does not change while it
+runs. It is stated in _meta["io.github.pr0m1th3as.devtools/sandbox"]
+in the reply to initialize, and, under the stateless protocol
+revision, which has no initialize, in every reply; the
+instructions say the same to a model. It is one of three states:
+
+"active"
+The sandbox was built and verified from inside, and every call runs in it.
+"failed"
+The machine has the mechanism, but the sandbox did not start or did not
+pass its check. The server serves unconfined.
+"unavailable"
+The machine has no mechanism for one: another system, or bwrap,
+prlimit or sandbox-exec missing. The server serves
+unconfined.
+
+For the last two, _meta["io.github.pr0m1th3as.devtools/sandboxReason"]
+says why, and standard error logs it as the server starts.
+
+Either way it offers octave_call and octave_test beside the
+read-only tools, and not octave_eval: every call starts from the same
+state in a process of its own, so a workspace would carry nothing.
+octave_call is for programs, which read its structured result, its
+text being a summary without the values. It runs no code text: it calls
+one function by name on typed arguments, a matrix as a list of rows, a flat
+list being a column, and a range carrying each cell's kind and value, and
+returns each output as typed cells row by row, dates as serial numbers from
+the document's null date, with anything the function printed beside them.
+A call that crashes the interpreter comes back as an error, and the server
+keeps serving.
+
+The folders it may read and the packages it loads are set in the launch
+environment, never in the command. DEVTOOLS_SANDBOX_FOLDERS holds
+absolute folder paths separated by pathsep, and
+DEVTOOLS_SANDBOX_PACKAGES holds package names separated by commas,
+loaded in that order. Nothing checks whether two of them conflict. The
+folders are on the load path, ahead of the packages, with or without the
+sandbox. A host launches it like the plain server:
+
+octave-cli -q --no-init-file \
+--eval "pkg load devtools; devtools.mcpEval ('Sandbox')"
+
+Inside the sandbox
+
+The server first builds the sandbox once, checks it from inside and leaves
+it, and serves unconfined, "failed", if that check does not pass.
+Only then does it replace its own process with a sandboxed
+octave-cli built by devtools.sandboxCommand. The process, its
+standard streams and its exit code carry through unchanged. The trial is
+there because a replaced process cannot come back: a sandbox found wanting
+from inside has no unconfined process left to serve from. Should the check
+pass on the trial and fail on the real run, the server stays up, reports
+"failed" and offers no tools at all, since serving half-confined is
+what the check exists to prevent.
+
+The check is that there is no /usr/bin, no network interface
+besides the loopback, an address-space limit in force, and nothing under
+/home or the home directory that was not mounted. The limit is this
+process's size plus 2 GB, or plus the number of gigabytes in
+DEVTOOLS_SANDBOX_MEMORY, and an allocation beyond it fails with
+Octave's own out-of-memory error. /tmp, whose files are memory too,
+holds at most 2 GB, or the number of gigabytes in
+DEVTOOLS_SANDBOX_TMP. It lists only the packages that are mounted,
+so loading any other says it is not installed. See
+devtools.sandboxCommand for what is mounted and what is refused.
+Each call runs in a process forked for it, which is killed when it returns
+or when the deadline passes, together with every process it started, and
+/tmp is emptied before the next call, so that nothing one call does
+reaches another.
+
+The two systems confine by different means, so each names the guarantees it
+holds rather than claiming the other's. On macOS a sandboxed server writes
+one line to standard error as it starts,
+OMP: Warning #179: Function Can't set size of /tmp file failed:, and
+then serves normally. OpenMP registers itself by making
+/tmp/__KMP_REGISTERED_LIB_<pid>, naming /tmp rather
+than reading TMPDIR, and the sandbox does not grant the host's
+/tmp. What that registration detects is a second OpenMP runtime in
+the same process, which Octave does not have, so nothing is lost by it. It
+is left alone deliberately: granting the write would put a file of the
+server's outside the sandbox at every launch, and suppressing the warning
+would hide the next thing to go wrong on the same path.
+
+Without the sandbox
+
+Unconfined, each call still runs in a process of its own and is stopped at
+the deadline: forked where the system can fork, and on Windows, which
+cannot, an octave-cli started for the call inside a job object by
+__devtools_spawn__, which a working compiler builds at installation.
+A process a call starts outlives it where it was forked, and the call can
+read and write files and use the network as any Octave code can.
+
+What this is not
+
+Unless started with "Sandbox" and reporting it "active",
+none of this is a sandbox. Evaluated code can read and write files, use the
+network and consume memory exactly as any code in this interpreter can.
+Configure this server only where that is acceptable.
+
+See also:
+devtools.mcp,
+devtools.selftest,
+devtools.sandboxCommand
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 79
+Serve the Model Context Protocol on standard input and output, with evaluation.
+
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 17
+devtools.selftest
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 2065
+devtools: devtools.selftest ()
+devtools: OK = devtools.selftest ()
+devtools: [OK, REPORT] = devtools.selftest ()
+devtools: ... = devtools.selftest (CMD)
+Check that a configured server starts and speaks cleanly.
+
+devtools.selftest () launches the server as a subprocess, drives a
+short session through it in each of the two protocol eras, and prints
+each finding as its check ends. A server that answers only one era works
+with only some hosts, so both are exercised. The check it exists for is the
+one that cannot be made from inside: that every byte written to
+standard output was a protocol message. A stray printf, an
+unsuppressed statement or a line printed by ~/.octaverc corrupts the
+stream, and the only symptom a host can show for it is an unexplained failure
+to connect. Standard error is read too, for the complementary claim: the
+server may write its own diagnostics there, but a diagnostic the
+interpreter raised about the server is a defect nothing else here
+would see.
+
+OK = devtools.selftest () returns true when every check passed
+and prints nothing, which is the form a test uses.
+
+[OK, REPORT] = devtools.selftest () also returns the cell
+array of strings that would have been printed, one per check.
+
+... = devtools.selftest (CMD) tests the shell command
+CMD rather than the default one. Give it the exact command from your
+host configuration to find out whether that configuration is sound; it must
+launch a server that reads standard input and writes standard output, and
+nothing else. The default launches the interpreter running this function
+against the package directory this file lives in, which works from a source
+tree as well as from an installed package.
+
+With the default command the evaluating server is checked as well, and so is
+the program server, started with devtools.mcpEval ("Sandbox"): that
+it starts, reports the sandbox this machine can give it, "active"
+where one can be built and otherwise why not, offers octave_call and
+not octave_eval, and runs a call in a process of its own.
+
+See also:
+devtools.mcp,
+devtools.mcpEval
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 57
+Check that a configured server starts and speaks cleanly.
+
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 18
+devtools.styleLint
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 2908
+devtools: devtools.styleLint (TARGET)
+devtools: devtools.styleLint (TARGET, RULES)
+devtools: R = devtools.styleLint (...)
+Check code against the layout rules of the Octave packages' coding style.
+
+devtools.styleLint (TARGET) prints every line that breaks one
+of the rules below. TARGET is one file, the folder a package's
+source is in, or the name of an installed package.
+
+devtools.styleLint (TARGET, RULES) checks only the rules
+named in RULES, a cell array of character vectors. The rules are
+one maintainer's style rather than anything Octave requires, so each can be
+left out.
+
+R = devtools.styleLint (...) prints nothing and returns
+the findings as a structure array holding file, line,
+column, rule and message, empty where there is nothing
+to report. Columns count characters.
+
+The test blocks are code too: a line opening with %! is checked as
+the code after its %! prefix, and the body of a %!function
+block as the code after %!, its header sitting there.
+
+'tab'
+A tab character anywhere, inside a string too, where \t says it
+plainly.
+'indent'
+Two spaces per level of nesting. A case sits two spaces inside its
+switch and its body four; else, elseif, catch,
+unwind_protect_cleanup and until sit at the level of the line
+that opened their block. A comment line takes the level of the next line
+of code, or the level of its own block where that line closes or continues
+the block, as a comment standing alone in a case does. A section
+banner, a comment spanning the page from column one, is exempt. A line
+continuing a statement is not checked, whether ... continues it or
+an open bracket does.
+'quote'
+Single quotes are the default for a string. Double quotes are for the
+strings passed to error, warning, printf,
+fprintf and sprintf, and those are always double, the
+strings of a [] or a strcat building one included. The
+double quotes are for the message text, so the strings of a warning
+state call, warning ('off', id) and the like, are single. A
+double-quoted string holding a backslash escape is accepted anywhere,
+having no single-quoted spelling.
+'length'
+A line longer than 80 columns. The lines of a texinfo block are left to
+devtools.docLint, and the header of an %!error or
+%!warning block is exempt, the message it expects having nowhere
+to break.
+'condition'
+The condition of if, elseif, while and until,
+or the value of switch, not in parentheses; or a condition running
+over a line with ..., the parentheses continuing it already.
+
+A file that does not parse is reported once as 'syntax', with the
+line that stopped it, in place of the rules that read the syntax tree:
+'indent', 'quote' and 'condition'. The test blocks
+are parsed apart from the code, so either can fail alone.
+
+The parser is a compiled file, so this raises where the package was
+installed without a working compiler and a rule reading the syntax tree is
+asked for.
+
+See also:
+devtools.dialectLint,
+devtools.docLint
+
+
+# name: <cell-element>
+# type: sq_string
+# elements: 1
+# length: 73
+Check code against the layout rules of the Octave packages' coding style.
+
+
+
+
+
