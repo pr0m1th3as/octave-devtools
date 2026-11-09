@@ -91,7 +91,8 @@ classdef callGraph
     ## its constructor too, or a core function @qcode{'sum'}.  @code{kind} is
     ## @qcode{'function'}, @qcode{'local'}, @qcode{'method'},
     ## @qcode{'private'}, @qcode{'compiled'}, @qcode{'class'} or
-    ## @qcode{'core'}.  @code{file} is relative to the root of @code{package}.
+    ## @qcode{'core'}.  @code{file} is relative to the root of @code{package},
+    ## with forward slashes on every system.
     ##
     ## @end deftp
     Nodes = struct ();
@@ -1299,7 +1300,8 @@ classdef callGraph
         if (! any (strcmp (T.N.node, base)))
           continue;
         endif
-        G = struct ('rel', path(numel (mainPackage.root)+2:end), ...
+        rel = strrep (path(numel (mainPackage.root)+2:end), '\', '/');
+        G = struct ('rel', rel, ...
                     'pkg', mainPackage.name, ...
                     'text', fileread (path), 'main', base, 'cls', '', ...
                     'declares', false, 'supers', {{}}, 'line', 1, ...
@@ -5765,7 +5767,7 @@ function F = describeFile (PATH, P)
     return;
   endif
   D = devtools.__parseDefs__ (text);
-  rel = PATH(numel (P.root)+2:end);
+  rel = strrep (PATH(numel (P.root)+2:end), '\', '/');
   [folder, base] = fileparts (rel);
   parts = ostrsplit (strrep (folder, '\', '/'), '/');
   parts(cellfun (@isempty, parts)) = [];
