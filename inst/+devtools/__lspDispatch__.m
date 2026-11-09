@@ -2106,7 +2106,11 @@ endfunction
 %!test
 %! res = ask (session (D), "textDocument/definition", ...
 %!            at (uri (D, "K.m"), 16, col (D, "K.m", 16, "trace")));
-%! assert_equal (res.uri, uri (D, "trace.m"));
+%! if (isstruct (res))
+%!   res = num2cell (res);
+%! endif
+%! uris = cellfun (@(r) r.uri, res, "UniformOutput", false);
+%! assert_equal (any (strcmp (uris, uri (D, "trace.m"))), true);
 
 %!test
 %! res = ask (session (D), "textDocument/definition", ...

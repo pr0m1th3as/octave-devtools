@@ -21,7 +21,9 @@
 #include <octave/oct.h>
 #include <octave/ov-struct.h>
 #include <tree_sitter/api.h>
+#include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 extern "C" const TSLanguage *tree_sitter_octave (void);
@@ -361,14 +363,27 @@ query_error_name (TSQueryError e)
 static octave_scalar_map
 run_query (TSNode root, const TSLanguage *language, const std::string& source)
 {
-  uint32_t offset = 0;
-  TSQueryError err = TSQueryErrorNone;
-  TSQuery *query = ts_query_new (language, source.c_str (),
-                                 static_cast<uint32_t> (source.size ()),
-                                 &offset, &err);
-  if (query == nullptr)
-    error ("__devtools_parse__: QUERY has %s at byte %u.",
-           query_error_name (err), offset + 1);
+  /* Compiling a query costs more than parsing a file, and a caller repeats the
+     same few, so each is kept for the session, by grammar and text. */
+  static std::unordered_map<std::string, TSQuery *> compiled;
+  std::string key = std::to_string (reinterpret_cast<std::uintptr_t> (language))
+                    + "|" + source;
+  TSQuery *query = nullptr;
+  auto found = compiled.find (key);
+  if (found != compiled.end ())
+    query = found->second;
+  else
+    {
+      uint32_t offset = 0;
+      TSQueryError err = TSQueryErrorNone;
+      query = ts_query_new (language, source.c_str (),
+                            static_cast<uint32_t> (source.size ()),
+                            &offset, &err);
+      if (query == nullptr)
+        error ("__devtools_parse__: QUERY has %s at byte %u.",
+               query_error_name (err), offset + 1);
+      compiled[key] = query;
+    }
 
   std::vector<double> pattern, match, srow, scol, erow, ecol, sbyte, ebyte;
   std::vector<std::string> capture, type;
@@ -402,7 +417,6 @@ run_query (TSNode root, const TSLanguage *language, const std::string& source)
         }
     }
   ts_query_cursor_delete (cursor);
-  ts_query_delete (query);
 
   octave_idx_type n = static_cast<octave_idx_type> (pattern.size ());
   auto column = [n] (const std::vector<double>& v)

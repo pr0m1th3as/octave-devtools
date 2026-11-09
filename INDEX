@@ -9,3 +9,5 @@ Package checks
  devtools.docLint
  devtools.dialectLint
  devtools.styleLint
+Code analysis
+ devtools.callGraph
